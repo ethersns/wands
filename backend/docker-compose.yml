@@ -1,0 +1,78 @@
+# Wands engine stack.
+#
+# PostgreSQL and Redis publish no host ports: they are reachable only on the
+# internal network. Only the engine's 8000 is bound, and it should be bound to
+# a private interface or placed behind a reverse proxy with TLS.
+
+name: wands
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wands}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-wands}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wands} -d ${POSTGRES_DB:-wands}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
+  engine:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      WANDS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wands}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wands}
+      WANDS_REDIS_URL: redis://redis:6379/0
+    ports:
+      # Bind to loopback by default. Put a TLS reverse proxy in front, or bind
+      # to a private interface reachable only from the frontend's egress.
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  internal:
+    driver: bridge

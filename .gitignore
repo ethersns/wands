@@ -13,3 +13,14 @@ yarn-error.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Python engine
+backend/.venv
+backend/**/__pycache__
+backend/**/*.pyc
+backend/.pytest_cache
+backend/.ruff_cache
+backend/.mypy_cache
+backend/*.db
+backend/*.sqlite3
+backend/.env
