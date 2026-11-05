@@ -40,6 +40,8 @@ from wands.errors import (
 from wands.execution.idempotency import find_existing_order, recent_client_order_ids
 from wands.execution.intents import TradeIntent
 from wands.logging import get_logger
+from wands.portfolio.service import PortfolioService
+from wands.risk.context import build_risk_context
 from wands.risk.engine import OrderProposal, RiskContext, RiskEngine
 from wands.schemas import (
     OrderStatus,
@@ -68,17 +70,6 @@ class ExecutionOutcomeUnknown(EngineError):
     status_code = 409
 
 
-def _default_context(_: TradeIntent) -> RiskContext:
-    """Fail closed.
-
-    Until the portfolio and market-data services exist there is no trustworthy
-    equity, quote age or account state, so every field is unknown and the risk
-    engine blocks. That is the correct behaviour for a system that cannot yet
-    see the account.
-    """
-    return RiskContext()
-
-
 class ExecutionGateway:
     def __init__(
         self,
@@ -93,7 +84,15 @@ class ExecutionGateway:
         self.risk_engine = risk_engine or RiskEngine()
         self.settings = settings or get_settings()
         self.brokers: dict[str, BrokerAdapter] = brokers or {"paper": PaperBrokerAdapter()}
-        self.context_provider = context_provider or _default_context
+        self.context_provider = context_provider or self._default_context
+
+    def _default_context(self, intent: TradeIntent) -> RiskContext:
+        """Assemble a context from verified portfolio and market data.
+
+        Every field the services cannot establish stays ``None``, so the risk
+        engine blocks. There is no fallback that invents equity or a price.
+        """
+        return build_risk_context(self.session, intent, settings=self.settings)
 
     # -- public ------------------------------------------------------------
 
@@ -364,20 +363,43 @@ class ExecutionGateway:
         order.reconciliation = ReconciliationState.MATCHED
         order.updated_at = datetime.now(tz=UTC)
 
+        portfolio = PortfolioService(self.session, settings=self.settings)
         for fill in result.fills:
-            self.session.add(
-                FillRow(
-                    order_id=order.id,
+            fill_row = FillRow(
+                order_id=order.id,
+                symbol=order.symbol,
+                side=order.side,
+                quantity=fill.quantity,
+                price=fill.price,
+                fees=fill.fees,
+            )
+            self.session.add(fill_row)
+            self.session.flush()
+            if order.connection_id is not None:
+                # Keyed on the fill row id, so replaying a fill cannot debit the
+                # account twice.
+                portfolio.record_fill(
+                    str(order.connection_id),
+                    order_id=str(order.id),
                     symbol=order.symbol,
                     side=order.side,
                     quantity=fill.quantity,
                     price=fill.price,
                     fees=fill.fees,
+                    reference=f"fill:{fill_row.id}",
                 )
-            )
 
         if result.filled_quantity > 0 and result.average_fill_price is not None:
             self._apply_position(order, result, intent)
+
+        if order.connection_id is not None:
+            portfolio.sync_order_reservation(
+                str(order.connection_id),
+                order_id=str(order.id),
+                side=order.side,
+                unfilled_quantity=Decimal(order.quantity) - Decimal(order.filled_quantity),
+                price=result.average_fill_price or order.limit_price,
+            )
 
     def _apply_position(
         self, order: OrderRow, result: BrokerOrderResult, intent: TradeIntent

@@ -19,10 +19,13 @@ from wands.api.deps import (
     request_id_of,
     require_role,
 )
+from wands.config import Settings, get_settings
 from wands.db.models import RiskEventRow
 from wands.db.session import get_session
 from wands.envelope import envelope, isoformat
 from wands.errors import BadRequest
+from wands.portfolio.money import ZERO, money, pct_of
+from wands.portfolio.service import PortfolioService
 from wands.risk.policy import RiskPolicy
 from wands.schemas import (
     PauseRequest,
@@ -66,7 +69,46 @@ def _policy_out(session: Session) -> RiskPolicyOut:
     )
 
 
-def _breaches(session: Session) -> list[RiskBreach]:
+def _utilisation(session: Session, settings: Settings) -> RiskUtilisation:
+    """Current utilisation of each limit, from the verified portfolio state.
+
+    Every figure is ``None`` when equity is unknown: a utilisation of 0% against
+    an unknown portfolio would read as "plenty of room" when the truth is "no
+    idea".
+    """
+    valuation = PortfolioService(session, settings=settings).aggregate()
+    equity = valuation.total_equity
+    if equity is None or equity <= ZERO:
+        return RiskUtilisation()
+
+    valued = [item for item in valuation.positions if item.market_value is not None]
+    exposure = money(sum((item.market_value or ZERO) for item in valued)) if valued else ZERO
+    largest = max((item.market_value or ZERO for item in valued), default=ZERO)
+
+    crypto = valuation.by_market.get("crypto", (None, None))[0]
+    stocks = valuation.by_market.get("stocks", (None, None))[0]
+
+    daily_loss = None
+    if valuation.day_pnl_pct is not None:
+        daily_loss = -valuation.day_pnl_pct if valuation.day_pnl_pct < ZERO else ZERO
+
+    drawdowns = [
+        account.drawdown_pct
+        for account in valuation.accounts
+        if account.drawdown_pct is not None
+    ]
+
+    return RiskUtilisation(
+        portfolio_exposure_pct=pct_of(exposure, equity),
+        largest_position_pct=pct_of(largest, equity),
+        daily_loss_pct=daily_loss,
+        drawdown_pct=max(drawdowns) if drawdowns else None,
+        crypto_allocation_pct=pct_of(crypto, equity) if crypto is not None else None,
+        stocks_allocation_pct=pct_of(stocks, equity) if stocks is not None else None,
+    )
+
+
+def _breaches(session: Session, settings: Settings) -> list[RiskBreach]:
     state = get_engine_state(session)
     breaches: list[RiskBreach] = []
     if state.emergency_stop_engaged:
@@ -90,12 +132,41 @@ def _breaches(session: Session) -> list[RiskBreach]:
                 detail="New orders are blocked until trading is resumed.",
             )
         )
+
+    valuation = PortfolioService(session, settings=settings).aggregate()
+    if valuation.accounts and not valuation.verified:
+        breaches.append(
+            RiskBreach(
+                key="portfolio_unverified",
+                label="Portfolio unverified",
+                severity=RiskSeverity.WARNING,
+                detail=(
+                    "At least one position has no trustworthy price or FX rate, so the "
+                    "risk engine cannot size an order against this portfolio."
+                ),
+            )
+        )
+
+    stale = sorted({item.symbol for item in valuation.positions if item.price_stale})
+    if stale:
+        breaches.append(
+            RiskBreach(
+                key="stale_market_data",
+                label="Stale market data",
+                severity=RiskSeverity.WARNING,
+                detail=(
+                    f"Quotes for {', '.join(stale)} are outside the freshness policy. "
+                    "Orders in these instruments will be blocked."
+                ),
+            )
+        )
     return breaches
 
 
 @router.get("")
 def snapshot(
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     principal: Principal = Depends(require_role(Role.VIEWER)),
 ) -> dict:
     rows = session.scalars(select(RiskEventRow).order_by(RiskEventRow.at.desc()).limit(50)).all()
@@ -115,8 +186,8 @@ def snapshot(
 
     payload = RiskSnapshot(
         policy=_policy_out(session),
-        utilisation=RiskUtilisation(),
-        breaches=_breaches(session),
+        utilisation=_utilisation(session, settings),
+        breaches=_breaches(session, settings),
         events=events,
     )
     return envelope(dump(payload))

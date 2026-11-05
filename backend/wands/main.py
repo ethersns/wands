@@ -25,6 +25,7 @@ from wands.db.session import get_engine, session_scope
 from wands.envelope import envelope
 from wands.errors import EngineError
 from wands.logging import configure_logging, get_logger
+from wands.marketdata.worker import MarketDataWorker
 from wands.telemetry import configure_telemetry
 
 logger = get_logger(__name__)
@@ -43,6 +44,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     with session_scope() as session:
         bootstrap(session)
 
+    worker: MarketDataWorker | None = None
+    if settings.market_data_worker_enabled and settings.environment != "test":
+        worker = MarketDataWorker(
+            interval_seconds=settings.market_refresh_seconds,
+            watchlist=settings.watchlist,
+            candle_limit=settings.market_candle_limit,
+        )
+        worker.start()
+
     logger.info(
         "engine started",
         extra={
@@ -51,10 +61,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "environment": settings.environment,
                 "mode": settings.trading_mode,
                 "liveTradingEnabled": settings.live_trading_enabled,
+                "marketDataWorker": worker is not None,
             },
         },
     )
     yield
+    if worker is not None:
+        worker.stop()
     logger.info("engine stopped", extra={"event": "engine.stop"})
 
 

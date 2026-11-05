@@ -206,8 +206,106 @@ broker.
 | retention_days | int | |
 | last_backup_at | timestamptz | |
 
+### `market_candles` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| provider | text | `kraken`, `alpaca` |
+| symbol | text | normalised, e.g. `BTC/USD`, `AAPL` |
+| market_type | text | `crypto` \| `stocks` |
+| interval | text | `1m`, `5m`, `15m`, `1h`, `4h`, `1d` |
+| open_time | timestamptz | bar open, UTC |
+| open / high / low / close / volume | numeric | `Decimal`, never float |
+| quality | text | `live` \| `delayed` \| `historical` \| `simulated` |
+| provider_timestamp | timestamptz | the venue's own timestamp |
+| ingested_at | timestamptz | when the engine stored it |
+
+Unique on `(provider, symbol, interval, open_time)` — a re-fetch of the same bar
+updates in place instead of appending a duplicate.
+
+### `market_quotes` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| provider / symbol / market_type | text | as above |
+| bid / ask / last | numeric, nullable | nullable when the venue omits a side |
+| spread_pct | numeric, nullable | derived from bid/ask, not assumed |
+| volume_24h / high_24h / low_24h / change_24h_pct | numeric, nullable | |
+| session | text | `open` \| `closed` \| `pre` \| `post` \| `always` |
+| quality | text | `live` \| `delayed` \| `unavailable` |
+| provider_timestamp | timestamptz | drives freshness, never `ingested_at` |
+| ingested_at | timestamptz | |
+
+Unique on `(provider, symbol, provider_timestamp)`.
+
+### `fx_rates` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| base_currency / quote_currency | text | ISO-4217 |
+| rate | numeric | |
+| as_of | timestamptz | the rate's own timestamp |
+| source | text | `override` \| `provider` |
+| ingested_at | timestamptz | |
+
+Unique on `(base_currency, quote_currency, as_of)`. Rates are stored as given;
+nothing is inverted or interpolated at read time.
+
+### `paper_accounts` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| connection_id | uuid FK → connections, unique | one paper account per connection |
+| base_currency | text | |
+| starting_cash | numeric | |
+| status | text | `active` \| `reset` |
+| provenance | text | always `paper_simulated` — there is no promotion path |
+| initialised_at / initialised_by | timestamptz / text | audit |
+| reset_at / reset_by | timestamptz / text, nullable | audit |
+
+### `account_balances` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| connection_id | uuid FK → connections | |
+| currency | text | |
+| cash / reserved | numeric | `reserved` is committed to open orders |
+| source | text | `paper_simulated` \| `broker_confirmed` |
+| updated_at | timestamptz | |
+
+Unique on `(connection_id, currency)`.
+
+### `portfolio_ledger` (Phase 3, append-only)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| connection_id | uuid FK → connections | |
+| at | timestamptz | |
+| kind | text | `deposit`, `withdrawal`, `fill`, `fee`, `transfer`, `initialisation`, `reset` |
+| amount / currency | numeric / text | signed |
+| reference | text | idempotency key |
+| source | text | `paper_simulated` \| `broker_confirmed` |
+| detail | json | |
+
+Unique on `(connection_id, reference)` — replaying a fill cannot double-count.
+
+### `equity_snapshots` (Phase 3)
+| Column | Type | Notes |
+| --- | --- | --- |
+| id | uuid PK | |
+| connection_id | uuid FK → connections | |
+| at | timestamptz | |
+| equity / cash / positions_value | numeric | |
+| source | text | `paper_simulated` \| `broker_confirmed` |
+
+Unique on `(connection_id, at)`.
+
 ## Indexes
 
+- `market_candles (symbol, interval, open_time)` — candle range queries.
+- `market_quotes (symbol, provider_timestamp)` — latest-quote lookup.
+- `fx_rates (base_currency, quote_currency, as_of)`.
+- `portfolio_ledger (connection_id, at)`, `equity_snapshots (connection_id, at)`.
 - `orders (connection_id, created_at desc)` — order history.
 - `orders (status)` partial on open/partially_filled — reconciliation sweeps.
 - `fills (order_id)`.

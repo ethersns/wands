@@ -28,6 +28,10 @@ os.environ["WANDS_API_KEY_PEPPER"] = PEPPER
 os.environ["WANDS_TRADING_MODE"] = "paper"
 os.environ["WANDS_LIVE_TRADING_ENABLED"] = "false"
 os.environ["WANDS_LOG_LEVEL"] = "WARNING"
+# No test may depend on a live venue. Phase 3 tests inject deterministic mock
+# providers explicitly.
+os.environ["WANDS_MARKET_DATA_ENABLED"] = "false"
+os.environ["WANDS_MARKET_DATA_WORKER_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

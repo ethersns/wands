@@ -7,6 +7,7 @@ default. Nothing else in the codebase calls ``os.environ``.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
@@ -48,6 +49,38 @@ class Settings(BaseSettings):
     max_account_state_age_seconds: int = 300
     max_spread_pct: float = 1.0
 
+    # --- market data ------------------------------------------------------
+    # When false no provider is constructed at all. Tests set this so a suite
+    # can never depend on a live venue being reachable.
+    market_data_enabled: bool = True
+    # Comma-separated. Crypto pairs use BASE/QUOTE; anything else is an equity.
+    market_watchlist: str = "BTC/USD,ETH/USD,SOL/USD,XRP/USD,AAPL,MSFT,NVDA,SPY"
+    market_refresh_seconds: int = 30
+    market_candle_limit: int = 200
+    market_data_timeout_seconds: float = 10.0
+    market_data_max_retries: int = 3
+    market_data_worker_enabled: bool = True
+
+    kraken_base_url: str = "https://api.kraken.com"
+    kraken_rate_limit_per_second: float = 2.0
+
+    alpaca_data_key: SecretStr | None = None
+    alpaca_data_secret: SecretStr | None = None
+    alpaca_data_base_url: str = "https://data.alpaca.markets"
+    # ``iex`` is real-time but single-venue; ``sip`` is consolidated and, on a
+    # free plan, delayed. Set ``alpaca_data_delayed`` when the account is not
+    # entitled to real-time SIP so the data is never labelled live.
+    alpaca_data_feed: str = "iex"
+    alpaca_data_delayed: bool = False
+
+    # --- portfolio --------------------------------------------------------
+    paper_default_starting_cash: Decimal = Decimal("100000")
+    paper_default_currency: str = "USD"
+    # Manual FX snapshots, e.g. "EURUSD=1.0850,GBPUSD=1.2700". Rates are stored
+    # with a timestamp; nothing is inverted or interpolated at read time.
+    fx_rate_overrides: str = ""
+    fx_max_age_seconds: int = 86400
+
     # --- http -------------------------------------------------------------
     allowed_origins: str = ""
     request_timeout_seconds: float = 15.0
@@ -72,6 +105,30 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def watchlist(self) -> list[str]:
+        return [item.strip() for item in self.market_watchlist.split(",") if item.strip()]
+
+    @property
+    def fx_overrides(self) -> dict[tuple[str, str], Decimal]:
+        """Parse ``EURUSD=1.0850`` style overrides into ``(base, quote) -> rate``."""
+        rates: dict[tuple[str, str], Decimal] = {}
+        for entry in self.fx_rate_overrides.split(","):
+            text = entry.strip()
+            if not text or "=" not in text:
+                continue
+            pair, _, value = text.partition("=")
+            pair = pair.strip().upper().replace("/", "")
+            if len(pair) != 6:
+                continue
+            try:
+                rate = Decimal(value.strip())
+            except Exception:  # noqa: BLE001, S112 - a malformed override is skipped
+                continue
+            if rate > 0:
+                rates[(pair[:3], pair[3:])] = rate
+        return rates
 
     def require_encryption_key(self) -> str:
         """Return the Fernet key, refusing to run without one outside tests.

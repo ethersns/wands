@@ -22,7 +22,7 @@ import {
 function StatRow({ portfolio }: { portfolio: PortfolioSummary }) {
   const currency = portfolio.baseCurrency;
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-3 xl:grid-cols-6">
       <div className="bg-card p-4">
         <Stat
           label="Equity"
@@ -30,6 +30,23 @@ function StatRow({ portfolio }: { portfolio: PortfolioSummary }) {
           delta={portfolio.dayPnlPct}
           deltaLabel="today"
           emphasis
+          footnote={portfolio.verified === false ? "unverified" : undefined}
+        />
+      </div>
+      <div className="bg-card p-4">
+        <Stat label="Cash" value={formatCurrency(portfolio.cash, currency)} />
+      </div>
+      <div className="bg-card p-4">
+        <Stat
+          label="Reserved"
+          value={formatCurrency(portfolio.reserved ?? null, currency)}
+          footnote="open orders"
+        />
+      </div>
+      <div className="bg-card p-4">
+        <Stat
+          label="Buying power"
+          value={formatCurrency(portfolio.buyingPower, currency)}
         />
       </div>
       <div className="bg-card p-4">
@@ -45,14 +62,7 @@ function StatRow({ portfolio }: { portfolio: PortfolioSummary }) {
           label="Unrealised P&L"
           value={formatSignedCurrency(portfolio.unrealisedPnl, currency)}
           tone={toneOf(portfolio.unrealisedPnl)}
-          footnote="open positions"
-        />
-      </div>
-      <div className="bg-card p-4">
-        <Stat
-          label="Fees paid"
-          value={formatCurrency(portfolio.feesPaid, currency)}
-          footnote={`${portfolio.openPositions} open positions`}
+          footnote={`${portfolio.openPositions} open · fees ${formatCurrency(portfolio.feesPaid, currency)}`}
         />
       </div>
     </div>

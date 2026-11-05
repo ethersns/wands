@@ -131,7 +131,38 @@ Migrations are reversible (`alembic downgrade -1`), and the test suite runs
 `upgrade → downgrade → upgrade` on every run, so a broken migration fails CI
 before it reaches the host.
 
-## 10. What is deliberately not enabled
+## 10. Market data
+
+Kraken public data needs no credentials. Alpaca stock data needs
+`WANDS_ALPACA_DATA_KEY` and `WANDS_ALPACA_DATA_SECRET`; without them the stock
+feed reports `unavailable` and the UI says so — it does not fall back to
+invented prices.
+
+```bash
+# Confirm both providers are reachable and see the last successful fetch.
+curl -s -H "Authorization: Bearer $WANDS_ENGINE_TOKEN" \
+  https://engine.example.com/v1/markets/health | jq
+
+# Force one ingestion pass (useful after a restart or a provider outage).
+curl -s -X POST -H "Authorization: Bearer $WANDS_ENGINE_TOKEN" \
+  https://engine.example.com/v1/markets/refresh | jq
+```
+
+The refresh worker runs inside the API process. If you would rather separate
+ingestion, set `WANDS_MARKET_DATA_WORKER_ENABLED=false` and call
+`POST /v1/markets/refresh` from cron or a scheduler at
+`WANDS_MARKET_REFRESH_SECONDS`.
+
+Alert on: `GET /v1/markets/health` reporting a provider as unreachable for more
+than two refresh cycles, and any quote whose `ageSeconds` exceeds
+`WANDS_MAX_ACCOUNT_STATE_AGE_SECONDS` while the engine is unpaused — that
+combination means orders will start failing the freshness guard.
+
+If the Alpaca account is not entitled to real-time SIP, set
+`WANDS_ALPACA_DATA_DELAYED=true`. Leaving it `false` on a delayed plan would
+label delayed data as live, which the platform must never do.
+
+## 11. What is deliberately not enabled
 
 Live trading. `WANDS_LIVE_TRADING_ENABLED=false` and
 `engine_state.live_trading_enabled=false`. Enabling it requires the Phase 9

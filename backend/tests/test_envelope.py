@@ -32,9 +32,18 @@ def test_market_overview_is_unavailable(client):
 
 
 def test_candles_are_not_fabricated(client):
+    """With no provider configured the series is empty and says so.
+
+    Phase 3 implements candles, so the guarantee is no longer a 501: it is that
+    an empty series is returned as ``unavailable`` rather than filled with
+    invented bars.
+    """
     response = client.get("/v1/markets/BTC-USD/candles?interval=1h", headers=AUTH)
-    assert response.status_code == 501
-    assert response.json()["error"]["code"] == "not_implemented"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provenance"] == "unavailable"
+    assert payload["data"]["candles"] == []
+    assert payload["warnings"]
 
 
 def test_backtest_creation_is_not_fabricated(client):

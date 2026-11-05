@@ -19,6 +19,7 @@ from wands.db.models import AuditEvent, BotRow, ConnectionRow
 from wands.db.session import get_session
 from wands.envelope import envelope, isoformat
 from wands.errors import BadRequest, Forbidden
+from wands.marketdata.service import MarketDataService
 from wands.runtime import uptime_seconds
 from wands.schemas import (
     AuditEventOut,
@@ -76,6 +77,16 @@ def engine_status(
     if not settings.live_trading_enabled:
         notes.append("Live trading is disabled at deployment level.")
 
+    market_data = MarketDataService(session, settings=settings)
+    stalest = market_data.stalest_quote_age_seconds()
+    if stalest is None:
+        notes.append(
+            "No market data has been ingested yet, so no quote is available to price an "
+            "order."
+        )
+    elif stalest > 60:
+        notes.append(f"The oldest stored quote is {stalest:.0f}s old.")
+
     status = EngineStatus(
         state=_state_name(state),
         mode=TradingMode(state.trading_mode),
@@ -84,8 +95,8 @@ def engine_status(
         region=settings.region,
         uptime_seconds=uptime_seconds(),
         last_heartbeat=isoformat(),
-        market_data_latency_ms=None,
-        stalest_quote_age_seconds=None,
+        market_data_latency_ms=market_data.latency_ms(),
+        stalest_quote_age_seconds=stalest,
         active_bots=int(active_bots or 0),
         queued_jobs=0,
         notes=notes,

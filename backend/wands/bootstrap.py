@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from wands.db.models import StrategyRow, User, UserSettings
 from wands.logging import get_logger
+from wands.portfolio.fx import FxConverter
 from wands.state import get_active_policy_row, get_engine_state
 from wands.strategies.registry import BUILTIN_STRATEGIES
 
@@ -68,10 +69,16 @@ def seed_strategies(session: Session) -> None:
     session.flush()
 
 
+def seed_fx_rates(session: Session) -> None:
+    """Persist configured FX snapshots. No rate is ever invented at read time."""
+    FxConverter(session).seed_overrides()
+
+
 def bootstrap(session: Session) -> None:
     get_engine_state(session)
     get_active_policy_row(session)
     seed_strategies(session)
     ensure_system_user(session)
+    seed_fx_rates(session)
     session.commit()
     logger.info("bootstrap complete", extra={"event": "bootstrap"})
