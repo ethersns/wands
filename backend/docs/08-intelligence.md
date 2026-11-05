@@ -344,7 +344,7 @@ cd backend
 python -m pytest tests/test_intelligence_*.py -q
 ```
 
-120 deterministic tests, no network access:
+122 deterministic tests, no network access:
 
 | File | Covers |
 | --- | --- |

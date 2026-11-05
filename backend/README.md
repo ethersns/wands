@@ -37,7 +37,7 @@ WANDS_ENGINE_TOKEN=<the token you generated>
 pytest
 ```
 
-302 tests covering authentication and RBAC, MFA, the envelope contract, every
+304 tests covering authentication and RBAC, MFA, the envelope contract, every
 risk limit, duplicate-order prevention, emergency-stop persistence across a
 restart, paper/live separation, strategy isolation (AST-enforced), credential
 encryption, TOTP against the RFC 6238 vectors, migration
