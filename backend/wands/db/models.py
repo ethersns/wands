@@ -327,6 +327,12 @@ class PositionRow(Base):
     average_entry_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
     realised_pnl: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
     fees_paid: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
+    # ``broker_confirmed`` positions come from a venue sync; ``paper_simulated``
+    # positions come from the paper gateway. They are never mixed in a valuation
+    # without the caller being told which is which.
+    source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="paper_simulated"
+    )
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -384,3 +390,226 @@ class UserSettings(Base):
     last_backup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="settings")
+
+
+# --------------------------------------------------------------------------
+# Phase 3 — market data
+# --------------------------------------------------------------------------
+
+RATE = Numeric(20, 10)
+
+
+class MarketCandleRow(Base):
+    """A closed OHLCV bar.
+
+    The unique constraint is the duplicate-prevention guarantee: re-ingesting the
+    same provider bar is a no-op at the database level, not a silent second row
+    that would double a backtest's volume.
+    """
+
+    __tablename__ = "market_candles"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "symbol", "interval", "open_time", name="uq_market_candles_series"
+        ),
+        Index("ix_market_candles_lookup", "symbol", "interval", "open_time"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    interval: Mapped[str] = mapped_column(String(8), nullable=False)
+    open_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    open: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    high: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    low: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    close: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    volume: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
+    # ``live`` | ``delayed`` | ``historical`` | ``simulated`` | ``unavailable``
+    quality: Mapped[str] = mapped_column(String(16), nullable=False, default="historical")
+    provider_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class MarketQuoteRow(Base):
+    """A point-in-time bid/ask snapshot.
+
+    Quotes are append-only so freshness can be measured against the provider's
+    own timestamp rather than against the moment a row happened to be written.
+    """
+
+    __tablename__ = "market_quotes"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "symbol", "provider_timestamp", name="uq_market_quotes_snapshot"
+        ),
+        Index("ix_market_quotes_symbol_ts", "symbol", "provider_timestamp"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    bid: Mapped[Decimal | None] = mapped_column(MONEY)
+    ask: Mapped[Decimal | None] = mapped_column(MONEY)
+    last: Mapped[Decimal | None] = mapped_column(MONEY)
+    spread_pct: Mapped[Decimal | None] = mapped_column(PERCENT)
+    volume_24h: Mapped[Decimal | None] = mapped_column(MONEY)
+    high_24h: Mapped[Decimal | None] = mapped_column(MONEY)
+    low_24h: Mapped[Decimal | None] = mapped_column(MONEY)
+    change_24h_pct: Mapped[Decimal | None] = mapped_column(PERCENT)
+    session: Mapped[str] = mapped_column(String(16), nullable=False, default="closed")
+    quality: Mapped[str] = mapped_column(String(16), nullable=False, default="unavailable")
+    provider_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class FxRateRow(Base):
+    """A stored FX snapshot.
+
+    Rates are never derived by inverting another pair at read time: an inverted
+    rate is a different number with different rounding, and a portfolio that
+    values the same position two ways is not auditable.
+    """
+
+    __tablename__ = "fx_rates"
+    __table_args__ = (
+        UniqueConstraint(
+            "base_currency", "quote_currency", "as_of", name="uq_fx_rates_snapshot"
+        ),
+        Index("ix_fx_rates_pair_asof", "base_currency", "quote_currency", "as_of"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    base_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    quote_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(RATE, nullable=False)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+# --------------------------------------------------------------------------
+# Phase 3 — portfolio accounting
+# --------------------------------------------------------------------------
+
+
+class PaperAccountRow(Base):
+    """A simulated account. There is no code path that promotes one to live."""
+
+    __tablename__ = "paper_accounts"
+    __table_args__ = (
+        UniqueConstraint("connection_id", name="uq_paper_accounts_connection"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    starting_cash: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    provenance: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="paper_simulated"
+    )
+    initialised_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    initialised_by: Mapped[str] = mapped_column(String(120), nullable=False, default="system")
+    reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reset_by: Mapped[str | None] = mapped_column(String(120))
+
+
+class AccountBalanceRow(Base):
+    """Cash and reserved capital per account and currency.
+
+    ``reserved`` is capital committed to open orders. Buying power is
+    ``cash - reserved``; treating reserved cash as spendable is how a paper
+    account silently goes negative.
+    """
+
+    __tablename__ = "account_balances"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id", "currency", name="uq_account_balances_connection_currency"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    cash: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
+    reserved: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
+    source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="paper_simulated"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class PortfolioLedgerRow(Base):
+    """Append-only cash and position movements.
+
+    Performance is computed from this ledger, not from a running total, so a
+    deposit is never mistaken for profit. ``reference`` is unique per account,
+    which makes replaying a fill idempotent.
+    """
+
+    __tablename__ = "portfolio_ledger"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id", "reference", name="uq_portfolio_ledger_reference"
+        ),
+        Index("ix_portfolio_ledger_connection_at", "connection_id", "at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    # initialisation | deposit | withdrawal | fill | fee | transfer | reservation | release
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    reference: Mapped[str] = mapped_column(String(120), nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="paper_simulated"
+    )
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class EquitySnapshotRow(Base):
+    """A stored valuation. Drawdown and day P&L are read from these, never guessed."""
+
+    __tablename__ = "equity_snapshots"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "at", name="uq_equity_snapshots_connection_at"),
+        Index("ix_equity_snapshots_connection_at", "connection_id", "at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("connections.id", ondelete="CASCADE"), nullable=False
+    )
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    equity: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    cash: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    positions_value: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="paper_simulated"
+    )

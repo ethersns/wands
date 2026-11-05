@@ -1,8 +1,10 @@
 import type {
   BotState,
   ConnectionStatus,
+  DataQuality,
   EngineState,
   OrderStatus,
+  PositionSource,
   ReconciliationState,
   RiskSeverity,
 } from "./api/contracts";
@@ -110,6 +112,38 @@ export function reconciliationStatus(state: ReconciliationState): {
     case "mismatch":
       return { label: "Mismatch", tone: "loss" };
   }
+}
+
+/**
+ * Market-data quality. `delayed` is deliberately not green: it is usable for
+ * display and never for pricing an order.
+ */
+export function dataQuality(quality: DataQuality | null | undefined): {
+  label: string;
+  tone: StatusTone;
+} {
+  switch (quality) {
+    case "live":
+      return { label: "Live", tone: "profit" };
+    case "delayed":
+      return { label: "Delayed", tone: "primary" };
+    case "historical":
+      return { label: "Historical", tone: "muted" };
+    case "simulated":
+      return { label: "Simulated", tone: "muted" };
+    case "unavailable":
+    default:
+      return { label: "Unavailable", tone: "loss" };
+  }
+}
+
+export function positionSource(source: PositionSource | null | undefined): {
+  label: string;
+  tone: StatusTone;
+} {
+  return source === "broker_confirmed"
+    ? { label: "Broker", tone: "profit" }
+    : { label: "Paper", tone: "primary" };
 }
 
 export function severityTone(severity: RiskSeverity): StatusTone {

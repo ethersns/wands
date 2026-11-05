@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import type { BrokerAccount, Currency } from "@/lib/api/contracts";
 import { formatCurrency, formatRelative, titleCase } from "@/lib/format";
-import { connectionStatus } from "@/lib/status";
+import { connectionStatus, positionSource } from "@/lib/status";
 
 export function AccountsTable({
   accounts,
@@ -36,6 +36,7 @@ export function AccountsTable({
       <TableBody>
         {accounts.map((account) => {
           const status = connectionStatus(account.status);
+          const source = positionSource(account.source);
           return (
             <TableRow key={account.id}>
               <TableCell>
@@ -52,6 +53,10 @@ export function AccountsTable({
                 <div className="flex flex-wrap items-center gap-1">
                   <StatusChip label={status.label} tone={status.tone} />
                   <ModeBadge mode={account.mode} />
+                  <StatusChip label={source.label} tone={source.tone} />
+                  {account.verified === false ? (
+                    <StatusChip label="Unverified" tone="loss" />
+                  ) : null}
                 </div>
                 {account.error ? (
                   <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">

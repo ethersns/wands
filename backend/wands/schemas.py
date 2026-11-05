@@ -192,6 +192,10 @@ class BrokerAccount(CamelModel):
     buying_power: Decimal | None = None
     permissions: list[str] = Field(default_factory=list)
     error: str | None = None
+    # ``paper_simulated`` or ``broker_confirmed``. A simulated balance is never
+    # presented as a venue balance.
+    source: str | None = None
+    verified: bool = False
 
 
 class PositionOut(CamelModel):
@@ -211,6 +215,11 @@ class PositionOut(CamelModel):
     opened_at: str
     strategy_id: str | None = None
     bot_id: str | None = None
+    source: str = "paper_simulated"
+    price_quality: str | None = None
+    price_as_of: str | None = None
+    price_age_seconds: float | None = None
+    price_stale: bool = True
 
 
 class AllocationSlice(CamelModel):
@@ -235,7 +244,9 @@ class PortfolioSummary(CamelModel):
     base_currency: str
     total_equity: Decimal | None = None
     cash: Decimal | None = None
+    reserved: Decimal | None = None
     buying_power: Decimal | None = None
+    verified: bool = False
     day_pnl: Decimal | None = None
     day_pnl_pct: Decimal | None = None
     realised_pnl: Decimal | None = None
@@ -268,6 +279,17 @@ class Quote(CamelModel):
     age_seconds: float | None = None
     stale: bool = True
     strategy_eligible: bool = False
+    provider: str | None = None
+    bid: Decimal | None = None
+    ask: Decimal | None = None
+    mid: Decimal | None = None
+    spread_pct: Decimal | None = None
+    # ``live`` | ``delayed`` | ``historical`` | ``simulated`` | ``unavailable``
+    quality: str | None = None
+    # The price an order may be priced against. ``None`` when the quote is not
+    # live, not fresh, one-sided or the session is closed.
+    executable_price: Decimal | None = None
+    timestamp_source: str | None = None
 
 
 class Candle(CamelModel):
@@ -644,6 +666,76 @@ class AuditEventOut(CamelModel):
     detail: dict[str, Any] = Field(default_factory=dict)
     request_id: str | None = None
     ip: str | None = None
+
+
+# --- phase 3: paper accounts, verification, market data health -------------
+
+
+class PaperAccountCreate(CamelModel):
+    connection_id: str = Field(min_length=1, max_length=64)
+    starting_cash: Decimal | None = Field(default=None, gt=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    reset: bool = False
+
+
+class PaperAccountReset(CamelModel):
+    starting_cash: Decimal | None = Field(default=None, gt=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+
+class PaperAccountOut(CamelModel):
+    id: str
+    connection_id: str
+    base_currency: str
+    starting_cash: Decimal
+    status: str
+    provenance: str
+    initialised_at: str
+    initialised_by: str
+    reset_at: str | None = None
+    reset_by: str | None = None
+    cash: Decimal | None = None
+    reserved: Decimal | None = None
+    buying_power: Decimal | None = None
+    equity: Decimal | None = None
+    verified: bool = False
+
+
+class PortfolioVerificationOut(CamelModel):
+    connection_id: str
+    ok: bool
+    expected_cash: Decimal | None = None
+    stored_cash: Decimal | None = None
+    difference: Decimal | None = None
+    checked_at: str
+    detail: str
+
+
+class LedgerEntryOut(CamelModel):
+    id: str
+    at: str
+    kind: str
+    amount: Decimal
+    currency: str
+    reference: str
+    source: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class MarketDataHealthOut(CamelModel):
+    provider: str
+    configured: bool
+    last_success_at: str | None = None
+    last_error: str | None = None
+    last_error_at: str | None = None
+    consecutive_failures: int = 0
+    latency_ms: float | None = None
+
+
+class MarketRefreshOut(CamelModel):
+    refreshed: int
+    quotes: list[Quote] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def jsonable(value: Any) -> Any:

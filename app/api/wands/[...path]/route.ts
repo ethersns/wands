@@ -19,6 +19,8 @@ const ALLOWED_PREFIXES = [
   "settings",
   "backtests",
   "engine",
+  "paper",
+  "markets",
 ];
 
 const TIMEOUT_MS = 8_000;

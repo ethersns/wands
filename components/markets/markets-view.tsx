@@ -32,6 +32,7 @@ import {
   toneClass,
   toneOf,
 } from "@/lib/format";
+import { dataQuality } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 const INTERVALS: CandleSeries["interval"][] = ["15m", "1h", "4h", "1d"];
@@ -74,6 +75,11 @@ function QuoteRow({
           ) : null}
           {quote.stale ? (
             <TriangleAlert className="size-2.5 text-muted-foreground" aria-label="Stale quote" />
+          ) : null}
+          {quote.quality && quote.quality !== "live" ? (
+            <span className="font-mono text-[9px] tracking-[0.06em] text-muted-foreground uppercase">
+              {quote.quality}
+            </span>
           ) : null}
         </div>
         <p className="truncate text-[10px] text-muted-foreground">{quote.name}</p>
@@ -169,6 +175,7 @@ export function MarketsView({
   }
 
   const tone = toneOf(quote?.change24hPct);
+  const quality = dataQuality(quote?.quality);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -266,6 +273,7 @@ export function MarketsView({
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
+                <StatusChip label={quality.label} tone={quality.tone} />
                 <StatusChip
                   label={quote.strategyEligible ? "Strategy eligible" : "Not eligible"}
                   tone={quote.strategyEligible ? "profit" : "muted"}
@@ -289,35 +297,65 @@ export function MarketsView({
               <PriceChart candles={data.data.candles} height={320} />
             ) : null}
 
-            <div className="grid grid-cols-2 gap-3 border-t border-border pt-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 border-t border-border pt-3 sm:grid-cols-3 lg:grid-cols-4">
+              <DetailStat label="Bid" value={formatPrice(quote.bid)} />
+              <DetailStat label="Ask" value={formatPrice(quote.ask)} />
+              <DetailStat
+                label="Spread"
+                value={formatPercent(quote.spreadPct, { digits: 3 })}
+              />
+              <DetailStat
+                label="Executable"
+                value={
+                  quote.executablePrice === null || quote.executablePrice === undefined
+                    ? "None"
+                    : formatPrice(quote.executablePrice)
+                }
+                tone={
+                  quote.executablePrice === null || quote.executablePrice === undefined
+                    ? "text-muted-foreground"
+                    : undefined
+                }
+              />
               <DetailStat label="24h high" value={formatPrice(quote.high24h)} />
               <DetailStat label="24h low" value={formatPrice(quote.low24h)} />
               <DetailStat label="24h volume" value={formatCompact(quote.volume24h)} />
               <DetailStat
-                label="Volatility"
-                value={formatPercent(quote.volatilityPct, { digits: 1 })}
-              />
-              <DetailStat
                 label="Quote age"
                 value={quote.ageSeconds === null ? "—" : `${quote.ageSeconds}s`}
               />
-              <DetailStat label="As of" value={formatRelative(quote.asOf)} />
             </div>
 
-            {quote.stale ? (
-              <div className="flex items-start gap-2 rounded-md border border-loss/30 bg-loss/[0.07] px-2.5 py-2">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-loss" aria-hidden />
-                <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  This quote is {quote.ageSeconds}s old, beyond the freshness policy.
-                  Strategies will not trade this instrument until the feed recovers.
-                </p>
-              </div>
-            ) : (
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {quote.provider ? `${quote.provider} · ` : ""}
+              {quote.timestampSource === "receipt"
+                ? "venue publishes no quote timestamp; age is measured from receipt"
+                : "venue-stamped timestamp"}
+              {quote.asOf ? ` · ${formatRelative(quote.asOf)}` : ""}
+            </p>
+
+            {quote.strategyEligible ? (
               <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-2">
                 <CircleCheck className="mt-0.5 size-3.5 shrink-0 text-profit" aria-hidden />
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Quote is within the freshness policy and eligible for automated
-                  strategies.
+                  Live, two-sided and within the freshness policy. Orders may be priced
+                  against {formatPrice(quote.executablePrice)}.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-md border border-loss/30 bg-loss/[0.07] px-2.5 py-2">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-loss" aria-hidden />
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {quote.stale
+                    ? `This quote is ${quote.ageSeconds}s old, beyond the freshness policy.`
+                    : quote.quality === "delayed"
+                      ? "This is delayed data, not real-time. It cannot price an order."
+                      : quote.session === "closed" ||
+                          quote.session === "pre" ||
+                          quote.session === "post"
+                        ? `The ${quote.session} session is not tradeable.`
+                        : "This quote has no two-sided bid/ask, so it has no executable price."}{" "}
+                  Strategies will not trade this instrument until the feed recovers.
                 </p>
               </div>
             )}

@@ -5,6 +5,7 @@ import { cache } from "react";
 import { engineConfig, engineFetch } from "./client";
 import * as demo from "./demo";
 import type {
+  ApiResult,
   BacktestResult,
   BotLogEntry,
   CandleSeries,
@@ -12,9 +13,12 @@ import type {
   EngineStatus,
   Envelope,
   Fill,
+  MarketDataHealth,
   MarketOverview,
   Order,
+  PaperAccount,
   PortfolioSummary,
+  PortfolioVerification,
   RiskSnapshot,
   Strategy,
   TradingBot,
@@ -120,3 +124,28 @@ export const getConnections = cache(() =>
 export const getSettings = cache(() =>
   load<UserSettings>("/v1/settings", () => demo.demoUserSettings),
 );
+
+/**
+ * Paper accounts. An empty list is the honest fallback: there is no such thing
+ * as a demonstration paper account, because a simulated balance is already
+ * simulated.
+ */
+export const getPaperAccounts = cache(() =>
+  load<PaperAccount[]>("/v1/paper/accounts", () => []),
+);
+
+export const getMarketHealth = cache(() =>
+  load<MarketDataHealth[]>("/v1/markets/health", () => []),
+);
+
+/**
+ * Cash-versus-ledger verification. This deliberately has no demo fallback: a
+ * fabricated "reconciled" result would be worse than an error.
+ */
+export function getVerification(
+  connectionId: string,
+): Promise<ApiResult<PortfolioVerification>> {
+  return engineFetch<PortfolioVerification>(
+    `/v1/accounts/${encodeURIComponent(connectionId)}/verification`,
+  );
+}

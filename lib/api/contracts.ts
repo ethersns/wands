@@ -16,6 +16,21 @@ export type MarketType = "crypto" | "stocks";
  */
 export type DataProvenance = "live" | "demo" | "unavailable";
 
+/**
+ * The quality of a market-data observation. `delayed` is never real-time, and
+ * `historical` is never an executable price. Only `live` data that is fresh,
+ * two-sided and in an open session can price an order.
+ */
+export type DataQuality =
+  | "live"
+  | "delayed"
+  | "historical"
+  | "simulated"
+  | "unavailable";
+
+/** Where a position or balance came from. */
+export type PositionSource = "paper_simulated" | "broker_confirmed";
+
 export type Currency = "USD" | "EUR" | "GBP" | "JPY" | "AUD" | "CHF";
 
 export interface Envelope<T> {
@@ -102,6 +117,10 @@ export interface BrokerAccount {
   buyingPower: number | null;
   permissions: string[];
   error: string | null;
+  /** `paper_simulated` balances are never presented as venue balances. */
+  source?: PositionSource | null;
+  /** False when a position or FX rate is missing, so equity is unknown. */
+  verified?: boolean;
 }
 
 export interface Position {
@@ -121,6 +140,12 @@ export interface Position {
   openedAt: string;
   strategyId: string | null;
   botId: string | null;
+  source?: PositionSource;
+  /** Quality of the price used to value this position. */
+  priceQuality?: DataQuality | null;
+  priceAsOf?: string | null;
+  priceAgeSeconds?: number | null;
+  priceStale?: boolean;
 }
 
 export interface AllocationSlice {
@@ -142,7 +167,11 @@ export interface PortfolioSummary {
   baseCurrency: Currency;
   totalEquity: number | null;
   cash: number | null;
+  /** Capital committed to open orders. Not spendable. */
+  reserved?: number | null;
   buyingPower: number | null;
+  /** False when a price or FX rate is missing, so equity is unknown. */
+  verified?: boolean;
   dayPnl: number | null;
   dayPnlPct: number | null;
   realisedPnl: number | null;
@@ -181,6 +210,20 @@ export interface Quote {
   ageSeconds: number | null;
   stale: boolean;
   strategyEligible: boolean;
+  provider?: string | null;
+  bid?: number | null;
+  ask?: number | null;
+  mid?: number | null;
+  spreadPct?: number | null;
+  quality?: DataQuality | null;
+  /**
+   * The price an order may be priced against. Null when the quote is not live,
+   * not fresh, one-sided, or the session is closed. A candle close is never
+   * substituted for this.
+   */
+  executablePrice?: number | null;
+  /** `provider` when the venue stamped the quote, `receipt` when it did not. */
+  timestampSource?: string | null;
 }
 
 export interface Candle {
@@ -487,6 +530,68 @@ export interface Connection {
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/* Paper accounts & verification                                       */
+/* ------------------------------------------------------------------ */
+
+export interface PaperAccount {
+  id: string;
+  connectionId: string;
+  baseCurrency: Currency;
+  startingCash: number;
+  status: "active" | "reset";
+  /** Always `paper_simulated`. There is no promotion path to live. */
+  provenance: "paper_simulated";
+  initialisedAt: string;
+  initialisedBy: string;
+  resetAt: string | null;
+  resetBy: string | null;
+  cash: number | null;
+  reserved: number | null;
+  buyingPower: number | null;
+  equity: number | null;
+  verified: boolean;
+}
+
+export interface PortfolioVerification {
+  connectionId: string;
+  ok: boolean;
+  expectedCash: number | null;
+  storedCash: number | null;
+  difference: number | null;
+  checkedAt: string;
+  detail: string;
+}
+
+export interface LedgerEntry {
+  id: string;
+  at: string;
+  kind:
+    | "initialisation"
+    | "deposit"
+    | "withdrawal"
+    | "fill"
+    | "fee"
+    | "transfer"
+    | "reservation"
+    | "release";
+  amount: number;
+  currency: Currency;
+  reference: string;
+  source: PositionSource;
+  detail: Record<string, unknown>;
+}
+
+export interface MarketDataHealth {
+  provider: string;
+  configured: boolean;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  consecutiveFailures: number;
+  latencyMs: number | null;
+}
 
 export interface UserSettings {
   displayName: string;
