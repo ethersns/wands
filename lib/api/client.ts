@@ -1,0 +1,126 @@
+import "server-only";
+
+import type { ApiError, ApiResult, Envelope } from "./contracts";
+
+const DEFAULT_TIMEOUT_MS = 4_000;
+
+export interface EngineConfig {
+  baseUrl: string | null;
+  token: string | null;
+  configured: boolean;
+}
+
+/**
+ * The engine endpoint and token are read from server-only environment
+ * variables. They are never exposed to the browser and never prefixed with
+ * NEXT_PUBLIC_.
+ */
+export function engineConfig(): EngineConfig {
+  const baseUrl = process.env.WANDS_ENGINE_URL?.trim() || null;
+  const token = process.env.WANDS_ENGINE_TOKEN?.trim() || null;
+  return { baseUrl, token, configured: Boolean(baseUrl) };
+}
+
+function errorOf(code: ApiError["code"], message: string, status?: number): ApiError {
+  return { code, message, status };
+}
+
+function isEnvelope(value: unknown): value is Envelope<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "data" in value &&
+    "provenance" in value
+  );
+}
+
+/**
+ * Calls the private trading engine. Returns a discriminated result rather than
+ * throwing, so callers must decide explicitly what to render when the engine is
+ * unreachable instead of silently showing zeros.
+ */
+export async function engineFetch<T>(
+  path: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<ApiResult<T>> {
+  const { baseUrl, token, configured } = engineConfig();
+
+  if (!configured || !baseUrl) {
+    return {
+      ok: false,
+      error: errorOf(
+        "not_configured",
+        "WANDS_ENGINE_URL is not set, so the trading engine cannot be reached.",
+      ),
+    };
+  }
+
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, headers, ...rest } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(new URL(path, baseUrl), {
+      ...rest,
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        ...(rest.body ? { "content-type": "application/json" } : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        error: errorOf(
+          "unauthorized",
+          "The engine rejected the request. Check WANDS_ENGINE_TOKEN.",
+          response.status,
+        ),
+      };
+    }
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      return {
+        ok: false,
+        error: errorOf(
+          "server_error",
+          detail.slice(0, 300) || `Engine responded with ${response.status}.`,
+          response.status,
+        ),
+      };
+    }
+
+    const payload: unknown = await response.json();
+
+    if (!isEnvelope(payload)) {
+      return {
+        ok: false,
+        error: errorOf(
+          "server_error",
+          "Engine response did not match the Wands envelope contract.",
+          response.status,
+        ),
+      };
+    }
+
+    return { ok: true, envelope: payload as Envelope<T> };
+  } catch (cause) {
+    const aborted = cause instanceof Error && cause.name === "AbortError";
+    return {
+      ok: false,
+      error: errorOf(
+        aborted ? "timeout" : "unreachable",
+        aborted
+          ? `Engine did not respond within ${timeoutMs}ms.`
+          : "Could not reach the trading engine.",
+      ),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
