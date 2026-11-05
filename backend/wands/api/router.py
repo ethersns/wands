@@ -9,6 +9,7 @@ from wands.api.routes import (
     bots,
     connections,
     engine,
+    intelligence,
     markets,
     orders,
     portfolio,
@@ -28,3 +29,4 @@ api_router.include_router(orders.router)
 api_router.include_router(risk.router)
 api_router.include_router(connections.router)
 api_router.include_router(settings.router)
+api_router.include_router(intelligence.router)

@@ -7,8 +7,45 @@ keeps every migration reversible.
 
 from __future__ import annotations
 
-from sqlalchemy import MetaData
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import DateTime, MetaData
+from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.types import TypeDecorator
+
+
+class UtcDateTime(TypeDecorator):
+    """A timezone-aware UTC datetime that survives a round trip through SQLite.
+
+    SQLite has no timezone type, so a value written as UTC comes back naive and
+    every comparison against an aware datetime raises. Coercing on load fixes
+    that once, at the storage boundary, instead of at each call site — and a
+    point-in-time query that silently compared naive to aware values would be a
+    correctness bug, not a crash, on a database that did not raise.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def process_result_value(
+        self, value: Any, dialect: Dialect
+    ) -> datetime | None:
+        if value is None:
+            return None
+        if not isinstance(value, datetime):
+            return value
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",

@@ -26,7 +26,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from wands.db.base import Base
+from wands.db.base import Base, UtcDateTime
 
 MONEY = Numeric(20, 8)
 PERCENT = Numeric(6, 3)
@@ -613,3 +613,235 @@ class EquitySnapshotRow(Base):
     source: Mapped[str] = mapped_column(
         String(24), nullable=False, default="paper_simulated"
     )
+
+
+# --------------------------------------------------------------------------
+# Intelligence
+#
+# Every row here is a record of something a public source published, stamped
+# with the moment it became public. Nothing in this section can place an order
+# or read a broker credential: research data and execution data are kept in
+# separate tables on purpose.
+# --------------------------------------------------------------------------
+
+
+class IntelFilingRow(Base):
+    """One SEC ownership filing (Form 3, 4, 5 or an amendment).
+
+    ``accepted_at`` is the SEC acceptance timestamp, which is the moment the
+    filing became public. It is the only timestamp a backtest may use to decide
+    whether a signal was knowable; ``period_of_report`` and ``transaction_date``
+    are facts about the past, not about availability.
+    """
+
+    __tablename__ = "intel_filings"
+    __table_args__ = (
+        UniqueConstraint("accession_number", name="uq_intel_filings_accession"),
+        Index("ix_intel_filings_symbol_accepted", "symbol", "accepted_at"),
+        Index("ix_intel_filings_accepted", "accepted_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    accession_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    form_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    issuer_cik: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    issuer_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    period_of_report: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    filed_date: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    accepted_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="sec_edgar")
+    is_amendment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    amends_accession: Mapped[str | None] = mapped_column(String(32))
+    original_submission_date: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    # Hash of the raw document. A re-fetch that returns different bytes for the
+    # same accession is a source-integrity event worth noticing.
+    raw_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    ingested_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+    transactions: Mapped[list[IntelInsiderTransactionRow]] = relationship(
+        back_populates="filing", cascade="all, delete-orphan"
+    )
+
+
+class IntelInsiderTransactionRow(Base):
+    """One reported transaction line from a Form 3/4/5.
+
+    ``value`` is null when the filing reports no price. A gift or an award has
+    no transaction price, and inventing a zero would make an aggregate purchase
+    value quietly wrong.
+    """
+
+    __tablename__ = "intel_insider_transactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "accession_number",
+            "reporting_person_cik",
+            "table_kind",
+            "ordinal",
+            name="uq_intel_insider_tx_line",
+        ),
+        Index("ix_intel_insider_tx_symbol_date", "symbol", "transaction_date"),
+        Index("ix_intel_insider_tx_class", "classification"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    filing_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("intel_filings.id", ondelete="CASCADE"), nullable=False
+    )
+    accession_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    issuer_cik: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    issuer_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    reporting_person_cik: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    reporting_person_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    is_director: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_officer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_ten_percent_owner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    officer_title: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+
+    table_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="non_derivative")
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    security_title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    transaction_date: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    transaction_code: Mapped[str] = mapped_column(String(4), nullable=False, default="")
+    acquired_disposed: Mapped[str] = mapped_column(String(1), nullable=False, default="")
+    shares: Mapped[Decimal | None] = mapped_column(MONEY)
+    price_per_share: Mapped[Decimal | None] = mapped_column(MONEY)
+    value: Mapped[Decimal | None] = mapped_column(MONEY)
+    shares_owned_after: Mapped[Decimal | None] = mapped_column(MONEY)
+    direct_or_indirect: Mapped[str] = mapped_column(String(1), nullable=False, default="")
+    nature_of_ownership: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    classification: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    is_open_market: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_derivative: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    footnote_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # Copied from the filing so a transaction can be filtered by availability
+    # without a join, and so a point-in-time query cannot accidentally use the
+    # transaction date instead.
+    accepted_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    is_amendment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+    filing: Mapped[IntelFilingRow] = relationship(back_populates="transactions")
+
+
+class IntelInstitutionRow(Base):
+    """A 13F filer. Identity only — never a claim about current positioning."""
+
+    __tablename__ = "intel_institutions"
+    __table_args__ = (UniqueConstraint("cik", name="uq_intel_institutions_cik"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    cik: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class IntelInstitutionalHoldingRow(Base):
+    """One reported 13F position for one quarter.
+
+    A 13F is a snapshot filed up to 45 days after quarter end. ``period_of_report``
+    is the quarter end and ``accepted_at`` is when the world could read it; the
+    two are never interchangeable.
+    """
+
+    __tablename__ = "intel_institutional_holdings"
+    __table_args__ = (
+        UniqueConstraint(
+            "accession_number", "ordinal", name="uq_intel_institutional_holding_line"
+        ),
+        Index("ix_intel_institutional_holdings_period", "period_of_report"),
+        Index("ix_intel_institutional_holdings_cusip", "cusip"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    institution_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("intel_institutions.id", ondelete="CASCADE"), nullable=False
+    )
+    accession_number: Mapped[str] = mapped_column(String(32), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    period_of_report: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    filed_date: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    accepted_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    cusip: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    issuer_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    class_title: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    value_usd: Mapped[Decimal | None] = mapped_column(MONEY)
+    shares: Mapped[Decimal | None] = mapped_column(MONEY)
+    share_type: Mapped[str] = mapped_column(String(16), nullable=False, default="SH")
+    put_call: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    investment_discretion: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    voting_sole: Mapped[Decimal | None] = mapped_column(MONEY)
+    voting_shared: Mapped[Decimal | None] = mapped_column(MONEY)
+    voting_none: Mapped[Decimal | None] = mapped_column(MONEY)
+    is_amendment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ingested_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class IntelSignalRow(Base):
+    """A research signal derived from stored events.
+
+    ``signal_key`` is a deterministic hash of the category, symbol, window and
+    source events, so recomputing a signal is idempotent rather than a way to
+    inflate a backtest with duplicates.
+    """
+
+    __tablename__ = "intel_signals"
+    __table_args__ = (
+        UniqueConstraint("signal_key", name="uq_intel_signals_key"),
+        Index("ix_intel_signals_symbol_available", "symbol", "public_available_at"),
+        Index("ix_intel_signals_category", "category"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    signal_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(48), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    source_event_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    event_time: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    public_available_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    calculated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    raw_measurement: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
+    raw_unit: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    score: Mapped[Decimal | None] = mapped_column(PERCENT)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    data_quality: Mapped[str] = mapped_column(String(16), nullable=False, default="reported")
+    confidence_notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    engine_version: Mapped[str] = mapped_column(String(16), nullable=False, default="1.0")
+
+
+class IntelIngestRunRow(Base):
+    """One ingestion attempt. Freshness is read from these, never assumed."""
+
+    __tablename__ = "intel_ingest_runs"
+    __table_args__ = (Index("ix_intel_ingest_runs_started", "started_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="sec_edgar")
+    started_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    filings_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filings_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transactions_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    signals_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)

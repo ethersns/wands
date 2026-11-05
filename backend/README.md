@@ -37,17 +37,21 @@ WANDS_ENGINE_TOKEN=<the token you generated>
 pytest
 ```
 
-182 tests covering authentication and RBAC, MFA, the envelope contract, every
+304 tests covering authentication and RBAC, MFA, the envelope contract, every
 risk limit, duplicate-order prevention, emergency-stop persistence across a
 restart, paper/live separation, strategy isolation (AST-enforced), credential
 encryption, TOTP against the RFC 6238 vectors, migration
-upgrade/downgrade/upgrade, and the Phase 3 surface: provider failures, stale
-quotes, missing prices, market closures, FX conversion, portfolio valuation,
-reserved capital, duplicate candle prevention, restart recovery and paper/live
-isolation.
+upgrade/downgrade/upgrade, the Phase 3 surface (provider failures, stale quotes,
+missing prices, market closures, FX conversion, portfolio valuation, reserved
+capital, duplicate candle prevention, restart recovery, paper/live isolation),
+and the Intelligence surface: filing parsing, transaction classification,
+amendments, duplicate filings, missing transaction prices, SEC acceptance
+timestamps, insider clustering, 13F reporting delay, signal calculation,
+point-in-time correctness, API authentication, pagination and the
+research/execution import boundary.
 
-No test reaches a live venue or places an order. Provider responses come from
-`tests/marketdata_fakes.py`.
+No test reaches a live venue, the SEC, or places an order. Provider responses
+come from `tests/marketdata_fakes.py` and `tests/intelligence_fakes.py`.
 
 ## Layout
 
@@ -68,9 +72,12 @@ wands/
   portfolio/       Decimal money helpers, FX snapshots, balances, positions,
                    P&L, equity snapshots and ledger reconciliation
   strategies/      strategy interface + catalogue (no broker access)
+  intelligence/    SEC EDGAR collectors, ownership parsing, insider signals,
+                   13F radar, signal fusion and freshness (no broker access)
   api/             /v1 routes
 alembic/           migrations
-docs/              audit, architecture, schema, contracts, threat model, plan, ops
+docs/              audit, architecture, schema, contracts, threat model, plan,
+                   ops, intelligence
 ```
 
 ## Safety properties
