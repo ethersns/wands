@@ -13,6 +13,11 @@ import type {
   EngineStatus,
   Envelope,
   Fill,
+  InsiderFeed,
+  InsiderSymbolSummary,
+  InstitutionChanges,
+  InstitutionFeed,
+  IntelStatus,
   MarketDataHealth,
   MarketOverview,
   Order,
@@ -20,7 +25,9 @@ import type {
   PortfolioSummary,
   PortfolioVerification,
   RiskSnapshot,
+  SignalFeed,
   Strategy,
+  SymbolResearchSummary,
   TradingBot,
   UserSettings,
 } from "./contracts";
@@ -149,3 +156,190 @@ export function getVerification(
     `/v1/accounts/${encodeURIComponent(connectionId)}/verification`,
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Intelligence                                                        */
+/*                                                                     */
+/* Research has no demo fallback. A fabricated insider filing or a      */
+/* made-up signal score would be indistinguishable from a real one on   */
+/* screen, so an unreachable engine degrades to an empty, explicitly    */
+/* unavailable payload instead.                                         */
+/* ------------------------------------------------------------------ */
+
+function unavailableEnvelope<T>(data: T, warnings: string[]): Envelope<T> {
+  return {
+    data,
+    provenance: "unavailable",
+    generatedAt: new Date().toISOString(),
+    source: "wands-engine",
+    warnings,
+  };
+}
+
+async function loadResearch<T>(path: string, empty: () => T): Promise<Envelope<T>> {
+  const { configured } = engineConfig();
+
+  if (!configured) {
+    return unavailableEnvelope(empty(), [
+      "WANDS_ENGINE_URL is not configured. No research data is available.",
+    ]);
+  }
+
+  const result = await engineFetch<T>(path, {});
+
+  if (result.ok) {
+    return result.envelope;
+  }
+
+  return unavailableEnvelope(empty(), [
+    `Research data unavailable (${result.error.code}): ${result.error.message}`,
+  ]);
+}
+
+const emptyInsiderFeed: InsiderFeed = {
+  items: [],
+  total: 0,
+  page: 1,
+  limit: 50,
+  hasMore: false,
+};
+
+const emptySignalFeed: SignalFeed = {
+  items: [],
+  total: 0,
+  page: 1,
+  limit: 50,
+  hasMore: false,
+};
+
+const emptyInstitutionFeed: InstitutionFeed = {
+  items: [],
+  total: 0,
+  page: 1,
+  limit: 50,
+  hasMore: false,
+};
+
+export const getIntelStatus = cache(() =>
+  loadResearch<IntelStatus>("/v1/intelligence/status", () => ({
+    enabled: false,
+    freshness: "never",
+    sources: [],
+    filings: 0,
+    transactions: 0,
+    signals: 0,
+    institutions: 0,
+    holdings: 0,
+    symbolsCovered: [],
+    latestFilingAt: null,
+    latestSignalAt: null,
+    signalEngineVersion: "",
+    caveats: [],
+  })),
+);
+
+export const getInsiderFeed = cache(
+  (options: { symbol?: string; openMarketOnly?: boolean; page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.symbol) params.set("symbol", options.symbol);
+    if (options.openMarketOnly) params.set("open_market_only", "true");
+    params.set("page", String(options.page ?? 1));
+    params.set("limit", String(options.limit ?? 50));
+    return loadResearch<InsiderFeed>(
+      `/v1/intelligence/insiders?${params.toString()}`,
+      () => emptyInsiderFeed,
+    );
+  },
+);
+
+export const getInsiderSummary = cache((symbol: string) =>
+  loadResearch<InsiderSymbolSummary>(
+    `/v1/intelligence/insiders/${encodeURIComponent(symbol)}`,
+    () => ({
+      symbol: symbol.toUpperCase(),
+      issuerName: "",
+      windowDays: 0,
+      purchaseCount: 0,
+      saleCount: 0,
+      distinctPurchasers: 0,
+      distinctSellers: 0,
+      purchaseValueUsd: null,
+      unpricedPurchaseLines: 0,
+      latestFilingAt: null,
+      latestTransactionDate: null,
+      caveats: [],
+    }),
+  ),
+);
+
+export const getSignals = cache(
+  (options: { category?: string; symbol?: string; page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.category) params.set("category", options.category);
+    if (options.symbol) params.set("symbol", options.symbol);
+    params.set("page", String(options.page ?? 1));
+    params.set("limit", String(options.limit ?? 50));
+    return loadResearch<SignalFeed>(
+      `/v1/intelligence/signals?${params.toString()}`,
+      () => emptySignalFeed,
+    );
+  },
+);
+
+export const getInstitutions = cache((page = 1, limit = 50) =>
+  loadResearch<InstitutionFeed>(
+    `/v1/intelligence/institutions?page=${page}&limit=${limit}`,
+    () => emptyInstitutionFeed,
+  ),
+);
+
+export const getInstitutionChanges = cache((cik: string) =>
+  loadResearch<InstitutionChanges>(
+    `/v1/intelligence/institutions/${encodeURIComponent(cik)}/changes`,
+    () => ({
+      cik,
+      name: "",
+      periodOfReport: null,
+      priorPeriodOfReport: null,
+      changes: [],
+      caveats: [],
+    }),
+  ),
+);
+
+export const getSymbolResearch = cache((symbol: string) =>
+  loadResearch<SymbolResearchSummary>(
+    `/v1/intelligence/symbols/${encodeURIComponent(symbol)}/summary`,
+    () => ({
+      symbol: symbol.toUpperCase(),
+      asOf: new Date().toISOString(),
+      insider: {
+        symbol: symbol.toUpperCase(),
+        issuerName: "",
+        windowDays: 0,
+        purchaseCount: 0,
+        saleCount: 0,
+        distinctPurchasers: 0,
+        distinctSellers: 0,
+        purchaseValueUsd: null,
+        unpricedPurchaseLines: 0,
+        latestFilingAt: null,
+        latestTransactionDate: null,
+        caveats: [],
+      },
+      signals: [],
+      fusion: {
+        symbol: symbol.toUpperCase(),
+        asOf: new Date().toISOString(),
+        components: [],
+        compositeScore: null,
+        coverage: 0,
+        explanation: "No research evidence is available for this symbol.",
+        dataQuality: "unavailable",
+        caveats: [],
+      },
+      freshness: "never",
+      caveats: [],
+    }),
+  ),
+);

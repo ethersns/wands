@@ -81,6 +81,33 @@ class Settings(BaseSettings):
     fx_rate_overrides: str = ""
     fx_max_age_seconds: int = 86400
 
+    # --- intelligence -----------------------------------------------------
+    # Research data is read-only and never reaches the order path. Disabling it
+    # removes the collectors entirely; the API then reports an empty state
+    # rather than inventing filings.
+    intelligence_enabled: bool = True
+    intelligence_ingest_enabled: bool = False
+    intelligence_ingest_interval_seconds: int = 3600
+    # SEC fair access requires a descriptive User-Agent identifying the
+    # operator. A generic or missing agent is refused, and should be.
+    sec_user_agent: str = "wands-research/0.1 (research; contact: ops@example.com)"
+    sec_base_url: str = "https://www.sec.gov"
+    sec_data_base_url: str = "https://data.sec.gov"
+    # SEC asks for no more than 10 requests per second. Half that leaves room
+    # for a retry without ever approaching the ceiling.
+    sec_rate_limit_per_second: float = 5.0
+    sec_timeout_seconds: float = 20.0
+    sec_max_retries: int = 3
+    # Comma-separated CIKs to poll. Empty means "derive from the equity
+    # watchlist", which is the useful default for a small deployment.
+    intelligence_insider_ciks: str = ""
+    intelligence_insider_lookback_days: int = 30
+    intelligence_cluster_min_insiders: int = 3
+    intelligence_cluster_window_days: int = 30
+    intelligence_purchase_value_threshold_usd: Decimal = Decimal("250000")
+    intelligence_activity_baseline_days: int = 180
+    intelligence_signal_engine_version: str = "1.0"
+
     # --- http -------------------------------------------------------------
     allowed_origins: str = ""
     request_timeout_seconds: float = 15.0

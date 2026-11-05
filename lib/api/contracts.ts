@@ -615,3 +615,241 @@ export interface UserSettings {
     retentionDays: number;
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Intelligence                                                        */
+/*                                                                     */
+/* Research data is a different kind of claim from market data. A      */
+/* filing is reported by a named person to the SEC; a signal is        */
+/* computed by us from those filings and can be wrong. Neither is a    */
+/* price, and neither may be rendered as one.                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How current a collector is. Derived from completed ingestion runs, so a
+ * collector that has silently stopped shows as `stale` rather than looking
+ * populated.
+ */
+export type IntelFreshness = "fresh" | "stale" | "never" | "failing";
+
+export interface IntelSourceStatus {
+  source: string;
+  status: IntelFreshness;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  ageSeconds: number | null;
+  staleAfterSeconds: number;
+  detail: string;
+}
+
+export interface IntelStatus {
+  enabled: boolean;
+  freshness: IntelFreshness;
+  sources: IntelSourceStatus[];
+  filings: number;
+  transactions: number;
+  signals: number;
+  institutions: number;
+  holdings: number;
+  symbolsCovered: string[];
+  latestFilingAt: string | null;
+  latestSignalAt: string | null;
+  signalEngineVersion: string;
+  caveats: string[];
+}
+
+/**
+ * What a reported transaction actually was. Only `open_market_purchase` and
+ * `open_market_sale` are decisions to trade in the market; the rest move shares
+ * for other reasons and must not be presented as buying or selling.
+ */
+export type InsiderTransactionClass =
+  | "open_market_purchase"
+  | "open_market_sale"
+  | "award_grant"
+  | "tax_withholding"
+  | "gift"
+  | "derivative_exercise"
+  | "disposition_to_issuer"
+  | "other";
+
+export interface InsiderTransaction {
+  id: string;
+  accessionNumber: string;
+  symbol: string;
+  issuerName: string;
+  reportingPersonName: string;
+  reportingPersonCik: string;
+  /** e.g. "Director and officer (Chief Executive Officer)". */
+  role: string;
+  /** The date the transaction happened. Never the date it became public. */
+  transactionDate: string | null;
+  transactionCode: string;
+  classification: InsiderTransactionClass;
+  isOpenMarket: boolean;
+  securityTitle: string;
+  shares: number | null;
+  pricePerShare: number | null;
+  /** `null` when the filing reported no price. Never zero. */
+  value: number | null;
+  sharesOwnedAfter: number | null;
+  directOrIndirect: string;
+  /** The SEC acceptance time: when this became public. */
+  acceptedAt: string;
+  isAmendment: boolean;
+  sourceUrl: string;
+  description: string;
+  dataQuality: "reported" | "incomplete";
+}
+
+export interface InsiderFeed {
+  items: InsiderTransaction[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface InsiderSymbolSummary {
+  symbol: string;
+  issuerName: string;
+  windowDays: number;
+  purchaseCount: number;
+  saleCount: number;
+  distinctPurchasers: number;
+  distinctSellers: number;
+  /** `null` when no purchase reported a price. */
+  purchaseValueUsd: number | null;
+  unpricedPurchaseLines: number;
+  latestFilingAt: string | null;
+  latestTransactionDate: string | null;
+  caveats: string[];
+}
+
+export type ResearchSignalCategory =
+  | "INSIDER_PURCHASE_CLUSTER"
+  | "INSIDER_PURCHASE_VALUE"
+  | "INSIDER_ACTIVITY_CHANGE"
+  | "INSIDER_SELLING_CLUSTER"
+  | "INSTITUTIONAL_POSITION_CHANGE"
+  | "MARKET_TREND"
+  | "VOLUME_ANOMALY";
+
+export interface ResearchSignal {
+  id: string;
+  category: ResearchSignalCategory;
+  symbol: string;
+  sourceEventIds: string[];
+  /** When the underlying activity happened. */
+  eventTime: string;
+  /** When the source information became public. A backtest may not use the
+   * signal before this instant. */
+  publicAvailableAt: string;
+  calculatedAt: string;
+  rawMeasurement: number;
+  rawUnit: string;
+  /** A bounded research ranking on a 0-100 scale. Not a probability. */
+  score: number | null;
+  explanation: string;
+  dataQuality: "reported" | "derived" | "incomplete" | "unavailable";
+  confidenceNotes: string;
+  parameters: Record<string, unknown>;
+  engineVersion: string;
+}
+
+export interface SignalFeed {
+  items: ResearchSignal[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export type InstitutionalChangeType =
+  | "new"
+  | "exited"
+  | "increased"
+  | "decreased"
+  | "unchanged";
+
+export interface InstitutionalHoldingChange {
+  cusip: string;
+  issuerName: string;
+  classTitle: string;
+  changeType: InstitutionalChangeType;
+  currentShares: number | null;
+  priorShares: number | null;
+  currentValueUsd: number | null;
+  priorValueUsd: number | null;
+  shareChange: number | null;
+  shareChangePct: number | null;
+  /** The quarter end. Not the date the filing was published. */
+  periodOfReport: string;
+  priorPeriodOfReport: string | null;
+  publicAvailableAt: string;
+  sourceUrl: string;
+}
+
+export interface Institution {
+  cik: string;
+  name: string;
+  periods: string[];
+  latestPeriod: string | null;
+  latestPublicAvailableAt: string | null;
+  reportedValueUsd: number | null;
+  positionCount: number;
+  caveats: string[];
+}
+
+export interface InstitutionFeed {
+  items: Institution[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface InstitutionChanges {
+  cik: string;
+  name: string;
+  periodOfReport: string | null;
+  priorPeriodOfReport: string | null;
+  changes: InstitutionalHoldingChange[];
+  caveats: string[];
+}
+
+export interface FusionComponent {
+  name: string;
+  category: ResearchSignalCategory;
+  measurement: number;
+  unit: string;
+  score: number | null;
+  publicAvailableAt: string;
+  explanation: string;
+  dataQuality: string;
+  source: string;
+}
+
+export interface FusionRanking {
+  symbol: string;
+  asOf: string;
+  components: FusionComponent[];
+  /** `null` when no component is available. Never a zero standing in for
+   * "no evidence". */
+  compositeScore: number | null;
+  /** How much of the total weight is actually present, 0-1. */
+  coverage: number;
+  explanation: string;
+  dataQuality: string;
+  caveats: string[];
+}
+
+export interface SymbolResearchSummary {
+  symbol: string;
+  asOf: string;
+  insider: InsiderSymbolSummary;
+  signals: ResearchSignal[];
+  fusion: FusionRanking;
+  freshness: IntelFreshness;
+  caveats: string[];
+}

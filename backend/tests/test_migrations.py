@@ -38,6 +38,14 @@ def test_upgrade_downgrade_upgrade(tmp_path, monkeypatch):
         engine = create_engine(url)
         tables = set(inspect(engine).get_table_names())
         assert {"orders", "positions", "risk_policies", "engine_state", "audit_events"} <= tables
+        assert {
+            "intel_filings",
+            "intel_insider_transactions",
+            "intel_institutions",
+            "intel_institutional_holdings",
+            "intel_signals",
+            "intel_ingest_runs",
+        } <= tables
         engine.dispose()
 
         command.downgrade(config, "base")
