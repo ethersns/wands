@@ -29,6 +29,9 @@ wands/telemetry.py                 OpenTelemetry wiring (no-op when unset)
 wands/envelope.py                  Envelope<T> construction
 wands/errors.py                    typed errors → HTTP + error envelope
 wands/schemas.py                   camelCase base model, shared enums
+wands/state.py                     engine-state and active-policy accessors
+wands/runtime.py                   process uptime
+wands/bootstrap.py                 idempotent startup seeding
 wands/db/base.py                   DeclarativeBase + naming convention
 wands/db/session.py                engine/session factory
 wands/db/models.py                 all tables
