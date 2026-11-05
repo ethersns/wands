@@ -38,12 +38,11 @@ export default async function PortfolioPage() {
 
       <DataNotice envelope={portfolio} />
 
-      {paperAccounts.provenance === "live" ? (
-        <PaperAccountPanel
-          accounts={paperAccounts.data}
-          connections={portfolio.data.accounts}
-        />
-      ) : null}
+      <PaperAccountPanel
+        accounts={paperAccounts.data}
+        connections={portfolio.data.accounts}
+        readOnly={paperAccounts.provenance !== "live"}
+      />
 
       <PortfolioView portfolio={portfolio.data} />
     </div>

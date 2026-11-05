@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 1 | Repository audit, architecture, schema, API contracts, threat model | **done** (this document set) |
 | 2 | Database, FastAPI app, authentication, configuration | **done** |
-| 3 | Market data ingestion, portfolio service | not started |
+| 3 | Market data ingestion, portfolio service, risk-engine wiring, paper initialisation | **done** |
 | 4 | Independent risk engine, paper execution gateway | **done** (pulled forward — the risk engine is a prerequisite for any order path, so it ships with Phase 2 rather than after it) |
 | 5 | Crypto and stock paper adapters | paper adapter done; Kraken/Alpaca adapters not started |
 | 6 | Backtesting and strategy modules | strategy interface + registry done; backtester not started |
@@ -59,17 +59,63 @@ Dockerfile, docker-compose.yml     deployment
 docs/*.md                          this document set
 ```
 
-## Phase 3 — next stage
+## Phase 3 — what was built
 
-1. `wands/marketdata/` with a `MarketDataProvider` protocol, a Kraken public
-   WebSocket adapter and an Alpaca data adapter.
-2. Candle persistence (`candles` hypertable or partitioned table) and the
-   `/v1/markets/{symbol}/candles` implementation.
-3. Freshness tracking: every quote carries `asOf`; the risk engine already
-   consumes `quote_age_seconds`, so wiring the feed immediately activates the
-   stale-data guard.
-4. Portfolio service: broker sync → `positions`/`balances`, equity history,
-   multi-currency conversion with a stored FX snapshot.
+### Market data (`wands/marketdata/`)
+
+| File | Purpose |
+| --- | --- |
+| `base.py` | `MarketDataProvider` protocol, `Quote`/`Candle` value objects, typed provider errors |
+| `symbols.py` | symbol normalisation (`btcusd` → `BTC/USD`, `aapl` → `AAPL`) and market-type inference |
+| `calendar.py` | crypto 24/7 plus US equity sessions and holidays; drives `session` on every quote |
+| `rate_limit.py` | token-bucket limiter and `call_with_retry` with exponential backoff and jitter |
+| `kraken.py` | Kraken public REST adapter — ticker and OHLC, no credentials required |
+| `alpaca.py` | Alpaca market-data adapter — IEX or SIP feed, `delayed` flag honoured |
+| `service.py` | orchestration: fetch, normalise, freshness-check, persist, serve |
+| `worker.py` | background refresh loop on `WANDS_MARKET_REFRESH_SECONDS` |
+
+Persistence is idempotent: `market_candles` is unique on
+`(provider, symbol, interval, open_time)` and `market_quotes` on
+`(provider, symbol, provider_timestamp)`, so a re-fetch updates rather than
+duplicates. Freshness is measured from the **provider** timestamp, never from
+`ingested_at`.
+
+### Portfolio (`wands/portfolio/`)
+
+| File | Purpose |
+| --- | --- |
+| `money.py` | `Decimal` helpers; quantisation and rounding rules in one place |
+| `fx.py` | stored FX snapshots with an age limit; no inversion or interpolation at read time |
+| `service.py` | balances, positions, reserved capital, buying power, realised/unrealised P&L, fees, equity snapshots, ledger reconciliation |
+
+Every monetary quantity is `Decimal`. Positions carry `source`
+(`broker_confirmed` or `paper_simulated`) and per-position price freshness, so a
+paper position can never be presented as broker-confirmed.
+
+### Risk-engine wiring (`wands/risk/context.py`)
+
+The engine now receives a `RiskContext` built from the portfolio and market-data
+services: verified equity, account-state age, buying power, position exposure,
+quote age, bid/ask spread, symbol permissions, market hours, allocation and the
+persisted emergency stop. The fail-closed rule is unchanged — a missing or
+untrusted field still rejects the order, and no default is substituted to make
+an order pass.
+
+### Paper initialisation
+
+`POST /v1/paper/accounts` and `.../reset` create simulated capital with an
+explicit currency, write `paper_accounts` plus an audit row, and record an
+`initialisation`/`reset` entry in `portfolio_ledger`. There is no code path that
+promotes a paper account to live.
+
+### Tests
+
+`tests/test_marketdata.py`, `test_portfolio.py`, `test_risk_integration.py` and
+`test_phase3_api.py` cover provider failures, stale quotes, missing prices,
+market closures, FX conversion, valuation, reserved capital, duplicate candle
+prevention, restart recovery and paper/live isolation. All provider responses
+are deterministic fakes (`tests/marketdata_fakes.py`); no test reaches a live
+venue or places an order.
 
 ## Phase 4 — remaining work
 

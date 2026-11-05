@@ -131,7 +131,7 @@ export const getSettings = cache(() =>
  * simulated.
  */
 export const getPaperAccounts = cache(() =>
-  load<PaperAccount[]>("/v1/paper/accounts", () => []),
+  load<PaperAccount[]>("/v1/paper/accounts", () => demo.demoPaperAccounts),
 );
 
 export const getMarketHealth = cache(() =>

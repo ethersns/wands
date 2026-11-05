@@ -10,6 +10,7 @@ import type {
   Fill,
   MarketOverview,
   Order,
+  PaperAccount,
   PortfolioSummary,
   Position,
   Quote,
@@ -75,7 +76,7 @@ export const demoEngineStatus: EngineStatus = {
 /* Accounts                                                            */
 /* ------------------------------------------------------------------ */
 
-export const demoAccounts: BrokerAccount[] = [
+const demoAccountSeeds: BrokerAccount[] = [
   {
     id: "acct-kraken-paper",
     provider: "kraken",
@@ -126,11 +127,37 @@ export const demoAccounts: BrokerAccount[] = [
   },
 ];
 
+export const demoAccounts: BrokerAccount[] = demoAccountSeeds.map((account) => ({
+  ...account,
+  source: account.mode === "paper" ? "paper_simulated" : "broker_confirmed",
+  verified: account.status === "connected",
+}));
+
+export const demoPaperAccounts: PaperAccount[] = demoAccounts
+  .filter((account) => account.mode === "paper" && account.status === "connected")
+  .map((account) => ({
+    id: `paper-${account.id}`,
+    connectionId: account.id,
+    baseCurrency: account.baseCurrency,
+    startingCash: 100_000,
+    status: "active",
+    provenance: "paper_simulated",
+    initialisedAt: iso(-21 * DAY),
+    initialisedBy: "demo",
+    resetAt: null,
+    resetBy: null,
+    cash: account.cash,
+    reserved: 0,
+    buyingPower: account.buyingPower,
+    equity: account.equity,
+    verified: true,
+  }));
+
 /* ------------------------------------------------------------------ */
 /* Positions                                                           */
 /* ------------------------------------------------------------------ */
 
-export const demoPositions: Position[] = [
+const demoPositionSeeds: Position[] = [
   {
     id: "pos-btc",
     accountId: "acct-kraken-paper",
@@ -241,6 +268,15 @@ export const demoPositions: Position[] = [
   },
 ];
 
+export const demoPositions: Position[] = demoPositionSeeds.map((position) => ({
+  ...position,
+  source: "paper_simulated",
+  priceQuality: "live",
+  priceAsOf: iso(-4_000),
+  priceAgeSeconds: 4,
+  priceStale: false,
+}));
+
 /* ------------------------------------------------------------------ */
 /* Equity curve                                                        */
 /* ------------------------------------------------------------------ */
@@ -283,7 +319,9 @@ export const demoPortfolio: PortfolioSummary = {
   baseCurrency: "USD",
   totalEquity: round(totalEquity, 2),
   cash: 33_821.3,
+  reserved: 1_240.5,
   buyingPower: 46_462.2,
+  verified: true,
   dayPnl: 1_284.62,
   dayPnlPct: 1.04,
   realisedPnl: 1_458.6,
@@ -346,6 +384,10 @@ const quoteSeeds: QuoteSeed[] = [
 
 export const demoQuotes: Quote[] = quoteSeeds.map((seed, index) => {
   const ageSeconds = index === 5 ? 412 : 2 + index * 3;
+  const stale = ageSeconds > 300;
+  const spreadBps = seed.marketType === "crypto" ? 8 : 3;
+  const half = (seed.price * spreadBps) / 20_000;
+  const quality = seed.eligible ? "live" : "delayed";
   return {
     symbol: seed.symbol,
     name: seed.name,
@@ -360,8 +402,16 @@ export const demoQuotes: Quote[] = quoteSeeds.map((seed, index) => {
     session: seed.session,
     asOf: iso(-ageSeconds * 1_000),
     ageSeconds,
-    stale: ageSeconds > 300,
-    strategyEligible: seed.eligible,
+    stale,
+    strategyEligible: seed.eligible && !stale,
+    provider: seed.marketType === "crypto" ? "kraken" : "alpaca",
+    bid: round(seed.price - half, 4),
+    ask: round(seed.price + half, 4),
+    mid: seed.price,
+    spreadPct: spreadBps / 100,
+    quality,
+    executablePrice: seed.eligible && !stale ? seed.price : null,
+    timestampSource: "provider",
   };
 });
 

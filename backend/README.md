@@ -37,11 +37,17 @@ WANDS_ENGINE_TOKEN=<the token you generated>
 pytest
 ```
 
-79 tests covering authentication and RBAC, MFA, the envelope contract, every
+182 tests covering authentication and RBAC, MFA, the envelope contract, every
 risk limit, duplicate-order prevention, emergency-stop persistence across a
 restart, paper/live separation, strategy isolation (AST-enforced), credential
-encryption, TOTP against the RFC 6238 vectors, and migration
-upgrade/downgrade/upgrade.
+encryption, TOTP against the RFC 6238 vectors, migration
+upgrade/downgrade/upgrade, and the Phase 3 surface: provider failures, stale
+quotes, missing prices, market closures, FX conversion, portfolio valuation,
+reserved capital, duplicate candle prevention, restart recovery and paper/live
+isolation.
+
+No test reaches a live venue or places an order. Provider responses come from
+`tests/marketdata_fakes.py`.
 
 ## Layout
 
@@ -54,9 +60,13 @@ wands/
   schemas.py       camelCase wire models mirroring lib/api/contracts.ts
   db/              models, session, declarative base
   security/        auth, RBAC, TOTP, Fernet secret box, audit trail
-  risk/            independent risk engine + policy
+  risk/            independent risk engine + policy + RiskContext assembly
   execution/       trade intents, idempotency, the execution gateway
   brokers/         adapter protocol + deterministic paper broker
+  marketdata/      provider protocol, Kraken + Alpaca adapters, calendar,
+                   rate limiting, ingestion service and refresh worker
+  portfolio/       Decimal money helpers, FX snapshots, balances, positions,
+                   P&L, equity snapshots and ledger reconciliation
   strategies/      strategy interface + catalogue (no broker access)
   api/             /v1 routes
 alembic/           migrations
@@ -76,9 +86,29 @@ docs/              audit, architecture, schema, contracts, threat model, plan, o
 - **Emergency stop survives restarts.** It lives in the database, not in memory.
 - **Nothing is fabricated.** Capabilities that do not exist return `501`; the
   frontend then shows fixtures labelled `provenance: "demo"`.
+- **Delayed data is never called live.** Every quote carries `quality` and an
+  `ageSeconds` measured from the provider's own timestamp. `executablePrice` is
+  `null` unless a two-sided quote exists inside the freshness policy — a candle
+  close is never treated as an executable price.
+- **Money is `Decimal`.** No monetary quantity is computed in floating point.
+- **Paper cannot become live.** `paper_accounts.provenance` is always
+  `paper_simulated`; no code path promotes it, and positions carry `source` so a
+  simulated holding is never shown as broker-confirmed.
+
+## Market data
+
+Kraken public market data needs no credentials and is enabled by default.
+Alpaca stock data requires `WANDS_ALPACA_DATA_KEY` / `WANDS_ALPACA_DATA_SECRET`;
+without them the engine reports stocks as `unavailable` rather than inventing
+prices. Set `WANDS_ALPACA_DATA_DELAYED=true` when the account is not entitled to
+real-time SIP so the feed is labelled `delayed`.
+
+The refresh worker runs inside the API process
+(`WANDS_MARKET_DATA_WORKER_ENABLED`). Set it to `false` and drive ingestion with
+`POST /v1/markets/refresh` from a scheduler if you prefer to separate the two.
 
 ## What is not implemented
 
-Market data ingestion, candle history, the backtester, live broker adapters
-(Kraken/Alpaca/Interactive Brokers), the reconciliation worker, and the AI
-research engine. See `docs/06-implementation-plan.md` for the phase plan.
+The backtester, live broker adapters (Kraken/Alpaca/Interactive Brokers order
+routing), the reconciliation worker, and the AI research engine. See
+`docs/06-implementation-plan.md` for the phase plan.

@@ -175,7 +175,7 @@ export function MarketsView({
   }
 
   const tone = toneOf(quote?.change24hPct);
-  const quality = dataQuality(quote?.quality);
+  const quality = quote?.quality ? dataQuality(quote.quality) : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -273,7 +273,9 @@ export function MarketsView({
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                <StatusChip label={quality.label} tone={quality.tone} />
+                {quality ? (
+                  <StatusChip label={quality.label} tone={quality.tone} />
+                ) : null}
                 <StatusChip
                   label={quote.strategyEligible ? "Strategy eligible" : "Not eligible"}
                   tone={quote.strategyEligible ? "profit" : "muted"}
@@ -322,7 +324,7 @@ export function MarketsView({
               <DetailStat label="24h volume" value={formatCompact(quote.volume24h)} />
               <DetailStat
                 label="Quote age"
-                value={quote.ageSeconds === null ? "—" : `${quote.ageSeconds}s`}
+                value={quote.ageSeconds === null ? "���" : `${quote.ageSeconds}s`}
               />
             </div>
 

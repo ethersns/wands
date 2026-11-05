@@ -60,14 +60,33 @@ server-to-server credential that never reaches a browser.
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
 | GET | `/v1/portfolio` | viewer | `PortfolioSummary`; `unavailable` until a broker is connected |
-| GET | `/v1/positions` | viewer | `Position[]` |
+| GET | `/v1/positions` | viewer | `Position[]`; each carries `source` and price freshness |
+| GET | `/v1/paper/accounts` | viewer | `PaperAccount[]` |
+| POST | `/v1/paper/accounts` | operator | body `{ connectionId, startingCash, currency }`; paper-only |
+| GET | `/v1/paper/accounts/{connectionId}` | viewer | `PaperAccount` |
+| POST | `/v1/paper/accounts/{connectionId}/reset` | operator | body `{ startingCash, currency }`; audited |
+| GET | `/v1/accounts/{connectionId}/verification` | viewer | `PortfolioVerification`; cash-versus-ledger reconciliation |
+| GET | `/v1/accounts/{connectionId}/ledger` | viewer | `LedgerEntry[]` |
+
+`POST /v1/paper/accounts` and its `reset` sibling are the only mutations in this
+group. Both refuse a non-paper connection, and neither can promote an account to
+live. Every call writes an audit row.
 
 ### Markets
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/v1/markets/overview` | viewer | `MarketOverview`; `unavailable` until the feed exists |
-| GET | `/v1/markets/{symbol}/candles` | viewer | `501` until Phase 3 |
+| GET | `/v1/markets/overview` | viewer | `MarketOverview`; `unavailable` when no provider is configured |
+| GET | `/v1/markets/health` | viewer | `MarketDataHealth[]`; per-provider reachability and last success |
+| POST | `/v1/markets/refresh` | operator | force one ingestion pass |
+| GET | `/v1/markets/{symbol}/quote` | viewer | `Quote`; includes `bid`, `ask`, `spreadPct`, `quality`, `ageSeconds` |
+| GET | `/v1/markets/{symbol}/candles` | viewer | `CandleSeries`; `?interval=1m\|5m\|15m\|1h\|4h\|1d&limit=` |
+
+Every quote carries `quality` (`live`, `delayed`, `historical`, `simulated`,
+`unavailable`) and `ageSeconds` measured from the **provider** timestamp. A
+delayed feed is never labelled live. `executablePrice` is `null` unless a
+two-sided quote exists and is inside the freshness policy — a candle close is
+never substituted for an executable price.
 
 ### Strategies
 

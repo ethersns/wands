@@ -48,9 +48,11 @@ function Figure({ label, value }: { label: string; value: string }) {
 export function PaperAccountPanel({
   accounts,
   connections,
+  readOnly = false,
 }: {
   accounts: PaperAccount[];
   connections: BrokerAccount[];
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const paperConnections = connections.filter((account) => account.mode === "paper");
@@ -113,6 +115,13 @@ export function PaperAccountPanel({
       description="Simulated capital. Never connected to real funds."
       bodyClassName="flex flex-col gap-4"
     >
+      {readOnly ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Connect the engine to initialise or reset simulated capital. These
+          controls are read-only against demonstration data.
+        </p>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-1.5">
           <Label htmlFor="paper-cash">Starting cash</Label>
@@ -196,7 +205,7 @@ export function PaperAccountPanel({
                     variant="outline"
                     size="sm"
                     className="h-11 self-start sm:h-8"
-                    disabled={busy === connection.id}
+                    disabled={readOnly || busy === connection.id}
                     onClick={() => void submit(connection.id, true)}
                   >
                     <RotateCcw className="size-3.5" aria-hidden />
@@ -207,7 +216,7 @@ export function PaperAccountPanel({
                 <Button
                   size="sm"
                   className="h-11 self-start sm:h-8"
-                  disabled={busy === connection.id}
+                  disabled={readOnly || busy === connection.id}
                   onClick={() => void submit(connection.id, false)}
                 >
                   <FlaskConical className="size-3.5" aria-hidden />
