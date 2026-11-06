@@ -172,6 +172,10 @@ class ParsedFiling:
     owners: list[ReportingOwner]
     transactions: list[ParsedTransaction]
     raw_sha256: str = ""
+    # The date the filing was submitted, which is not the period it reports on.
+    # ``None`` when the caller has no filing date, rather than substituting the
+    # period of report and making the two indistinguishable.
+    filed_date: datetime | None = None
 
 
 @dataclass(frozen=True)

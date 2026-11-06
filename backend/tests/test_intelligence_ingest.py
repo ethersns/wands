@@ -25,7 +25,7 @@ from wands.intelligence.base import (
     SourceRateLimited,
     SourceUnavailable,
 )
-from wands.intelligence.edgar import EdgarClient, acceptance_time
+from wands.intelligence.edgar import EdgarClient, acceptance_time, raw_document_path
 from wands.intelligence.ingest import InsiderIngestor, resolve_issuer_ciks
 from wands.intelligence.retry import RetryPolicy, call_with_retry
 
@@ -376,6 +376,78 @@ def test_amendment_is_linked_to_the_filing_it_amends(session):
     assert amendment is not None
     assert amendment.is_amendment is True
     assert amendment.amends_accession == "0000320193-24-000010"
+
+
+@pytest.mark.parametrize(
+    ("primary", "expected"),
+    [
+        ("xslF345X06/form4.xml", "form4.xml"),
+        ("xslF345X05/nested/form4.xml", "nested/form4.xml"),
+        ("xsl13F/informationtable.xml", "informationtable.xml"),
+        ("form4.xml", "form4.xml"),
+        ("  xslF345X06/form4.xml  ", "form4.xml"),
+        ("", ""),
+    ],
+)
+def test_raw_document_path_strips_only_the_xsl_view_prefix(primary, expected):
+    assert raw_document_path(primary) == expected
+
+
+def test_xsl_rendered_primary_document_resolves_to_the_raw_xml():
+    """The submissions feed points at the XSL HTML view for most Form 4 filings.
+
+    Fetching that path returns HTML, so the collector must resolve it to the raw
+    ownership document beside it or every live Form 4 fails to parse.
+    """
+    submissions = {
+        "name": "Apple Inc.",
+        "tickers": ["AAPL"],
+        "filings": {
+            "recent": {
+                "accessionNumber": ["0001140361-26-042149"],
+                "form": ["4"],
+                "filingDate": ["2026-11-05"],
+                "acceptanceDateTime": ["2026-11-05T23:30:13.000Z"],
+                "primaryDocument": ["xslF345X06/form4.xml"],
+                "reportDate": ["2026-11-03"],
+            }
+        },
+    }
+    http = FakeHttp([FakeResponse(200, json.dumps(submissions).encode())])
+    refs = _client(http).recent_filings("320193")
+
+    assert len(refs) == 1
+    assert refs[0].primary_document == "form4.xml"
+    assert refs[0].source_url.endswith("/000114036126042149/form4.xml")
+
+
+def test_filed_date_is_stored_separately_from_the_period_of_report(session):
+    """A filing date is when the form was submitted, not the period it reports.
+
+    Storing the period of report in ``filed_date`` makes the two
+    indistinguishable, so the column must carry the filing date.
+    """
+    period = datetime(2024, 1, 15, tzinfo=UTC)
+    client = FakeEdgarClient(
+        documents={"0000320193-24-000001": form4_xml()},
+        filings={
+            "0000320193": [
+                filing_ref("0000320193-24-000001", accepted_at=ACCEPTED, period=period)
+            ]
+        },
+    )
+    _ingestor(session, client).run(ciks=["0000320193"], since=WINDOW_START)
+
+    filing = session.scalar(
+        select(IntelFilingRow).where(
+            IntelFilingRow.accession_number == "0000320193-24-000001"
+        )
+    )
+    assert filing is not None
+    assert filing.filed_date is not None
+    assert filing.filed_date.date() == ACCEPTED.date()
+    assert filing.period_of_report.date() == period.date()
+    assert filing.filed_date.date() != filing.period_of_report.date()
 
 
 def test_rate_limited_source_is_surfaced_as_an_error(session):

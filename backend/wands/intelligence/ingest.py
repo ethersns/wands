@@ -220,6 +220,7 @@ class InsiderIngestor:
             accepted_at=ref.accepted_at,
             source_url=ref.source_url,
             form_type_hint=ref.form_type,
+            filed_date=ref.filed_date,
         )
         return True, self.persist(parsed)
 
@@ -233,7 +234,7 @@ class InsiderIngestor:
             issuer_name=parsed.issuer_name,
             symbol=parsed.symbol,
             period_of_report=parsed.period_of_report,
-            filed_date=parsed.period_of_report,
+            filed_date=parsed.filed_date,
             accepted_at=parsed.accepted_at,
             source_url=parsed.source_url,
             source="sec_edgar",
