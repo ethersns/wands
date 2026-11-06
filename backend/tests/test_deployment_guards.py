@@ -15,6 +15,10 @@ def _settings(**overrides) -> Settings:
         "live_trading_enabled": False,
         "market_data_worker_enabled": False,
         "intelligence_jobs_enabled": False,
+        # Pinned so the suite-wide ingestion switch cannot leak in and make
+        # these guards assert against the wrong starting state.
+        "intelligence_ingest_enabled": False,
+        "sec_user_agent": "wands-research/0.1 (research; contact: ops@example.com)",
     }
     base.update(overrides)
     return Settings(**base)

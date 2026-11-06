@@ -303,6 +303,14 @@ The engine **refuses to start** with ingestion enabled while the user agent
 still carries the shipped placeholder (`ops@example.com`). It validates rather
 than substitutes: inventing a contact would be worse than refusing.
 
+`WANDS_INTELLIGENCE_INGEST_ENABLED` is enforced at the collector, not only at
+startup. Every path that can reach the SEC — the scheduler, the CLI and the
+backfill runner — passes through `ingest_disabled_reason()`, so a host that
+never set the flag collects nothing and reports `stage: config` instead. This
+matters because `WANDS_INTELLIGENCE_ENABLED` defaults to true: without the
+second switch, a deployment that only left the default alone would have started
+collecting.
+
 Operational properties already implemented:
 
 - **No overlapping jobs.** A job starts only by atomically claiming a row whose
@@ -315,8 +323,10 @@ Operational properties already implemented:
   `_END_DATE` bound the range and `WANDS_INTELLIGENCE_INSIDER_CIKS` /
   `_INSTITUTION_CIKS` bound the issuer list. Do not run a large historical
   backfill automatically; start with a narrow window and a short issuer list.
-- **Rate limits.** `WANDS_SEC_RATE_LIMIT_PER_SECOND` (default 5) is respected by
-  the collector.
+- **Rate limits.** `WANDS_SEC_RATE_LIMIT_PER_SECOND` (default 5, half the
+  published ceiling) and `WANDS_SEC_MAX_RETRIES` are read by `build_client()`
+  and applied to the token bucket and retry policy. They are deployment
+  settings, not constants in the transport.
 - **Provenance.** Each ingested record stores its source document and filing
   date, so a figure can be traced back to the filing it came from.
 

@@ -42,6 +42,7 @@ from wands.intelligence.base import (
 from wands.intelligence.classify import classify, is_open_market
 from wands.intelligence.edgar import EdgarClient
 from wands.intelligence.forms import parse_information_table, parse_ownership_document
+from wands.intelligence.retry import RetryPolicy, TokenBucket
 from wands.logging import get_logger
 
 logger = get_logger(__name__)
@@ -67,12 +68,40 @@ class IngestResult:
 
 
 def build_client(settings: Settings) -> EdgarClient:
+    """The one place a real SEC client is built.
+
+    The rate limit and retry budget come from settings rather than the client's
+    defaults, so the published fair-access ceiling is a deployment decision and
+    not a constant buried in the transport.
+    """
     return EdgarClient(
         user_agent=settings.sec_user_agent,
         base_url=settings.sec_base_url,
         data_base_url=settings.sec_data_base_url,
         timeout=settings.sec_timeout_seconds,
+        retry_policy=RetryPolicy(max_attempts=max(1, settings.sec_max_retries)),
+        bucket=TokenBucket(settings.sec_rate_limit_per_second, 5),
     )
+
+
+def ingest_disabled_reason(settings: Settings) -> str | None:
+    """Why collection must not run, or ``None`` when it may.
+
+    Two switches, both required. ``intelligence_enabled`` is the library switch
+    that removes the collectors. ``intelligence_ingest_enabled`` is the
+    operational one: a deployment leaves it off until the SEC contact and rate
+    limits are configured, so a host that never set it must not collect. It is
+    checked here, at the collector, because that is the only place every path —
+    scheduler, CLI and backfill — passes through.
+    """
+    if not settings.intelligence_enabled:
+        return "Intelligence collection is disabled."
+    if not settings.intelligence_ingest_enabled:
+        return (
+            "SEC ingestion is disabled. Set WANDS_INTELLIGENCE_INGEST_ENABLED=true "
+            "once WANDS_SEC_USER_AGENT carries a real operator contact."
+        )
+    return None
 
 
 def resolve_issuer_ciks(settings: Settings, client: EdgarClient) -> list[str]:
@@ -126,10 +155,9 @@ class InsiderIngestor:
         self.session.add(run_row)
         self.session.flush()
 
-        if not self.settings.intelligence_enabled:
-            result.errors.append(
-                {"stage": "config", "message": "Intelligence collection is disabled."}
-            )
+        reason = ingest_disabled_reason(self.settings)
+        if reason is not None:
+            result.errors.append({"stage": "config", "message": reason})
             self._finish(run_row, result)
             return result
 
@@ -380,10 +408,9 @@ class InstitutionalIngestor:
         self.session.add(run_row)
         self.session.flush()
 
-        if not self.settings.intelligence_enabled:
-            result.errors.append(
-                {"stage": "config", "message": "Intelligence collection is disabled."}
-            )
+        reason = ingest_disabled_reason(self.settings)
+        if reason is not None:
+            result.errors.append({"stage": "config", "message": reason})
             self._finish(run_row, result)
             return result
 
