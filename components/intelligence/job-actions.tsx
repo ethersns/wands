@@ -16,7 +16,7 @@ import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
 import {
   setJobPausedAction,
   startBackfillAction,
-} from "@/app/intelligence/operations/actions";
+} from "@/lib/intelligence/operations-actions";
 
 export function JobPauseControl({
   job,

@@ -59,10 +59,7 @@ export function Sidebar({
             </p>
             <ul className="flex flex-col gap-0.5">
               {group.items.map((item) => {
-                const active =
-                  item.href === "/"
-                    ? pathname === "/"
-                    : pathname.startsWith(item.href);
+                const active = pathname.startsWith(item.href);
                 return (
                   <li key={item.href}>
                     <Link

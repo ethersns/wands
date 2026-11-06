@@ -100,6 +100,24 @@
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
+  --font-display: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-marketing: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-marketing-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-mk-bg: var(--mk-bg);
+  --color-mk-deep: var(--mk-deep);
+  --color-mk-surface: var(--mk-surface);
+  --color-mk-raised: var(--mk-raised);
+  --color-mk-line: var(--mk-line);
+  --color-mk-line-strong: var(--mk-line-strong);
+  --color-mk-fg: var(--mk-fg);
+  --color-mk-muted: var(--mk-muted);
+  --color-mk-dim: var(--mk-dim);
+  --color-mk-accent: var(--mk-accent);
+  --color-mk-accent-ink: var(--mk-accent-ink);
+  --color-mk-accent-soft: var(--mk-accent-soft);
+  --color-mk-warn: var(--mk-warn);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -229,3 +247,114 @@
   background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
   background-clip: content-box;
 }
+
+/* ---------------------------------------------------------------------------
+   Marketing surface
+   The public site is a fixed dark canvas. It shares the terminal's near-black
+   base so the product and the site read as one company, but it carries its own
+   token set so marketing work can never drift the trading UI.
+--------------------------------------------------------------------------- */
+
+:root {
+  --mk-bg: #07080a;
+  --mk-deep: #040507;
+  --mk-surface: #0b0d11;
+  --mk-raised: #101318;
+  --mk-line: rgba(255, 255, 255, 0.07);
+  --mk-line-strong: rgba(255, 255, 255, 0.14);
+  --mk-fg: #eceef2;
+  --mk-muted: #8c939f;
+  --mk-dim: #5e6570;
+  --mk-accent: #3de8a8;
+  --mk-accent-ink: #04140d;
+  --mk-accent-soft: rgba(61, 232, 168, 0.1);
+  --mk-warn: #e9b44c;
+}
+
+@utility mk-shell {
+  background-color: var(--mk-bg);
+  color: var(--mk-fg);
+  font-family: var(--font-marketing);
+}
+
+@utility mk-hairline {
+  box-shadow: inset 0 0 0 1px var(--mk-line);
+}
+
+@utility mk-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+@utility mk-fade-b {
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+}
+
+@keyframes mk-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+[data-reveal] {
+  opacity: 0;
+}
+
+[data-reveal="in"] {
+  animation: mk-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes mk-scan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(1200%);
+    opacity: 0;
+  }
+}
+
+@utility mk-scanline {
+  animation: mk-scan 7s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes mk-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@utility mk-ticker {
+  animation: mk-ticker 48s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal="in"] {
+    opacity: 1;
+    animation: none;
+  }
+
+  .mk-scanline,
+  .mk-ticker {
+    animation: none;
+  }
+}
+
