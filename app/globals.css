@@ -31,6 +31,8 @@
   --profit-foreground: #ffffff;
   --loss: #cf2f36;
   --loss-foreground: #ffffff;
+  --warning: #a86a00;
+  --warning-foreground: #ffffff;
   --grid: rgba(11, 13, 17, 0.06);
 }
 
@@ -60,6 +62,8 @@
   --profit-foreground: #04120a;
   --loss: #f2555a;
   --loss-foreground: #120405;
+  --warning: #f0b429;
+  --warning-foreground: #1a1200;
   --grid: rgba(255, 255, 255, 0.05);
 }
 
@@ -89,6 +93,8 @@
   --color-profit-foreground: var(--profit-foreground);
   --color-loss: var(--loss);
   --color-loss-foreground: var(--loss-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-grid: var(--grid);
 
   --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;

@@ -9,12 +9,13 @@ import type {
   RiskSeverity,
 } from "./api/contracts";
 
-export type StatusTone = "profit" | "loss" | "primary" | "muted";
+export type StatusTone = "profit" | "loss" | "primary" | "warning" | "muted";
 
 export const toneDot: Record<StatusTone, string> = {
   profit: "bg-profit",
   loss: "bg-loss",
   primary: "bg-primary",
+  warning: "bg-warning",
   muted: "bg-muted-foreground/50",
 };
 
@@ -22,6 +23,7 @@ export const toneText: Record<StatusTone, string> = {
   profit: "text-profit",
   loss: "text-loss",
   primary: "text-primary",
+  warning: "text-warning",
   muted: "text-muted-foreground",
 };
 
@@ -29,6 +31,7 @@ export const toneChip: Record<StatusTone, string> = {
   profit: "border-profit/30 bg-profit/10 text-profit",
   loss: "border-loss/30 bg-loss/10 text-loss",
   primary: "border-primary/30 bg-primary/10 text-primary",
+  warning: "border-warning/30 bg-warning/10 text-warning",
   muted: "border-border bg-muted text-muted-foreground",
 };
 
