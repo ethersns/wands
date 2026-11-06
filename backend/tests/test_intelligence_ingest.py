@@ -26,7 +26,12 @@ from wands.intelligence.base import (
     SourceUnavailable,
 )
 from wands.intelligence.edgar import EdgarClient, acceptance_time, raw_document_path
-from wands.intelligence.ingest import InsiderIngestor, resolve_issuer_ciks
+from wands.intelligence.ingest import (
+    InsiderIngestor,
+    build_client,
+    ingest_disabled_reason,
+    resolve_issuer_ciks,
+)
 from wands.intelligence.retry import RetryPolicy, call_with_retry
 
 from .intelligence_fakes import FakeEdgarClient, filing_ref, form4_xml
@@ -320,6 +325,51 @@ def test_disabled_intelligence_collects_nothing(session, monkeypatch):
     assert result.status == "failed"
     assert result.errors[0]["stage"] == "config"
     assert client.calls == []
+
+
+def test_ingest_switch_off_collects_nothing(session):
+    """The operational switch must stop collection, not just the library one.
+
+    ``intelligence_enabled`` defaults to true, so a host that never set
+    ``WANDS_INTELLIGENCE_INGEST_ENABLED`` would otherwise collect from the SEC
+    with an unconfigured contact.
+    """
+    settings = get_settings().model_copy(update={"intelligence_ingest_enabled": False})
+    client = FakeEdgarClient()
+    result = InsiderIngestor(session, settings, client=client).run(
+        ciks=["0000320193"], since=WINDOW_START
+    )
+
+    assert result.status == "failed"
+    assert result.errors[0]["stage"] == "config"
+    assert "WANDS_INTELLIGENCE_INGEST_ENABLED" in result.errors[0]["message"]
+    assert client.calls == []
+
+
+def test_ingest_disabled_reason_names_the_switch_that_is_off():
+    settings = get_settings()
+    assert ingest_disabled_reason(settings) is None
+    assert "Intelligence collection is disabled" in (
+        ingest_disabled_reason(settings.model_copy(update={"intelligence_enabled": False}))
+        or ""
+    )
+    assert "WANDS_INTELLIGENCE_INGEST_ENABLED" in (
+        ingest_disabled_reason(
+            settings.model_copy(update={"intelligence_ingest_enabled": False})
+        )
+        or ""
+    )
+
+
+def test_build_client_takes_its_rate_limit_and_retry_budget_from_settings():
+    """The published fair-access ceiling is configuration, not a constant."""
+    settings = get_settings().model_copy(
+        update={"sec_rate_limit_per_second": 2.5, "sec_max_retries": 7}
+    )
+    client = build_client(settings)
+
+    assert client._bucket.rate_per_second == 2.5
+    assert client._retry.max_attempts == 7
 
 
 def test_no_issuers_is_reported_rather_than_silently_empty(session):

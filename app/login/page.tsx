@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 /**
  * Operator sign-in.
@@ -9,8 +9,20 @@ import { useState } from "react";
  * The engine proxy holds a server-side admin token, so this page is the only
  * thing standing between the public site and the engine's write routes.
  */
-export default function LoginPage() {
+
+/**
+ * Only a same-origin path is a valid destination. A `next` value of
+ * `//evil.example` or `https://evil.example` would otherwise turn the sign-in
+ * form into an open redirect.
+ */
+function safeNext(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  return value;
+}
+
+function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -35,7 +47,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      router.push(safeNext(searchParams.get("next")));
       router.refresh();
     } catch {
       setError("Could not reach the server. Check your connection.");
@@ -44,6 +56,52 @@ export default function LoginPage() {
     }
   }
 
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl border border-border bg-card p-6"
+    >
+      <label
+        htmlFor="password"
+        className="block text-sm font-medium text-foreground"
+      >
+        Operator password
+      </label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autoComplete="current-password"
+        required
+        value={password}
+        onChange={(event) => setPassword(event.target.value)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? "signin-error" : undefined}
+        className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+
+      {error ? (
+        <p
+          id="signin-error"
+          role="alert"
+          className="mt-3 text-sm text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      <button
+        type="submit"
+        disabled={pending}
+        className="mt-5 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+      >
+        {pending ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background px-6 py-16">
       <div className="w-full max-w-sm">
@@ -59,47 +117,13 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-xl border border-border bg-card p-6"
+        <Suspense
+          fallback={
+            <div className="h-56 rounded-xl border border-border bg-card" />
+          }
         >
-          <label
-            htmlFor="password"
-            className="block text-sm font-medium text-foreground"
-          >
-            Operator password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "signin-error" : undefined}
-            className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-
-          {error ? (
-            <p
-              id="signin-error"
-              role="alert"
-              className="mt-3 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={pending}
-            className="mt-5 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
-            {pending ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+          <SignInForm />
+        </Suspense>
       </div>
     </main>
   );

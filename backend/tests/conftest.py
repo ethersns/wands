@@ -32,6 +32,11 @@ os.environ["WANDS_LOG_LEVEL"] = "WARNING"
 # providers explicitly.
 os.environ["WANDS_MARKET_DATA_ENABLED"] = "false"
 os.environ["WANDS_MARKET_DATA_WORKER_ENABLED"] = "false"
+# Collectors refuse to run unless ingestion is explicitly enabled, so the suite
+# turns it on and supplies the real contact that enabling it requires. No test
+# reaches the network: every collector is given a fake client.
+os.environ["WANDS_INTELLIGENCE_INGEST_ENABLED"] = "true"
+os.environ["WANDS_SEC_USER_AGENT"] = "wands-research/0.1 (tests; contact: qa@wands.internal)"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

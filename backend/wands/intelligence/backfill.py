@@ -51,7 +51,7 @@ from wands.intelligence.base import (
     SourceUnavailable,
 )
 from wands.intelligence.edgar import EdgarClient
-from wands.intelligence.ingest import InsiderIngestor, build_client
+from wands.intelligence.ingest import InsiderIngestor, build_client, ingest_disabled_reason
 from wands.logging import get_logger
 
 logger = get_logger(__name__)
@@ -206,10 +206,9 @@ class BackfillRunner:
         max_filings: int | None = None,
     ) -> BackfillResult:
         result = BackfillResult()
-        if not self.settings.intelligence_enabled:
-            result.errors.append(
-                {"stage": "config", "message": "Intelligence collection is disabled."}
-            )
+        reason = ingest_disabled_reason(self.settings)
+        if reason is not None:
+            result.errors.append({"stage": "config", "message": reason})
             return result
         if not self.client.is_configured():
             result.errors.append(

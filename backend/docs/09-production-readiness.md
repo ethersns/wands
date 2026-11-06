@@ -4,6 +4,11 @@ Status of the milestone: **implemented and locally verified; not
 production-verified.** No VPS was provisioned, no billable resource was created,
 and no production service was deployed. Live trading remains disabled.
 
+This revision continues the paused plan. Tasks 1–5 were already complete; this
+pass finished **task 6 (SEC ingestion operational hardening)** and **task 7
+(observability, DR drills, deployment guide)**, and added the cross-agent
+compatibility check against the commercial site. Sections 3a and 11 are new.
+
 ## 1. Repository and merge state
 
 | Item | Value |
@@ -54,11 +59,23 @@ Frontend:
 | File | Change |
 | --- | --- |
 | `lib/auth/session.ts` | signed operator session (Web Crypto) |
+| `lib/auth/routes.ts` | **new** — three-tier route classification |
 | `app/api/session/route.ts` | sign-in / sign-out |
-| `middleware.ts` | gate on `/api/wands/*` |
-| `app/login/page.tsx` | operator sign-in page |
+| `middleware.ts` | gate on the operator tier, not just `/api/wands/*` |
+| `app/login/page.tsx` | operator sign-in page; honours `next` with an open-redirect guard |
 | `tests/auth/session.test.ts` | 15 tests |
-| `tests/auth/middleware.test.ts` | 6 tests |
+| `tests/auth/middleware.test.ts` | 17 tests |
+
+Backend, this pass:
+
+| File | Change |
+| --- | --- |
+| `wands/intelligence/ingest.py` | `ingest_disabled_reason()`, rate limit and retries wired in `build_client()` |
+| `wands/intelligence/backfill.py` | enforces the ingest switch |
+| `tests/conftest.py` | enables ingestion with a real contact for the suite |
+| `tests/test_intelligence_ingest.py` | 3 tests for the switch and the client wiring |
+| `tests/test_deployment_guards.py` | pinned so the suite switch cannot leak in |
+| `docs/07-operations.md` | SEC section corrected and extended |
 
 ## 3. Security issues fixed
 
@@ -104,15 +121,48 @@ and serve it as real state. The engine now refuses to start.
 agent carries `ops@example.com`. Enabling ingestion now fails validation until a
 real address is configured. No contact was fabricated.
 
+## 3a. Issues found in this pass
+
+**8. Two more unauthenticated admin proxies.** The previous pass gated
+`/api/wands/*` and stopped there. `POST /api/research` and
+`GET /api/markets/candles` also call the engine through `engineFetch()`, which
+attaches the server-side `WANDS_ENGINE_TOKEN`. Neither was behind the operator
+gate, so anyone who could load the site could:
+
+- make the engine fetch the operator's real portfolio, risk policy, bot list and
+  backtests, and feed them to a language model (`/api/research`), and
+- read the engine's candle feed (`/api/markets/candles`).
+
+This is the same defect class as issue 4, in routes the first fix did not cover.
+Both are now in the operator tier. Verified against a production build: 401
+without a session, 200 with one.
+
+**9. The SEC ingestion switch was not enforced.** `WANDS_INTELLIGENCE_INGEST_ENABLED`
+was documented as the master switch and checked only by the startup validator.
+The collectors themselves checked `intelligence_enabled`, which defaults to
+**true**. A host that set nothing would therefore have collected from the SEC
+with the placeholder contact. `ingest_disabled_reason()` is now called by all
+three collectors — insider, institutional and backfill — so the scheduler, the
+CLI and the API backfill all refuse.
+
+**10. The SEC rate limit and retry budget were dead configuration.**
+`WANDS_SEC_RATE_LIMIT_PER_SECOND` and `WANDS_SEC_MAX_RETRIES` were defined and
+documented as respected, but `build_client()` never passed them and
+`EdgarClient` hardcoded `TokenBucket(5.0, 5)`. The published fair-access ceiling
+was a constant in the transport, not a deployment setting. Both are now wired
+through `build_client()`.
+
 ## 4. Test and build results
 
 | Check | Result |
 | --- | --- |
-| Backend suite (`pytest`) | **449 passed** |
-| Frontend suite (`vitest`) | **72 passed** |
+| Backend suite (`pytest`) | **452 passed** |
+| Frontend suite (`vitest`) | **83 passed** |
 | TypeScript (`tsc --noEmit`) | clean |
 | ESLint | clean |
+| Next.js production build | passed (24 routes) |
 | Alembic `upgrade → downgrade → upgrade` | passed (in suite) |
+| Production gate, live server | passed (see section 12) |
 
 New coverage: 9 denial tests (viewer, operator, admin-without-MFA, admin-with-
 MFA, single-event, unauthenticated, no-credential-in-detail, audit-store-down,
@@ -172,6 +222,11 @@ removed rather than left running idle.
 8. **Dependency versions are lower-bounded, not locked.** `pyproject.toml` uses
    `>=` with no lockfile, so two builds can resolve differently. Pin before
    relying on reproducible rebuilds.
+9. **The console and the marketing site still share a root layout and a home
+   route.** `/` is the trading dashboard and `app/layout.tsx` wraps every route
+   in the console shell with a global `noindex`. The commercial site cannot ship
+   a public landing page until the console moves to `/dashboard` and the shell
+   moves into a console-only route group. Details in section 11.
 
 ## 8. Required environment variables
 
@@ -234,7 +289,74 @@ Indicative only; confirm current pricing before committing.
 10. Only then consider enabling SEC collection, starting with a narrow date
     range and a short issuer list.
 
-## 11. Feature status
+## 11. Commercial site compatibility
+
+A second agent is building the public landing page, pricing, Stripe and waitlist.
+The gate now classifies every path into one of three tiers in
+`lib/auth/routes.ts`, and the classification is the single place to change:
+
+| Tier | Paths | Requirement |
+| --- | --- | --- |
+| `public` | everything not listed below, including `/`, `/login`, `/pricing`, `/waitlist`, `/legal/*`, `/blog/*` | none |
+| `customer` | reserved, currently empty | a customer session, never an operator one |
+| `operator` | `/api/wands/*`, `/api/research`, `/api/markets/*`, `/dashboard`, `/portfolio`, `/markets`, `/bots`, `/orders`, `/intelligence`, `/strategy-lab`, `/research`, `/risk`, `/connections`, `/settings` | signed operator session |
+
+Unknown paths are **public**. That is deliberate: the commercial site adds pages
+without editing this file, and a new public page must never be blocked by a gate
+that has not heard of it. The cost is that a new *private* page is public until
+it is listed, so the operator list is the thing to keep current. A test asserts
+the middleware matcher covers every operator prefix.
+
+Verified against a production build with the gate configured:
+
+| Request | No session | With session |
+| --- | --- | --- |
+| `GET /login` | 200 | 200 |
+| `GET /portfolio` | 307 → `/login?next=/portfolio` | 200 |
+| `GET /risk` | 307 → `/login` | 200 |
+| `GET /api/research` | 401 | 405 (reaches the POST-only handler) |
+| `GET /api/markets/candles` | 401 | 200 |
+| `GET /api/wands/engine/status` | 401 | proxied |
+| forged `wands_operator` cookie | 401 | — |
+| wrong password at `POST /api/session` | 401 | — |
+
+The remaining cross-agent properties hold by construction:
+
+- **No marketing form can reach the engine.** The only routes that call
+  `engineFetch()` are the three operator-tier API paths. A waitlist or checkout
+  route added by the commercial site does not import it.
+- **Stripe webhooks cannot impersonate an operator.** The session is a signed
+  HttpOnly cookie; a webhook route receives no cookie and cannot mint one
+  without `WANDS_SESSION_SECRET`.
+- **Billing credentials cannot reach trading services.** `WANDS_ENGINE_TOKEN` is
+  server-only and read by `engineConfig()`. Stripe keys are separate variables
+  and nothing forwards one as the other.
+- **The frontend cannot be tricked into forwarding an admin request.** The BFF
+  builds the upstream request from scratch — method, body and a fixed
+  `authorization` header. It never spreads `request.headers`, so a client cannot
+  inject or override the engine credential.
+- **Protection is server-side.** The gate is middleware plus engine RBAC. Hiding
+  a control in the UI is never the enforcement.
+
+### Shared-file conflicts to resolve at integration
+
+1. **`app/page.tsx` is the trading dashboard, and `/` is classified public.**
+   The commercial site will want `/` for the landing page. The console should
+   move to `/dashboard`, which is already in the operator tier, so the move needs
+   no gate change. Until it moves, the dashboard's HTML shell is public — its
+   data is not, because every call it makes is gated.
+2. **`app/layout.tsx` wraps every route in `AppShell`** (sidebar, market tape,
+   emergency stop) and sets `robots: { index: false }` globally. A public
+   marketing page rendered inside that shell is wrong, and a global `noindex`
+   deindexes the marketing site. The shell and the metadata need to move to a
+   route group that only the console uses.
+3. **`middleware.ts` and `lib/auth/routes.ts`** are shared. The commercial site
+   should add its billing paths to `CUSTOMER_PREFIXES` rather than editing the
+   matcher.
+4. **`components/shell/nav-items.ts`** lists `/` as the Dashboard. It needs the
+   same move as item 1.
+
+## 12. Feature status
 
 | Area | Implemented | Locally tested | Deployment-ready | Production-verified |
 | --- | --- | --- | --- | --- |
@@ -244,6 +366,10 @@ Indicative only; confirm current pricing before committing.
 | SQLite production guard | Yes | Yes | Yes | No |
 | SEC contact validation | Yes | Yes | Yes | No |
 | Operator gate (BFF) | Yes | Yes | Yes | No |
+| Route tier classification | Yes | Yes | Yes | No |
+| Research/candles gate | Yes | Yes | Yes | No |
+| SEC ingest switch enforced | Yes | Yes | Yes | No |
+| SEC rate limit from settings | Yes | Yes | Yes | No |
 | Compose hardening | Yes | YAML only | Reviewed | No |
 | Migrations on Postgres | Yes | Yes | Yes | No |
 | Backup / restore | Yes | Yes (Postgres) | Yes | No |
