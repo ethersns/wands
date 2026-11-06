@@ -21,6 +21,7 @@ available earlier than it really was.
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -48,6 +49,18 @@ def _pad_cik(cik: str) -> str:
 
 def _bare_accession(accession: str) -> str:
     return accession.replace("-", "").strip()
+
+
+# The submissions feed points ``primaryDocument`` at the XSL-rendered HTML view
+# for most Form 3/4/5 filings (``xslF345X06/form4.xml``). That document is HTML,
+# so parsing it as ownership XML always fails. The raw document sits beside it
+# under the same accession folder, so the view prefix is stripped before fetch.
+_XSL_VIEW_PREFIX = re.compile(r"^xsl[^/]*/", re.IGNORECASE)
+
+
+def raw_document_path(primary: str) -> str:
+    """Return the raw document path for a ``primaryDocument`` value."""
+    return _XSL_VIEW_PREFIX.sub("", (primary or "").strip())
 
 
 def _parse_datetime(value: str) -> datetime | None:
@@ -345,7 +358,7 @@ class EdgarClient:
             if until is not None and accepted > until:
                 continue
 
-            primary = str(_at(block, "primaryDocument", index) or "").strip()
+            primary = raw_document_path(str(_at(block, "primaryDocument", index) or ""))
             if not primary:
                 continue
 

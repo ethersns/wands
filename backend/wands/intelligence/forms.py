@@ -168,6 +168,7 @@ def parse_ownership_document(
     accepted_at: datetime,
     source_url: str,
     form_type_hint: str = "",
+    filed_date: datetime | None = None,
 ) -> ParsedFiling:
     """Parse a Form 3/4/5 ownership document.
 
@@ -230,6 +231,7 @@ def parse_ownership_document(
         owners=owners,
         transactions=transactions,
         raw_sha256=hashlib.sha256(document).hexdigest(),
+        filed_date=filed_date,
     )
 
 
