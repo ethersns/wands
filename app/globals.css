@@ -103,6 +103,8 @@
   --font-display: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
   --font-marketing: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-marketing-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-editorial: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif,
+    system-ui, sans-serif;
 
   --color-mk-bg: var(--mk-bg);
   --color-mk-deep: var(--mk-deep);
@@ -117,6 +119,8 @@
   --color-mk-accent-ink: var(--mk-accent-ink);
   --color-mk-accent-soft: var(--mk-accent-soft);
   --color-mk-warn: var(--mk-warn);
+  --color-mk-emerald: var(--mk-emerald);
+  --color-mk-silver: var(--mk-silver);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -256,18 +260,20 @@
 --------------------------------------------------------------------------- */
 
 :root {
-  --mk-bg: #07080a;
-  --mk-deep: #040507;
-  --mk-surface: #0b0d11;
-  --mk-raised: #101318;
+  --mk-bg: #08090b;
+  --mk-deep: #050607;
+  --mk-surface: #0c0e12;
+  --mk-raised: #12151a;
   --mk-line: rgba(255, 255, 255, 0.07);
-  --mk-line-strong: rgba(255, 255, 255, 0.14);
-  --mk-fg: #eceef2;
-  --mk-muted: #8c939f;
-  --mk-dim: #5e6570;
-  --mk-accent: #3de8a8;
-  --mk-accent-ink: #04140d;
-  --mk-accent-soft: rgba(61, 232, 168, 0.1);
+  --mk-line-strong: rgba(255, 255, 255, 0.15);
+  --mk-fg: #f4f5f7;
+  --mk-muted: #8c939d;
+  --mk-dim: #5c626b;
+  --mk-accent: #c8f751;
+  --mk-accent-ink: #0b1002;
+  --mk-accent-soft: rgba(200, 247, 81, 0.1);
+  --mk-emerald: #2fe39b;
+  --mk-silver: #b7bec7;
   --mk-warn: #e9b44c;
 }
 
@@ -275,6 +281,9 @@
   background-color: var(--mk-bg);
   color: var(--mk-fg);
   font-family: var(--font-marketing);
+  /* The public site carries the editorial display face; the terminal keeps its own. */
+  --font-display: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif,
+    system-ui, sans-serif;
 }
 
 @utility mk-hairline {
@@ -354,6 +363,173 @@
 
   .mk-scanline,
   .mk-ticker {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Editorial layer
+   The public site reads like a printed research note: hairline rules, oversized
+   display type, monospace provenance. Motion is scroll-linked and opt-out.
+--------------------------------------------------------------------------- */
+
+@utility mk-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@utility mk-vignette {
+  background: radial-gradient(
+    120% 80% at 50% 0%,
+    rgba(200, 247, 81, 0.07) 0%,
+    rgba(8, 9, 11, 0) 55%
+  );
+}
+
+@utility mk-lime-glow {
+  box-shadow:
+    0 0 0 1px rgba(200, 247, 81, 0.16),
+    0 60px 160px -70px rgba(200, 247, 81, 0.4);
+}
+
+@utility mk-fade-x {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 8%,
+    #000 92%,
+    transparent
+  );
+}
+
+@utility mk-fade-y {
+  mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+}
+
+.mk-line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+  margin-bottom: -0.08em;
+}
+
+.mk-line > span {
+  display: block;
+  transform: translate3d(0, 108%, 0);
+}
+
+[data-reveal="lines"],
+[data-reveal="lines-in"] {
+  opacity: 1;
+}
+
+[data-reveal="lines-in"] .mk-line > span {
+  animation: mk-line-up 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 80ms);
+}
+
+@keyframes mk-line-up {
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.mk-stage {
+  transform-origin: 50% 0%;
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .mk-stage {
+      animation: mk-stage-in linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 40%;
+    }
+  }
+}
+
+@keyframes mk-stage-in {
+  from {
+    transform: perspective(1800px) rotateX(7deg) scale(0.94);
+    opacity: 0.55;
+  }
+  to {
+    transform: perspective(1800px) rotateX(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes mk-drift-y {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, -140%, 0);
+    opacity: 0;
+  }
+}
+
+@utility mk-drift {
+  animation: mk-drift-y 9s linear infinite;
+}
+
+@keyframes mk-stream-y {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -50%, 0);
+  }
+}
+
+@utility mk-stream {
+  animation: mk-stream-y 26s linear infinite;
+}
+
+@keyframes mk-sweep-x {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@utility mk-sweep {
+  animation: mk-sweep-x 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes mk-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@utility mk-caret {
+  animation: mk-caret-blink 1.1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-line > span {
+    transform: none;
+  }
+
+  [data-reveal="lines-in"] .mk-line > span,
+  .mk-drift,
+  .mk-stream,
+  .mk-sweep,
+  .mk-caret {
     animation: none;
   }
 }

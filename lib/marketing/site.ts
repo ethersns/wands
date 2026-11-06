@@ -9,9 +9,9 @@ export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
       : "http://localhost:3000";
 
 export const siteDescription =
-  "Wands turns SEC filings, institutional holdings and market data into ranked, evidence-backed signals — then lets you validate the thesis before you commit capital.";
+  "Go beyond the price chart. Wands brings insider activity, institutional filings and research signals into one workspace built for independent traders.";
 
-export const siteTagline = "Market intelligence for people who trade on evidence";
+export const siteTagline = "Market intelligence for the independently minded";
 
 export const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? null;
 
@@ -23,9 +23,10 @@ export interface MarketingNavItem {
 }
 
 export const marketingNav: MarketingNavItem[] = [
-  { href: "/features", label: "Product" },
+  { href: "/#platform", label: "Platform" },
+  { href: "/#intelligence", label: "Intelligence" },
+  { href: "/#research", label: "Research" },
   { href: "/pricing", label: "Pricing" },
-  { href: "/security", label: "Security" },
   { href: "/about", label: "About" },
 ];
 
@@ -58,4 +59,4 @@ export const footerNav: { title: string; items: MarketingNavItem[] }[] = [
   },
 ];
 
-export const primaryCta = { href: "/#access", label: "Request access" };
+export const primaryCta = { href: "/#access", label: "Get Early Access" };

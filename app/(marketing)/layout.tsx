@@ -9,7 +9,7 @@ export default function MarketingLayout({
   return (
     <div className="mk-shell flex min-h-dvh flex-col">
       <noscript>
-        <style>{`[data-reveal]{opacity:1 !important}`}</style>
+        <style>{`[data-reveal]{opacity:1 !important}[data-reveal] .mk-line>span{transform:none !important}`}</style>
       </noscript>
       <SiteHeader />
       <main className="flex-1">{children}</main>

@@ -84,15 +84,16 @@ export function WaitlistForm({
         )}
         role="status"
       >
-        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-mk-accent text-mk-accent-ink">
+        <span className="mt-0.5 flex size-6 shrink-0 animate-[mk-rise_0.5s_cubic-bezier(0.16,1,0.3,1)] items-center justify-center rounded-full bg-mk-accent text-mk-accent-ink">
           <Check className="size-3.5" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <p className="text-[14px] font-medium text-mk-fg">
-            You are on the list.
+          <p className="font-editorial text-[13px] font-semibold tracking-[0.06em] text-mk-fg uppercase">
+            You&apos;re in early.
           </p>
           <p className="text-[13px] leading-relaxed text-mk-muted">
-            {message} We review the waitlist weekly and send invites in order.
+            Thanks for joining. We&apos;ll let you know when there&apos;s
+            something worth opening.
           </p>
         </div>
       </div>
@@ -117,7 +118,7 @@ export function WaitlistForm({
             required
             autoComplete="email"
             inputMode="email"
-            placeholder="you@company.com"
+            placeholder="Your email address"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             aria-describedby={statusId}
@@ -137,7 +138,7 @@ export function WaitlistForm({
             </>
           ) : (
             <>
-              Request access
+              Get on the List
               <ArrowRight className="size-4" aria-hidden />
             </>
           )}
