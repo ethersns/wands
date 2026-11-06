@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "Wands",
     description:
       "Private automated trading platform for crypto and equities: portfolio, bots, strategy research and risk control.",
-    start_url: "/",
+    start_url: "/dashboard",
     display: "standalone",
     background_color: "#07080a",
     theme_color: "#07080a",

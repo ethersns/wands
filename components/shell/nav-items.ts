@@ -30,7 +30,7 @@ export const navGroups: NavGroup[] = [
     label: "Operate",
     items: [
       {
-        href: "/",
+        href: "/dashboard",
         label: "Dashboard",
         icon: LayoutDashboard,
         description: "Command centre",
@@ -112,8 +112,5 @@ export const navGroups: NavGroup[] = [
 export const allNavItems = navGroups.flatMap((group) => group.items);
 
 export function navItemFor(pathname: string): NavItem | undefined {
-  if (pathname === "/") return allNavItems[0];
-  return allNavItems.find(
-    (item) => item.href !== "/" && pathname.startsWith(item.href),
-  );
+  return allNavItems.find((item) => pathname.startsWith(item.href));
 }
