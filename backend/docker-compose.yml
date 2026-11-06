@@ -1,64 +1,67 @@
-# Wands engine stack.
+# Wands engine stack for a single private Linux VPS.
 #
-# PostgreSQL and Redis publish no host ports: they are reachable only on the
-# internal network. Only the engine's 8000 is bound, and it should be bound to
-# a private interface or placed behind a reverse proxy with TLS.
+# PostgreSQL publishes no host port: it is reachable only on the internal
+# network. The engine binds to loopback and is meant to sit behind a TLS
+# reverse proxy (see docs/09-deployment.md).
+#
+# There is no Redis service. The engine declares a redis_url setting but no
+# module imports a Redis client, so running one would add an idle container and
+# an unnecessary attack surface. Add it back only when something actually
+# connects to it.
+#
+# Migrations are a discrete step, not a side effect of starting the engine:
+# `migrate` runs once per `up` and the engine waits for it to succeed. A restart
+# therefore never applies a schema change on its own.
 
 name: wands
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Pinned to a patch release. Pin by digest for a fully reproducible host.
+    image: postgres:16.4-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-wands}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-wands}
+      # Deterministic collation so an index built on one host matches another.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - internal
+    shm_size: 256mb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wands} -d ${POSTGRES_DB:-wands}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 20s
+    stop_grace_period: 60s
     security_opt:
       - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
-    volumes:
-      - redis-data:/data
-    networks:
-      - internal
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    security_opt:
-      - no-new-privileges:true
-
-  engine:
+  migrate:
     build: .
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     env_file:
       - .env
     environment:
       WANDS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wands}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wands}
-      WANDS_REDIS_URL: redis://redis:6379/0
-    ports:
-      # Bind to loopback by default. Put a TLS reverse proxy in front, or bind
-      # to a private interface reachable only from the frontend's egress.
-      - "127.0.0.1:8000:8000"
+    command: ["alembic", "upgrade", "head"]
     networks:
       - internal
     read_only: true
@@ -68,10 +71,80 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  engine:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      WANDS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-wands}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wands}
+      # Only the reverse proxy may set X-Forwarded-For. The engine records the
+      # client IP in the audit trail from that header.
+      WANDS_FORWARDED_ALLOW_IPS: ${WANDS_FORWARDED_ALLOW_IPS:-127.0.0.1}
+    ports:
+      # Loopback only. Put a TLS reverse proxy in front; never publish 8000.
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+
+  # One-shot logical backup: `docker compose run --rm backup`.
+  # Schedule it from host cron; see docs/09-deployment.md.
+  backup:
+    image: postgres:16.4-alpine
+    profiles: ["ops"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+        pg_dump -h postgres -U ${POSTGRES_USER:-wands} -d ${POSTGRES_DB:-wands} -Fc -f /backups/wands-$$stamp.dump
+        echo "wrote /backups/wands-$$stamp.dump"
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   postgres-data:
-  redis-data:
 
 networks:
   internal:

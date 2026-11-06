@@ -31,7 +31,7 @@ from wands.schemas import (
     dump,
     dump_many,
 )
-from wands.security.audit import record_for_principal
+from wands.security.audit import DENIAL_ACTION, denial_counts, record_for_principal
 from wands.security.auth import Principal
 from wands.security.rbac import Role
 from wands.state import get_engine_state
@@ -244,3 +244,25 @@ def audit_log(
         for row in rows
     ]
     return envelope(dump_many(events))
+
+
+@router.get("/security")
+def security_posture(
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    """Rejection counters alongside the durable denial trail.
+
+    The counters are process-local and reset on restart; the audit rows are the
+    durable record. Admin-only, because the actor names in the trail are
+    themselves sensitive.
+    """
+    denied = session.scalar(
+        select(func.count()).select_from(AuditEvent).where(AuditEvent.action == DENIAL_ACTION)
+    )
+    return envelope(
+        {
+            "rejectionsSinceStart": denial_counts(),
+            "denialsRecorded": denied or 0,
+        }
+    )
