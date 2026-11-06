@@ -7,6 +7,7 @@ default. Nothing else in the codebase calls ``os.environ``.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
@@ -15,6 +16,18 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TradingMode = Literal["backtest", "paper", "live"]
+
+
+def _parse_date(value: str, fallback: date) -> date:
+    """Parse an ISO date, falling back rather than raising.
+
+    A malformed backfill bound should not stop the engine from booting; it
+    should fall back to a documented default that the operator can see.
+    """
+    try:
+        return date.fromisoformat(value.strip())
+    except (ValueError, AttributeError):
+        return fallback
 
 
 class Settings(BaseSettings):
@@ -101,12 +114,55 @@ class Settings(BaseSettings):
     # Comma-separated CIKs to poll. Empty means "derive from the equity
     # watchlist", which is the useful default for a small deployment.
     intelligence_insider_ciks: str = ""
+    # Comma-separated 13F filer CIKs. Empty means the institutional collector
+    # reports that it has nothing to poll rather than guessing at managers.
+    intelligence_institution_ciks: str = ""
     intelligence_insider_lookback_days: int = 30
     intelligence_cluster_min_insiders: int = 3
     intelligence_cluster_window_days: int = 30
     intelligence_purchase_value_threshold_usd: Decimal = Decimal("250000")
     intelligence_activity_baseline_days: int = 180
     intelligence_signal_engine_version: str = "1.0"
+
+    # --- intelligence: historical backfill --------------------------------
+    # The recent-filings block in the submissions JSON only reaches back a few
+    # hundred filings per issuer. Older history lives in the per-issuer archive
+    # pages, which is what backfill walks. It is off by default because it is a
+    # long, rate-limited crawl rather than a request-time operation.
+    intelligence_backfill_enabled: bool = False
+    intelligence_backfill_start_date: str = "2015-01-01"
+    # Empty means "up to the most recent completed filing".
+    intelligence_backfill_end_date: str = ""
+    # SEC fair access is the real bound here, not CPU. Two workers at half the
+    # published rate stays well inside the ceiling.
+    intelligence_backfill_max_workers: int = 2
+    intelligence_backfill_batch_size: int = 200
+    intelligence_backfill_max_retries: int = 4
+    intelligence_backfill_retry_base_seconds: float = 1.0
+    intelligence_backfill_retry_max_seconds: float = 60.0
+
+    # --- intelligence: scheduled jobs -------------------------------------
+    intelligence_jobs_enabled: bool = False
+    # A lease longer than the slowest expected run. A job whose lease expires
+    # is treated as interrupted and may be reclaimed by another process.
+    intelligence_job_lease_seconds: int = 900
+    intelligence_job_max_failures: int = 5
+    intelligence_job_poll_seconds: int = 30
+
+    # --- intelligence: signal validation ----------------------------------
+    intelligence_validation_horizons: str = "1,5,10,20,60"
+    intelligence_validation_benchmark: str = "SPY"
+    # Round-trip costs in basis points. Applied to every simulated trade, so a
+    # gross edge smaller than the total is reported as a loss.
+    intelligence_validation_spread_bps: Decimal = Decimal("5")
+    intelligence_validation_commission_bps: Decimal = Decimal("1")
+    intelligence_validation_slippage_bps: Decimal = Decimal("5")
+    # Fraction of the sample used for in-sample fitting. The remainder is the
+    # out-of-sample window and is never used to choose anything.
+    intelligence_validation_train_fraction: float = 0.6
+    intelligence_validation_min_sample: int = 30
+    intelligence_validation_bootstrap_iterations: int = 2000
+    intelligence_validation_seed: int = 20240101
 
     # --- http -------------------------------------------------------------
     allowed_origins: str = ""
@@ -136,6 +192,46 @@ class Settings(BaseSettings):
     @property
     def watchlist(self) -> list[str]:
         return [item.strip() for item in self.market_watchlist.split(",") if item.strip()]
+
+    @property
+    def backfill_start(self) -> date:
+        return _parse_date(self.intelligence_backfill_start_date, date(2015, 1, 1))
+
+    @property
+    def backfill_end(self) -> date | None:
+        """``None`` means "no upper bound", not "today".
+
+        Pinning the end to the day the process started would make a resumed
+        backfill silently skip everything filed since, so the absence of an
+        explicit end is carried through as an open interval.
+        """
+        if not self.intelligence_backfill_end_date.strip():
+            return None
+        return _parse_date(self.intelligence_backfill_end_date, date.today())
+
+    @property
+    def validation_horizons(self) -> list[int]:
+        horizons: list[int] = []
+        for entry in self.intelligence_validation_horizons.split(","):
+            text = entry.strip()
+            if not text:
+                continue
+            try:
+                value = int(text)
+            except ValueError:
+                continue
+            if value > 0 and value not in horizons:
+                horizons.append(value)
+        return sorted(horizons) or [1, 5, 10, 20, 60]
+
+    @property
+    def validation_cost_bps(self) -> Decimal:
+        """Total round-trip cost charged to every simulated trade."""
+        return (
+            self.intelligence_validation_spread_bps
+            + self.intelligence_validation_commission_bps
+            + self.intelligence_validation_slippage_bps
+        )
 
     @property
     def fx_overrides(self) -> dict[tuple[str, str], Decimal]:

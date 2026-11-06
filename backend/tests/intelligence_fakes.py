@@ -180,6 +180,8 @@ class FakeEdgarClient:
 
     documents: dict[str, bytes] = field(default_factory=dict)
     filings: dict[str, list[FilingRef]] = field(default_factory=dict)
+    # Older filings that only the archive pages carry.
+    archive: dict[str, list[FilingRef]] = field(default_factory=dict)
     institutional: dict[str, list[FilingRef]] = field(default_factory=dict)
     information_tables: dict[str, bytes] = field(default_factory=dict)
     tickers: dict[str, str] = field(default_factory=dict)
@@ -225,6 +227,36 @@ class FakeEdgarClient:
             refs = [ref for ref in refs if ref.accepted_at >= since]
         return refs[:limit]
 
+    def archive_pages(self, cik: str) -> list[dict[str, Any]]:
+        self.calls.append(f"archive_pages:{cik}")
+        if not self.archive.get(cik):
+            return []
+        return [{"name": f"{cik}-submissions-001.json", "filingCount": 1}]
+
+    def all_filings(
+        self,
+        cik: str,
+        *,
+        forms: Any = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 10_000,
+        page_loader: Any = None,
+    ) -> list[FilingRef]:
+        """Recent block plus archive pages, filtered the way the real client does."""
+        self.calls.append(f"all_filings:{cik}")
+        self._maybe_fail()
+        refs = list(self.filings.get(cik, []))
+        if self.archive.get(cik):
+            if page_loader is not None:
+                page_loader(f"{cik}-submissions-001.json")
+            refs.extend(self.archive[cik])
+        if since is not None:
+            refs = [ref for ref in refs if ref.accepted_at >= since]
+        if until is not None:
+            refs = [ref for ref in refs if ref.accepted_at <= until]
+        return refs[:limit]
+
     def document(self, cik: str, accession: str, filename: str) -> bytes:
         self.calls.append(f"document:{accession}")
         self._maybe_fail()
@@ -268,11 +300,72 @@ def filing_ref(
     )
 
 
+@dataclass
+class FakePriceProvider:
+    """A deterministic daily bar source.
+
+    Bars are generated on weekdays only, so a test that asserts "the next
+    session" is asserting against a realistic calendar rather than a contiguous
+    list of days.
+    """
+
+    series: dict[str, list[Any]] = field(default_factory=dict)
+    calls: list[str] = field(default_factory=list)
+
+    def daily(self, symbol: str, start: datetime, end: datetime) -> list[Any]:
+        self.calls.append(f"daily:{symbol}")
+        return [
+            point
+            for point in self.series.get(symbol.upper(), [])
+            if start <= point.at <= end
+        ]
+
+
+def daily_series(
+    symbol: str,
+    start: datetime,
+    sessions: int,
+    *,
+    start_price: float = 100.0,
+    daily_return: float = 0.0,
+    skip: set[int] | None = None,
+) -> list[Any]:
+    """Build ``sessions`` weekday bars starting at ``start``.
+
+    ``skip`` omits specific session indices, which is how a test creates a
+    delisting or a data gap without inventing a second code path.
+    """
+    from datetime import timedelta
+
+    from wands.intelligence.validation import PricePoint
+
+    points: list[Any] = []
+    moment = start
+    price = start_price
+    index = 0
+    while len(points) < sessions:
+        if moment.weekday() < 5:
+            if skip is None or index not in skip:
+                points.append(
+                    PricePoint(
+                        at=moment,
+                        open=price,
+                        close=price * (1.0 + daily_return),
+                    )
+                )
+            price = price * (1.0 + daily_return)
+            index += 1
+        moment = moment + timedelta(days=1)
+    return points
+
+
 __all__ = [
     "FIXED_NOW",
     "FakeEdgarClient",
+    "FakePriceProvider",
     "SourceRateLimited",
     "SourceUnavailable",
+    "daily_series",
     "filing_ref",
     "form4_xml",
     "information_table_xml",

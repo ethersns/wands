@@ -21,6 +21,10 @@ const ALLOWED_PREFIXES = [
   "engine",
   "paper",
   "markets",
+  // Research administration (backfill, job pause/resume). The engine enforces
+  // admin RBAC on these; this proxy is a transport, not an authorization
+  // boundary, and it never grants a capability the engine would refuse.
+  "intelligence",
 ];
 
 const TIMEOUT_MS = 8_000;

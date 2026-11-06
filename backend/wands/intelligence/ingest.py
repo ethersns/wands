@@ -190,11 +190,17 @@ class InsiderIngestor:
         self._finish(run_row, result)
         return result
 
-    def ingest_filing(self, ref: FilingRef) -> tuple[bool, int]:
+    def ingest_filing(
+        self, ref: FilingRef, *, document: bytes | None = None
+    ) -> tuple[bool, int]:
         """Store one filing. Returns ``(created, transaction_rows)``.
 
         A filing already in the database is skipped without re-fetching, which
         is what makes a repeated run cheap and idempotent.
+
+        ``document`` lets a caller that already downloaded the bytes — a
+        concurrent backfill — hand them over instead of paying for a second
+        request against the SEC's rate limit.
         """
         existing = self.session.scalar(
             select(IntelFilingRow).where(
@@ -204,9 +210,10 @@ class InsiderIngestor:
         if existing is not None:
             return False, 0
 
-        document = self.client.document(
-            ref.issuer_cik, ref.accession_number, ref.primary_document
-        )
+        if document is None:
+            document = self.client.document(
+                ref.issuer_cik, ref.accession_number, ref.primary_document
+            )
         parsed = parse_ownership_document(
             document,
             accession_number=ref.accession_number,

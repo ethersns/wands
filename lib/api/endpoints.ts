@@ -17,7 +17,15 @@ import type {
   InsiderSymbolSummary,
   InstitutionChanges,
   InstitutionFeed,
+  IntelBackfillRequest,
+  IntelBackfillResult,
+  IntelCoverage,
+  IntelExperiment,
+  IntelExperimentFeed,
+  IntelJob,
+  IntelJobFeed,
   IntelStatus,
+  IntelValidation,
   MarketDataHealth,
   MarketOverview,
   Order,
@@ -343,3 +351,90 @@ export const getSymbolResearch = cache((symbol: string) =>
     }),
   ),
 );
+
+/* --- research operations (intelligence 1.1) ------------------------------ */
+
+const emptyJobFeed: IntelJobFeed = {
+  items: [],
+  total: 0,
+  schedulerEnabled: false,
+  caveats: [],
+};
+
+const emptyExperimentFeed: IntelExperimentFeed = {
+  items: [],
+  total: 0,
+  caveats: [],
+};
+
+export const getIntelJobs = cache(() =>
+  loadResearch<IntelJobFeed>("/v1/intelligence/jobs", () => emptyJobFeed),
+);
+
+export const getIntelCoverage = cache(() =>
+  loadResearch<IntelCoverage>("/v1/intelligence/coverage", () => ({
+    filings: 0,
+    transactions: 0,
+    signals: 0,
+    institutions: 0,
+    holdings: 0,
+    earliestFilingAt: null,
+    latestFilingAt: null,
+    earliestSignalAt: null,
+    latestSignalAt: null,
+    symbolsCovered: [],
+    identifiers: {},
+    backfill: [],
+    priceCoverage: {},
+    caveats: [],
+  })),
+);
+
+export const getIntelExperiments = cache((limit = 25) =>
+  loadResearch<IntelExperimentFeed>(
+    `/v1/intelligence/experiments?limit=${limit}`,
+    () => emptyExperimentFeed,
+  ),
+);
+
+export const getIntelExperiment = cache((id: string) =>
+  loadResearch<IntelExperiment | null>(
+    `/v1/intelligence/experiments/${encodeURIComponent(id)}`,
+    () => null,
+  ),
+);
+
+export const getSignalValidation = cache((signalId: string) =>
+  loadResearch<IntelValidation | null>(
+    `/v1/intelligence/signals/${encodeURIComponent(signalId)}/validation`,
+    () => null,
+  ),
+);
+
+/**
+ * Administrative research actions.
+ *
+ * These are not cached and not wrapped in a demo fallback: a backfill that did
+ * not run must not look like one that did. The caller gets the engine's own
+ * envelope or an explicit failure.
+ */
+export async function startBackfill(
+  request: IntelBackfillRequest,
+): Promise<ApiResult<IntelBackfillResult>> {
+  return engineFetch<IntelBackfillResult>("/v1/intelligence/backfill", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+    timeoutMs: 120_000,
+  });
+}
+
+export async function setJobPaused(
+  name: string,
+  paused: boolean,
+): Promise<ApiResult<IntelJob>> {
+  return engineFetch<IntelJob>(
+    `/v1/intelligence/jobs/${encodeURIComponent(name)}/${paused ? "pause" : "resume"}`,
+    { method: "POST" },
+  );
+}

@@ -136,6 +136,16 @@ class EdgarClient:
     def submissions(self, cik: str) -> dict[str, Any]:
         return self._get_json(f"{self.data_base_url}/submissions/CIK{_pad_cik(cik)}.json")
 
+    def submissions_archive(self, cik: str, name: str) -> dict[str, Any]:
+        """One older submissions page for an issuer.
+
+        The submissions JSON carries a ``filings.files`` list naming archive
+        pages that hold everything older than the recent block. This is the
+        documented route to full history; the recent block alone is a few
+        hundred filings and is not a historical dataset.
+        """
+        return self._get_json(f"{self.data_base_url}/submissions/{name}")
+
     def company_tickers(self) -> dict[str, str]:
         """Ticker to zero-padded CIK. Cached for the life of the client."""
         if self._ticker_cache is None:
@@ -200,23 +210,130 @@ class EdgarClient:
         """
         payload = self.submissions(cik)
         recent = (payload.get("filings") or {}).get("recent") or {}
-        accessions = recent.get("accessionNumber") or []
+        return self._refs_from_block(
+            cik,
+            recent,
+            forms=forms,
+            since=since,
+            until=None,
+            limit=limit,
+            issuer_name=str(payload.get("name") or ""),
+            symbol=_first_ticker(payload),
+        )
+
+    def archive_pages(self, cik: str) -> list[dict[str, Any]]:
+        """The archive page descriptors for an issuer, oldest last.
+
+        Each entry names a page and the date range it covers. The list is read
+        from the submissions JSON rather than guessed at, so an issuer with no
+        archive is distinguishable from one whose archive failed to load.
+        """
+        payload = self.submissions(cik)
+        files = (payload.get("filings") or {}).get("files") or []
+        pages: list[dict[str, Any]] = []
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name:
+                continue
+            pages.append(
+                {
+                    "name": name,
+                    "filingCount": int(entry.get("filingCount") or 0),
+                    "filingFrom": str(entry.get("filingFrom") or ""),
+                    "filingTo": str(entry.get("filingTo") or ""),
+                }
+            )
+        return pages
+
+    def all_filings(
+        self,
+        cik: str,
+        *,
+        forms: frozenset[str] = OWNERSHIP_FORMS,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 10_000,
+        page_loader=None,
+    ) -> list[FilingRef]:
+        """Every matching filing for an issuer, newest first, across all pages.
+
+        The recent block is read first, then each archive page. ``page_loader``
+        is injectable so a backfill can fetch pages concurrently without this
+        method owning a thread pool.
+
+        A page that fails to load is not silently treated as empty: the caller
+        receives the refs that were obtained and can compare the count against
+        the page's declared ``filingCount`` to notice the gap.
+        """
+        payload = self.submissions(cik)
+        issuer_name = str(payload.get("name") or "")
+        symbol = _first_ticker(payload)
+        recent = (payload.get("filings") or {}).get("recent") or {}
+
+        refs = self._refs_from_block(
+            cik,
+            recent,
+            forms=forms,
+            since=since,
+            until=until,
+            limit=limit,
+            issuer_name=issuer_name,
+            symbol=symbol,
+        )
+        if len(refs) >= limit:
+            return refs[:limit]
+
+        load = page_loader or (lambda name: self.submissions_archive(cik, name))
+        for page in self.archive_pages(cik):
+            if len(refs) >= limit:
+                break
+            try:
+                block = load(page["name"])
+            except SourceDataError:
+                # A missing archive page is a coverage gap, not a crash. The
+                # caller sees fewer refs than the page declared.
+                continue
+            refs.extend(
+                self._refs_from_block(
+                    cik,
+                    block,
+                    forms=forms,
+                    since=since,
+                    until=until,
+                    limit=limit - len(refs),
+                    issuer_name=issuer_name,
+                    symbol=symbol,
+                )
+            )
+        return refs[:limit]
+
+    def _refs_from_block(
+        self,
+        cik: str,
+        block: dict[str, Any],
+        *,
+        forms: frozenset[str],
+        since: datetime | None,
+        until: datetime | None,
+        limit: int,
+        issuer_name: str,
+        symbol: str,
+    ) -> list[FilingRef]:
+        accessions = block.get("accessionNumber") or []
         if not accessions:
             return []
 
-        issuer_name = str(payload.get("name") or "")
-        tickers = payload.get("tickers") or []
-        symbol = str(tickers[0]).upper() if tickers else ""
-
         refs: list[FilingRef] = []
         for index, accession in enumerate(accessions):
-            form = str(_at(recent, "form", index) or "").strip()
+            form = str(_at(block, "form", index) or "").strip()
             if form not in forms:
                 continue
 
-            filed_date = str(_at(recent, "filingDate", index) or "")
+            filed_date = str(_at(block, "filingDate", index) or "")
             accepted = acceptance_time(
-                filed_date, str(_at(recent, "acceptanceDateTime", index) or "")
+                filed_date, str(_at(block, "acceptanceDateTime", index) or "")
             )
             if accepted is None:
                 # Without a defensible public-availability time the filing
@@ -225,8 +342,10 @@ class EdgarClient:
                 continue
             if since is not None and accepted < since:
                 continue
+            if until is not None and accepted > until:
+                continue
 
-            primary = str(_at(recent, "primaryDocument", index) or "").strip()
+            primary = str(_at(block, "primaryDocument", index) or "").strip()
             if not primary:
                 continue
 
@@ -240,7 +359,7 @@ class EdgarClient:
                     filed_date=_parse_date(filed_date),
                     accepted_at=accepted,
                     period_of_report=_parse_date(
-                        str(_at(recent, "reportDate", index) or "")
+                        str(_at(block, "reportDate", index) or "")
                     ),
                     primary_document=primary,
                     source_url=self.document_url(cik, accession, primary),
@@ -347,6 +466,11 @@ class EdgarClient:
 
             self._client = httpx.Client(follow_redirects=True)
         return self._client
+
+
+def _first_ticker(payload: dict[str, Any]) -> str:
+    tickers = payload.get("tickers") or []
+    return str(tickers[0]).upper() if tickers else ""
 
 
 def _at(block: dict[str, Any], key: str, index: int) -> Any:

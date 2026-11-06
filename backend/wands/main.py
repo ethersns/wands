@@ -24,6 +24,7 @@ from wands.db.base import Base
 from wands.db.session import get_engine, session_scope
 from wands.envelope import envelope
 from wands.errors import EngineError
+from wands.intelligence.jobs import JobScheduler
 from wands.logging import configure_logging, get_logger
 from wands.marketdata.worker import MarketDataWorker
 from wands.telemetry import configure_telemetry
@@ -53,6 +54,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         worker.start()
 
+    scheduler: JobScheduler | None = None
+    if settings.intelligence_jobs_enabled and settings.environment != "test":
+        scheduler = JobScheduler(settings)
+        # Reclaim any job whose lease outlived the process that held it before
+        # scheduling anything new, so an interrupted crawl is visible rather
+        # than silently skipped.
+        scheduler.recover()
+        scheduler.ensure_jobs()
+        scheduler.start()
+
     logger.info(
         "engine started",
         extra={
@@ -62,10 +73,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "mode": settings.trading_mode,
                 "liveTradingEnabled": settings.live_trading_enabled,
                 "marketDataWorker": worker is not None,
+                "intelligenceJobs": scheduler is not None,
             },
         },
     )
     yield
+    if scheduler is not None:
+        scheduler.stop()
     if worker is not None:
         worker.stop()
     logger.info("engine stopped", extra={"event": "engine.stop"})
