@@ -3,22 +3,45 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ArrowUpRight, Menu, X } from "lucide-react";
 
-import { marketingNav } from "@/lib/marketing/site";
+import { marketingNav, primaryCta } from "@/lib/marketing/site";
 import { cn } from "@/lib/utils";
 
-import { ButtonLink } from "./button-link";
 import { Container } from "./container";
-import { Logo } from "./logo";
+
+function Wordmark({ className }: { className?: string }) {
+  return (
+    <Link
+      href="/"
+      aria-label="Wands home"
+      className={cn(
+        "group inline-flex items-center gap-2.5 text-mk-fg transition-opacity hover:opacity-80",
+        className,
+      )}
+    >
+      <span
+        className="size-1.5 bg-mk-accent transition-transform duration-300 group-hover:rotate-45"
+        aria-hidden
+      />
+      <span className="font-editorial text-[15px] leading-none font-bold tracking-[0.24em]">
+        WANDS
+      </span>
+    </Link>
+  );
+}
 
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -26,48 +49,73 @@ export function SiteHeader() {
       if (event.key === "Escape") setOpen(false);
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+    };
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-mk-line bg-mk-bg/85 backdrop-blur-xl">
-      <Container>
+    <header
+      className={cn(
+        "sticky top-0 z-50 transition-colors duration-300",
+        scrolled || open
+          ? "border-b border-mk-line bg-mk-bg/85 backdrop-blur-xl"
+          : "border-b border-transparent",
+      )}
+    >
+      <Container width="wide">
         <div className="flex h-16 items-center justify-between gap-6">
-          <div className="flex items-center gap-8">
-            <Logo />
-            <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
-              {marketingNav.map((item) => {
-                const active =
-                  pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-[13.5px] transition-colors",
-                      active
-                        ? "text-mk-fg"
-                        : "text-mk-muted hover:text-mk-fg",
-                    )}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
+          <Wordmark />
 
-          <div className="hidden items-center gap-2 md:flex">
+          <nav aria-label="Main" className="hidden items-center gap-7 lg:flex">
+            {marketingNav.map((item) => {
+              const active =
+                pathname === item.href ||
+                (item.href.startsWith("/") &&
+                  !item.href.includes("#") &&
+                  pathname.startsWith(`${item.href}/`));
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "group relative font-marketing-mono text-[10.5px] tracking-[0.16em] uppercase transition-colors",
+                    active ? "text-mk-fg" : "text-mk-muted hover:text-mk-fg",
+                  )}
+                >
+                  {item.label}
+                  <span
+                    className={cn(
+                      "absolute -bottom-1.5 left-0 h-px w-full origin-left bg-mk-accent transition-transform duration-300",
+                      active ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100",
+                    )}
+                    aria-hidden
+                  />
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="hidden items-center gap-1 lg:flex">
             <Link
               href="/login"
-              className="rounded-md px-3 py-1.5 text-[13.5px] text-mk-muted transition-colors hover:text-mk-fg"
+              className="rounded-md px-3 py-1.5 font-marketing-mono text-[10.5px] tracking-[0.14em] text-mk-muted uppercase transition-colors hover:text-mk-fg"
             >
               Sign in
             </Link>
-            <ButtonLink href="/#access" size="sm">
-              Request access
-            </ButtonLink>
+            <Link
+              href={primaryCta.href}
+              className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-mk-accent px-4 font-marketing-mono text-[10.5px] font-medium tracking-[0.12em] text-mk-accent-ink uppercase transition-colors hover:bg-mk-accent/90"
+            >
+              {primaryCta.label}
+              <ArrowUpRight
+                className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                aria-hidden
+              />
+            </Link>
           </div>
 
           <button
@@ -76,7 +124,7 @@ export function SiteHeader() {
             aria-expanded={open}
             aria-controls="mobile-nav"
             aria-label={open ? "Close menu" : "Open menu"}
-            className="inline-flex size-9 items-center justify-center rounded-md border border-mk-line text-mk-fg md:hidden"
+            className="inline-flex size-9 items-center justify-center rounded-md border border-mk-line-strong text-mk-fg lg:hidden"
           >
             {open ? (
               <X className="size-4" aria-hidden />
@@ -90,26 +138,41 @@ export function SiteHeader() {
       {open ? (
         <div
           id="mobile-nav"
-          className="border-t border-mk-line bg-mk-bg md:hidden"
+          className="absolute inset-x-0 top-full z-40 h-[calc(100dvh-4rem)] overflow-y-auto border-t border-mk-line bg-mk-bg lg:hidden"
         >
-          <Container>
-            <nav aria-label="Mobile" className="flex flex-col py-3">
-              {marketingNav.map((item) => (
+          <Container width="wide">
+            <nav aria-label="Mobile" className="flex flex-col py-6">
+              {marketingNav.map((item, index) => (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="rounded-md px-2 py-2.5 text-[14px] text-mk-muted hover:bg-mk-raised hover:text-mk-fg"
+                  onClick={() => setOpen(false)}
+                  className="group flex items-baseline justify-between border-b border-mk-line py-4"
                 >
-                  {item.label}
+                  <span className="font-editorial text-2xl font-semibold tracking-[-0.03em] text-mk-fg">
+                    {item.label}
+                  </span>
+                  <span className="font-marketing-mono text-[10px] tracking-[0.16em] text-mk-dim">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
                 </Link>
               ))}
-              <div className="mt-3 flex flex-col gap-2 border-t border-mk-line pt-3">
-                <ButtonLink href="/login" variant="secondary" size="md">
+
+              <div className="mt-6 flex flex-col gap-2">
+                <Link
+                  href={primaryCta.href}
+                  onClick={() => setOpen(false)}
+                  className="inline-flex h-12 items-center justify-center rounded-full bg-mk-accent font-marketing-mono text-[11px] font-medium tracking-[0.14em] text-mk-accent-ink uppercase"
+                >
+                  {primaryCta.label}
+                </Link>
+                <Link
+                  href="/login"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex h-12 items-center justify-center rounded-full border border-mk-line-strong font-marketing-mono text-[11px] tracking-[0.14em] text-mk-fg uppercase"
+                >
                   Sign in
-                </ButtonLink>
-                <ButtonLink href="/#access" size="md">
-                  Request access
-                </ButtonLink>
+                </Link>
               </div>
             </nav>
           </Container>

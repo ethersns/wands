@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import {
+  Bricolage_Grotesque,
   Geist,
   Geist_Mono,
   IBM_Plex_Mono,
@@ -42,6 +43,12 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
+  display: "swap",
+});
+
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-bricolage",
   display: "swap",
 });
 
@@ -99,7 +106,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${plexSans.variable} ${plexMono.variable} ${instrument.variable} ${geistSans.variable} ${geistMono.variable} dark bg-background`}
+      className={`${plexSans.variable} ${plexMono.variable} ${instrument.variable} ${geistSans.variable} ${geistMono.variable} ${bricolage.variable} dark bg-background`}
       suppressHydrationWarning
     >
       <body className="bg-background text-foreground antialiased">
