@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   ListOrdered,
   Plug,
+  Radar,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -63,6 +64,12 @@ export const navGroups: NavGroup[] = [
   {
     label: "Research",
     items: [
+      {
+        href: "/intelligence",
+        label: "Intelligence",
+        icon: Radar,
+        description: "SEC filings and signals",
+      },
       {
         href: "/strategy-lab",
         label: "Strategy Lab",
