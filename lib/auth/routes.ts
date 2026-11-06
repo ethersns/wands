@@ -3,26 +3,27 @@
  *
  * The deployment serves three of them, and they must not be confused:
  *
- * - `public`   — the marketing site, sign-in, and provider webhooks. No session.
- * - `customer` — billing and account pages owned by the commercial site. A
- *                customer session, never an operator one.
+ * - `public`   — the marketing site, sign-in, and the endpoints the marketing
+ *                forms post to. No session.
+ * - `customer` — billing and account pages for paying subscribers. A customer
+ *                session, never an operator one. A Stripe subscription grants
+ *                entitlement to these routes and nothing else.
  * - `operator` — the trading console and every route that reaches the engine.
  *
- * Unknown paths are public on purpose. The commercial site adds pages without
- * editing this file, and a new public page must never be blocked by a gate that
- * has not heard of it. The trade-off is that a new *private* page is public
- * until it is listed below, so the operator list is the thing to keep current.
+ * A fourth outcome, `denied`, exists for API routes nobody classified. Pages
+ * default to public so the commercial site can add them without editing this
+ * file; APIs do not, because an unclassified API route is far more likely to be
+ * a forgotten private endpoint than a new public one.
  */
 
-export type RouteTier = "public" | "customer" | "operator";
+export type RouteTier = "public" | "customer" | "operator" | "denied";
 
 /**
  * Every path that reaches the engine, plus the console that drives it.
  *
  * `/api/research` and `/api/markets/*` are here for the same reason
  * `/api/wands/*` is: they call the engine with the server-side admin token, so
- * an unauthenticated request to them is an unauthenticated admin request. They
- * were reachable without a session before this list existed.
+ * an unauthenticated request to them is an unauthenticated admin request.
  */
 export const OPERATOR_PREFIXES = [
   "/api/wands",
@@ -42,10 +43,29 @@ export const OPERATOR_PREFIXES = [
 ] as const;
 
 /**
- * Billing and account surfaces. Empty until the commercial site adds them;
- * listing a path here keeps it off the operator gate once it exists.
+ * Subscriber surfaces. A Stripe subscription is what will authorise these, and
+ * it must never authorise anything in `OPERATOR_PREFIXES`.
  */
-export const CUSTOMER_PREFIXES: readonly string[] = [];
+export const CUSTOMER_PREFIXES = [
+  "/account",
+  "/billing",
+  "/api/account",
+  "/api/billing/portal",
+] as const;
+
+/**
+ * The only API routes reachable without a session. Each is listed deliberately:
+ * the marketing forms, the sign-in endpoint, and the two billing endpoints that
+ * anonymous visitors legitimately call. The webhook is public because Stripe
+ * cannot hold a session — it authenticates with a signature instead.
+ */
+export const PUBLIC_API_PREFIXES = [
+  "/api/session",
+  "/api/waitlist",
+  "/api/contact",
+  "/api/billing/checkout",
+  "/api/billing/webhook",
+] as const;
 
 function matches(pathname: string, prefixes: readonly string[]): boolean {
   return prefixes.some(
@@ -53,13 +73,19 @@ function matches(pathname: string, prefixes: readonly string[]): boolean {
   );
 }
 
-export function routeTier(pathname: string): RouteTier {
-  if (matches(pathname, OPERATOR_PREFIXES)) return "operator";
-  if (matches(pathname, CUSTOMER_PREFIXES)) return "customer";
-  return "public";
-}
-
 /** True for the routes that answer with JSON rather than a page. */
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+export function routeTier(pathname: string): RouteTier {
+  if (matches(pathname, OPERATOR_PREFIXES)) return "operator";
+  if (matches(pathname, CUSTOMER_PREFIXES)) return "customer";
+  if (matches(pathname, PUBLIC_API_PREFIXES)) return "public";
+
+  // An API route that no list claims is not public by default. A new page is
+  // public until someone says otherwise; a new endpoint has to be declared.
+  if (isApiPath(pathname)) return "denied";
+
+  return "public";
 }

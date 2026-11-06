@@ -49,10 +49,27 @@ function unauthorizedResponse() {
   );
 }
 
+/**
+ * An API route that no list in `lib/auth/routes.ts` claims. Answering 404 keeps
+ * it from confirming that the endpoint exists, and keeps a forgotten private
+ * route from becoming an anonymous one.
+ */
+function notFoundResponse() {
+  return NextResponse.json(
+    { error: { code: "not_found", message: "Not found." } },
+    { status: 404 },
+  );
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const tier = routeTier(pathname);
 
-  if (routeTier(pathname) !== "operator") {
+  if (tier === "denied") {
+    return notFoundResponse();
+  }
+
+  if (tier !== "operator") {
     return NextResponse.next();
   }
 
@@ -82,15 +99,16 @@ export async function middleware(request: NextRequest) {
 }
 
 /**
- * Must mirror `OPERATOR_PREFIXES` in `lib/auth/routes.ts`. Next.js requires the
- * matcher to be a static literal, so the two cannot share a value; a test
- * asserts they stay in step.
+ * Must cover every prefix in `lib/auth/routes.ts`. Next.js requires the matcher
+ * to be a static literal, so the two cannot share a value; a test asserts they
+ * stay in step.
+ *
+ * `/api/:path*` is deliberately broad: the middleware is what denies API routes
+ * that no list claims, so it has to see all of them, not just the known ones.
  */
 export const config = {
   matcher: [
-    "/api/wands/:path*",
-    "/api/research",
-    "/api/markets/:path*",
+    "/api/:path*",
     "/dashboard/:path*",
     "/portfolio/:path*",
     "/markets/:path*",

@@ -15,10 +15,14 @@ import { Logo } from "./logo";
 export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [lastPathname, setLastPathname] = useState(pathname);
 
-  useEffect(() => {
+  // Close the mobile menu when navigation changes the route. Adjusting state
+  // during render is the documented alternative to an effect for this.
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;

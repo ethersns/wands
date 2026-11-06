@@ -3,7 +3,12 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { OPERATOR_PREFIXES, routeTier } from "@/lib/auth/routes";
+import {
+  CUSTOMER_PREFIXES,
+  OPERATOR_PREFIXES,
+  PUBLIC_API_PREFIXES,
+  routeTier,
+} from "@/lib/auth/routes";
 import { SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
 import { config, middleware } from "@/middleware";
 
@@ -163,13 +168,90 @@ describe("public marketing routes", () => {
   });
 });
 
-describe("matcher parity", () => {
-  it("covers every operator prefix", () => {
-    const covered = config.matcher.map((pattern) =>
-      pattern.replace(/\/:path\*$/, ""),
-    );
-    for (const prefix of OPERATOR_PREFIXES) {
-      expect(covered, `matcher is missing ${prefix}`).toContain(prefix);
+describe("public API endpoints", () => {
+  it("serves the marketing form endpoints without a session", async () => {
+    for (const path of PUBLIC_API_PREFIXES) {
+      const response = await middleware(request(path));
+      expect(passedThrough(response), path).toBe(true);
     }
+  });
+
+  it("keeps the Stripe webhook reachable so signature verification can run", async () => {
+    delete process.env.WANDS_OPERATOR_PASSWORD;
+    delete process.env.WANDS_SESSION_SECRET;
+    vi.stubEnv("NODE_ENV", "production");
+
+    const response = await middleware(request("/api/billing/webhook"));
+    expect(passedThrough(response)).toBe(true);
+    expect(response.status).not.toBe(503);
+  });
+});
+
+describe("unclassified API routes", () => {
+  it("denies an API route that no list claims", async () => {
+    const response = await middleware(request("/api/internal/engine/keys"));
+    expect(response.status).toBe(404);
+    expect(passedThrough(response)).toBe(false);
+  });
+
+  it("denies it even for a signed-in operator, because the route is undeclared", async () => {
+    const token = await createSessionToken();
+    const response = await middleware(
+      request("/api/unknown", `${SESSION_COOKIE}=${token ?? ""}`),
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("does not deny a new marketing page", async () => {
+    const response = await middleware(request("/blog/2026-outlook"));
+    expect(passedThrough(response)).toBe(true);
+  });
+});
+
+describe("customer tier", () => {
+  it("does not gate subscriber surfaces behind the operator session", async () => {
+    for (const path of CUSTOMER_PREFIXES) {
+      const response = await middleware(request(path));
+      expect(passedThrough(response), path).toBe(true);
+    }
+  });
+
+  it("keeps subscriber surfaces and the engine in separate tiers", () => {
+    expect(routeTier("/account")).toBe("customer");
+    expect(routeTier("/api/billing/portal")).toBe("customer");
+    expect(routeTier("/api/wands/engine/status")).toBe("operator");
+    expect(routeTier("/dashboard")).toBe("operator");
+  });
+
+  it("rejects a session cookie that is not a signed operator session", async () => {
+    // A Stripe customer session is a different credential entirely; presenting
+    // it to the operator gate must not be enough.
+    const response = await middleware(
+      request("/api/wands/engine/status", "wands_customer=cs_test_123"),
+    );
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("matcher parity", () => {
+  function matcherCovers(pattern: string, pathname: string): boolean {
+    const base = pattern.replace(/\/:path\*$/, "");
+    return pathname === base || pathname.startsWith(`${base}/`);
+  }
+
+  it("covers every operator prefix", () => {
+    for (const prefix of OPERATOR_PREFIXES) {
+      const covered = config.matcher.some((pattern) =>
+        matcherCovers(pattern, prefix),
+      );
+      expect(covered, `matcher is missing ${prefix}`).toBe(true);
+    }
+  });
+
+  it("covers every API route so unclassified ones can be denied", () => {
+    const covered = config.matcher.some((pattern) =>
+      matcherCovers(pattern, "/api/anything/at/all"),
+    );
+    expect(covered).toBe(true);
   });
 });
