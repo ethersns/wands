@@ -121,6 +121,80 @@ def _status(_: argparse.Namespace) -> int:
     return 0
 
 
+def _backfill(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from wands.intelligence.backfill import BackfillRunner
+
+    settings = get_settings()
+    start = date.fromisoformat(args.start) if args.start else None
+    end = date.fromisoformat(args.end) if args.end else None
+    with session_scope() as session:
+        result = BackfillRunner(session, settings).run(
+            ciks=_split(args.ciks),
+            form_family=args.form_family,
+            start=start,
+            end=end,
+            max_filings=args.max_filings,
+        )
+        print(json.dumps(result.as_dict(), indent=2))
+    return 0 if result.status in {"ok", "partial", "paused"} else 1
+
+
+def _experiment(args: argparse.Namespace) -> int:
+    from wands.intelligence.experiments import ExperimentDefinition, ExperimentRunner
+    from wands.intelligence.research import ResearchService
+
+    settings = get_settings()
+    with session_scope() as session:
+        service = ResearchService(session, settings)
+        definition = service.default_experiment_definition()
+        if args.start or args.end:
+            definition = ExperimentDefinition(
+                **{
+                    **definition.__dict__,
+                    "period_start": (
+                        datetime.fromisoformat(args.start).replace(tzinfo=UTC)
+                        if args.start
+                        else definition.period_start
+                    ),
+                    "period_end": (
+                        datetime.fromisoformat(args.end).replace(tzinfo=UTC)
+                        if args.end
+                        else definition.period_end
+                    ),
+                }
+            )
+        outcome = ExperimentRunner(session, settings).run(definition)
+        print(json.dumps(outcome.as_dict(), indent=2, default=str))
+    return 0
+
+
+def _jobs(args: argparse.Namespace) -> int:
+    from wands.intelligence.jobs import JobScheduler
+
+    settings = get_settings()
+    scheduler = JobScheduler(settings)
+    if args.run:
+        print(json.dumps(scheduler.run_job(args.run), indent=2, default=str))
+        return 0
+    if args.recover:
+        print(json.dumps({"recovered": scheduler.recover()}, indent=2))
+        return 0
+    print(json.dumps(scheduler.status(), indent=2, default=str))
+    return 0
+
+
+def _coverage(_: argparse.Namespace) -> int:
+    from wands.intelligence.research import ResearchService
+
+    settings = get_settings()
+    with session_scope() as session:
+        payload = ResearchService(session, settings).coverage()
+        print(json.dumps(payload.model_dump(mode="json"), indent=2, default=str))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wands-intelligence")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -139,6 +213,29 @@ def main(argv: list[str] | None = None) -> int:
 
     status = sub.add_parser("status", help="Report data freshness")
     status.set_defaults(handler=_status)
+
+    backfill = sub.add_parser("backfill", help="Crawl historical SEC archive pages")
+    backfill.add_argument("--ciks", nargs="*", help="Issuer CIKs; defaults to the watchlist")
+    backfill.add_argument(
+        "--form-family", default="ownership", choices=["ownership", "institutional"]
+    )
+    backfill.add_argument("--start", help="ISO start date; defaults to the configured bound")
+    backfill.add_argument("--end", help="ISO end date; defaults to an open interval")
+    backfill.add_argument("--max-filings", type=int, default=None)
+    backfill.set_defaults(handler=_backfill)
+
+    experiment = sub.add_parser("experiment", help="Run and record a validation experiment")
+    experiment.add_argument("--start", help="ISO period start")
+    experiment.add_argument("--end", help="ISO period end")
+    experiment.set_defaults(handler=_experiment)
+
+    jobs = sub.add_parser("jobs", help="Inspect or run scheduled research jobs")
+    jobs.add_argument("--run", help="Run one job by name")
+    jobs.add_argument("--recover", action="store_true", help="Reclaim expired leases")
+    jobs.set_defaults(handler=_jobs)
+
+    coverage = sub.add_parser("coverage", help="Report collection and identifier coverage")
+    coverage.set_defaults(handler=_coverage)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

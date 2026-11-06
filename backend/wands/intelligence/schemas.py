@@ -194,6 +194,138 @@ class SymbolSummaryOut(CamelModel):
     caveats: list[str] = Field(default_factory=list)
 
 
+# --- research (intelligence 1.1) ------------------------------------------
+
+
+class IntelJobOut(CamelModel):
+    name: str
+    kind: str
+    schedule_seconds: int
+    enabled: bool
+    paused: bool
+    status: str
+    last_status: str
+    last_started_at: datetime | None = None
+    last_finished_at: datetime | None = None
+    next_run_at: datetime | None = None
+    last_error: str
+    consecutive_failures: int
+    total_runs: int
+    total_failures: int
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+
+class IntelJobFeedOut(CamelModel):
+    items: list[IntelJobOut]
+    total: int
+    scheduler_enabled: bool
+    caveats: list[str] = Field(default_factory=list)
+
+
+class IntelBackfillStreamOut(CamelModel):
+    issuer_cik: str
+    form_family: str
+    status: str
+    cursor: datetime | None = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    filings_seen: int
+    filings_new: int
+    filings_skipped: int
+    filings_unavailable: int
+    filings_malformed: int
+    attempts: int
+    last_error: str
+
+
+class IntelCoverageOut(CamelModel):
+    filings: int
+    transactions: int
+    signals: int
+    institutions: int
+    holdings: int
+    earliest_filing_at: datetime | None = None
+    latest_filing_at: datetime | None = None
+    earliest_signal_at: datetime | None = None
+    latest_signal_at: datetime | None = None
+    symbols_covered: list[str]
+    identifiers: dict[str, Any]
+    backfill: list[IntelBackfillStreamOut]
+    price_coverage: dict[str, Any]
+    caveats: list[str] = Field(default_factory=list)
+
+
+class IntelExperimentOut(CamelModel):
+    id: str
+    name: str
+    signal_version: str
+    data_version: str
+    period_start: datetime
+    period_end: datetime
+    information_cutoff: datetime
+    benchmark: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    execution_assumptions: dict[str, Any] = Field(default_factory=dict)
+    cost_assumptions: dict[str, Any] = Field(default_factory=dict)
+    sample_size: int
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    flags: list[str] = Field(default_factory=list)
+    definition_hash: str
+    data_fingerprint: str
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class IntelExperimentFeedOut(CamelModel):
+    items: list[IntelExperimentOut]
+    total: int
+    caveats: list[str] = Field(default_factory=list)
+
+
+class IntelValidationOut(CamelModel):
+    signal_id: str
+    category: str
+    status: str
+    benchmark: str
+    cost_bps: Decimal
+    sample_size: int
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    flags: list[str] = Field(default_factory=list)
+    overlap: dict[str, Any] = Field(default_factory=dict)
+    multiple_testing: dict[str, Any] | None = None
+    horizons: list[dict[str, Any]] = Field(default_factory=list)
+    splits: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class IntelBackfillRequest(CamelModel):
+    ciks: list[str] = Field(default_factory=list)
+    form_family: str = "ownership"
+    start_date: str | None = None
+    end_date: str | None = None
+    max_filings: int | None = Field(default=None, ge=1, le=100_000)
+
+
+class IntelBackfillOut(CamelModel):
+    source: str
+    status: str
+    streams: int
+    completed: int
+    failed: int
+    paused: int
+    filings_seen: int
+    filings_new: int
+    filings_skipped: int
+    filings_unavailable: int
+    filings_malformed: int
+    stopped_early: bool
+    errors: list[dict[str, str]] = Field(default_factory=list)
+    progress: list[IntelBackfillStreamOut] = Field(default_factory=list)
+
+
 __all__ = [
     "FusionComponentOut",
     "FusionOut",
@@ -204,8 +336,17 @@ __all__ = [
     "InstitutionFeedOut",
     "InstitutionOut",
     "InstitutionalHoldingChangeOut",
+    "IntelBackfillOut",
+    "IntelBackfillRequest",
+    "IntelBackfillStreamOut",
+    "IntelCoverageOut",
+    "IntelExperimentFeedOut",
+    "IntelExperimentOut",
+    "IntelJobFeedOut",
+    "IntelJobOut",
     "IntelSourceStatusOut",
     "IntelStatusOut",
+    "IntelValidationOut",
     "SignalFeedOut",
     "SignalOut",
     "SymbolSummaryOut",

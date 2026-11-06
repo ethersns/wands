@@ -1,8 +1,14 @@
 """Market intelligence.
 
-Read-only by construction: there is no POST, PUT, PATCH or DELETE in this module,
-so no request to it can change a position, an order or a risk limit. Collection
-is triggered by the scheduler or the CLI, never by an API call.
+The research reads are read-only by construction: no GET in this module can
+change a position, an order or a risk limit. Collection is triggered by the
+scheduler or the CLI.
+
+Intelligence 1.1 adds three administrative POSTs — a bounded backfill and
+job pause/resume. They are admin-only, they are audited, and they can only
+change research state: a backfill writes filings, and pause/resume writes a job
+row. None of them can reach the order path, because the intelligence package
+does not import it.
 
 Every response is an envelope. When nothing is stored the payload is returned as
 ``unavailable`` with the reason attached, so an empty feed reads as "nothing has
@@ -14,25 +20,34 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from wands.api.deps import require_role
+from wands.api.deps import client_ip, request_id_of, require_role
 from wands.config import Settings, get_settings
 from wands.db.session import get_session
 from wands.envelope import envelope, unavailable
 from wands.errors import BadRequest, NotFound
+from wands.intelligence.research import ResearchService
 from wands.intelligence.schemas import (
     InsiderFeedOut,
     InsiderSymbolSummaryOut,
     InstitutionChangesOut,
     InstitutionFeedOut,
+    IntelBackfillOut,
+    IntelBackfillRequest,
+    IntelCoverageOut,
+    IntelExperimentFeedOut,
+    IntelExperimentOut,
+    IntelJobFeedOut,
+    IntelValidationOut,
     SignalFeedOut,
     SignalOut,
     SymbolSummaryOut,
 )
 from wands.intelligence.service import INSIDER_CAVEATS, IntelligenceService
 from wands.schemas import dump
+from wands.security.audit import record_for_principal
 from wands.security.auth import Principal
 from wands.security.rbac import Role
 
@@ -218,3 +233,208 @@ def symbol_summary(
             "because nothing has been collected for this symbol.",
         )
     return envelope(payload, warnings=list(summary.caveats))
+
+
+# --- research (intelligence 1.1) ------------------------------------------
+
+
+def _research(session: Session, settings: Settings) -> ResearchService:
+    return ResearchService(session, settings)
+
+
+@router.get("/jobs")
+def jobs(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.VIEWER)),
+) -> dict:
+    feed: IntelJobFeedOut = _research(session, settings).jobs()
+    payload = dump(feed)
+    if not feed.items:
+        return unavailable(
+            payload,
+            "No research job has run yet. The scheduler creates a row for each "
+            "registered job the first time it starts.",
+        )
+    return envelope(payload, warnings=list(feed.caveats))
+
+
+@router.get("/coverage")
+def coverage(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.VIEWER)),
+) -> dict:
+    result: IntelCoverageOut = _research(session, settings).coverage()
+    payload = dump(result)
+    if result.filings == 0 and result.signals == 0:
+        return unavailable(
+            payload,
+            "Nothing has been collected yet, so coverage is empty. This is a collection "
+            "state, not a statement that no filings exist.",
+        )
+    return envelope(payload, warnings=list(result.caveats))
+
+
+@router.get("/experiments")
+def experiments(
+    limit: int = Query(default=50, ge=1, le=200),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.VIEWER)),
+) -> dict:
+    feed: IntelExperimentFeedOut = _research(session, settings).experiments(limit=limit)
+    payload = dump(feed)
+    if not feed.items:
+        return unavailable(
+            payload,
+            "No research experiment has been recorded. An experiment is created by "
+            "running a validation over a defined period.",
+        )
+    return envelope(payload, warnings=list(feed.caveats))
+
+
+@router.get("/experiments/{experiment_id}")
+def experiment(
+    experiment_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.VIEWER)),
+) -> dict:
+    try:
+        uuid.UUID(experiment_id)
+    except ValueError as exc:
+        raise BadRequest(f"{experiment_id!r} is not an experiment identifier.") from exc
+
+    result: IntelExperimentOut | None = _research(session, settings).experiment(
+        experiment_id
+    )
+    if result is None:
+        raise NotFound(f"No experiment with id {experiment_id} is stored.")
+    warnings = list(result.flags)
+    if result.status != "complete":
+        return unavailable(
+            dump(result),
+            "This experiment did not produce a usable result. The status and flags say why.",
+        )
+    return envelope(dump(result), warnings=warnings)
+
+
+@router.get("/signals/{signal_id}/validation")
+def signal_validation(
+    signal_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.VIEWER)),
+) -> dict:
+    try:
+        uuid.UUID(signal_id)
+    except ValueError as exc:
+        raise BadRequest(f"{signal_id!r} is not a signal identifier.") from exc
+
+    result: IntelValidationOut | None = _research(session, settings).signal_validation(
+        signal_id
+    )
+    if result is None:
+        raise NotFound(f"No signal with id {signal_id} is stored.")
+
+    payload = dump(result)
+    if result.status != "complete":
+        return unavailable(
+            payload,
+            "This signal's category could not be measured over a usable sample. The "
+            "status and flags say why, and no performance statistic is reported.",
+        )
+    return envelope(payload, warnings=list(result.flags))
+
+
+@router.post("/backfill")
+def backfill(
+    payload: IntelBackfillRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    """Run a bounded historical backfill.
+
+    Admin-only and audited. The request is bounded by ``maxFilings`` so an
+    administrative call cannot hold a worker open indefinitely; a long crawl
+    belongs to the scheduler.
+    """
+    result: IntelBackfillOut = _research(session, settings).run_backfill(payload)
+    record_for_principal(
+        session,
+        principal,
+        action="intelligence.backfill",
+        target=",".join(payload.ciks) or "configured_issuers",
+        outcome="success" if result.status in {"ok", "partial"} else "failure",
+        detail={
+            "formFamily": payload.form_family,
+            "startDate": payload.start_date or "",
+            "endDate": payload.end_date or "",
+            "filingsNew": result.filings_new,
+            "filingsUnavailable": result.filings_unavailable,
+            "filingsMalformed": result.filings_malformed,
+            "status": result.status,
+        },
+        request_id=request_id_of(request),
+        ip=client_ip(request),
+    )
+    session.commit()
+
+    body = dump(result)
+    reasons = [error["message"] for error in result.errors]
+    if result.status == "failed":
+        return unavailable(
+            body,
+            "The backfill did not ingest any filing. "
+            + (" ".join(reasons) if reasons else "No error detail was recorded."),
+        )
+    return envelope(body, warnings=reasons)
+
+
+@router.post("/jobs/{name}/pause")
+def pause_job(
+    name: str,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    changed = _research(session, settings).pause_job(name)
+    if not changed:
+        raise NotFound(f"No research job named {name!r} is registered.")
+    record_for_principal(
+        session,
+        principal,
+        action="intelligence.job.pause",
+        target=name,
+        request_id=request_id_of(request),
+        ip=client_ip(request),
+    )
+    session.commit()
+    return envelope({"job": name, "paused": True})
+
+
+@router.post("/jobs/{name}/resume")
+def resume_job(
+    name: str,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    changed = _research(session, settings).resume_job(name)
+    if not changed:
+        raise NotFound(f"No research job named {name!r} is registered.")
+    record_for_principal(
+        session,
+        principal,
+        action="intelligence.job.resume",
+        target=name,
+        request_id=request_id_of(request),
+        ip=client_ip(request),
+    )
+    session.commit()
+    return envelope({"job": name, "paused": False})

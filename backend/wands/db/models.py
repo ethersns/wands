@@ -845,3 +845,252 @@ class IntelIngestRunRow(Base):
     signals_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+# --------------------------------------------------------------------------
+# Intelligence 1.1 — historical research
+#
+# These tables exist so that a research claim can be reproduced. A backfill
+# cursor says how far a crawl actually got, an identifier row says which ticker
+# a CUSIP meant on a given day, a job row says whether a collector is running,
+# and an experiment row says exactly what was measured and with which inputs.
+# None of them is on the order path.
+# --------------------------------------------------------------------------
+
+
+class IntelBackfillCheckpointRow(Base):
+    """Resumable cursor for one ``(source, issuer, form family)`` crawl stream.
+
+    The cursor is the *acceptance* time of the last filing fully processed, not
+    the last one seen. A crash between "downloaded" and "persisted" therefore
+    replays one filing rather than skipping it, and the accession uniqueness
+    constraint makes that replay a no-op.
+    """
+
+    __tablename__ = "intel_backfill_checkpoints"
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "issuer_cik", "form_family", name="uq_intel_backfill_stream"
+        ),
+        Index("ix_intel_backfill_status", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="sec_edgar")
+    issuer_cik: Mapped[str] = mapped_column(String(16), nullable=False)
+    form_family: Mapped[str] = mapped_column(String(16), nullable=False, default="ownership")
+    # ``pending`` | ``running`` | ``complete`` | ``failed`` | ``paused``
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    cursor_accepted_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    cursor_accession: Mapped[str | None] = mapped_column(String(32))
+    window_start: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    window_end: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    filings_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filings_new: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filings_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filings_unavailable: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filings_malformed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
+class IntelSecurityIdentifierRow(Base):
+    """A versioned security identifier mapping.
+
+    A CUSIP is not derivable from a ticker, and a ticker is not stable. Each row
+    is one claim — "this CUSIP traded as this symbol from this date" — with the
+    source that made the claim and how strongly it is believed. ``effective_to``
+    is null while the mapping is current, so a historical lookup is a range
+    query rather than a guess at the present.
+    """
+
+    __tablename__ = "intel_security_identifiers"
+    __table_args__ = (
+        UniqueConstraint(
+            "cusip", "effective_from", "source", name="uq_intel_identifiers_version"
+        ),
+        Index("ix_intel_identifiers_cusip_effective", "cusip", "effective_from"),
+        Index("ix_intel_identifiers_symbol", "symbol"),
+        Index("ix_intel_identifiers_status", "verification_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    cusip: Mapped[str] = mapped_column(String(16), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    issuer_cik: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    issuer_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    security_description: Mapped[str] = mapped_column(
+        String(255), nullable=False, default=""
+    )
+    share_class: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    effective_from: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    effective_to: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    source: Mapped[str] = mapped_column(String(48), nullable=False, default="")
+    # ``verified`` | ``provisional`` | ``conflict`` | ``unresolved``
+    verification_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="unresolved"
+    )
+    confidence: Mapped[Decimal] = mapped_column(PERCENT, nullable=False, default=0)
+    # The class used for ticker-level fusion when an issuer has several.
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class IntelJobRow(Base):
+    """Persistent state for one scheduled research job.
+
+    ``lease_owner``/``lease_expires_at`` are the overlap guard: a job may only
+    run while it holds a live lease, and a lease that expires without a clean
+    finish is evidence the previous run died rather than completed.
+    """
+
+    __tablename__ = "intel_jobs"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_intel_jobs_name"),
+        Index("ix_intel_jobs_next_run", "next_run_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="ingest")
+    schedule_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ``idle`` | ``running`` | ``interrupted`` | ``failed`` | ``paused``
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
+    last_started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_finished_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    last_status: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    next_run_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class IntelJobFailureRow(Base):
+    """Dead-letter record for a job run that exhausted its retries.
+
+    Kept as its own row rather than a log line so an operator can count failures
+    per job without parsing logs, and so a failure survives a restart.
+    """
+
+    __tablename__ = "intel_job_failures"
+    __table_args__ = (Index("ix_intel_job_failures_job", "job_name", "occurred_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    job_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    error_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    context: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class IntelExperimentRow(Base):
+    """A reproducible research experiment.
+
+    ``definition_hash`` covers everything that determines the answer: the signal
+    version, the data versions, the period, the parameters, the benchmark and
+    the execution and cost assumptions. Two runs with the same hash are the same
+    experiment. ``data_fingerprint`` covers the rows actually read, so a
+    re-run against changed data is flagged rather than silently reported as a
+    reproduction.
+    """
+
+    __tablename__ = "intel_experiments"
+    __table_args__ = (
+        UniqueConstraint("definition_hash", name="uq_intel_experiments_definition"),
+        Index("ix_intel_experiments_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    signal_version: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    data_version: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    period_start: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    information_cutoff: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    benchmark: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    execution_assumptions: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    cost_assumptions: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    coverage: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # ``complete`` | ``insufficient_data`` | ``no_price_data`` | ``failed``
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="complete")
+    # Human-readable reasons the result must not be read as performance.
+    flags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    definition_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
+class IntelSignalOutcomeRow(Base):
+    """One forward-return observation for one signal at one horizon.
+
+    Stored per observation rather than only as an aggregate so a result can be
+    audited trade by trade, and so a missing price is a visible ``unavailable``
+    row instead of a silently dropped sample.
+    """
+
+    __tablename__ = "intel_signal_outcomes"
+    __table_args__ = (
+        UniqueConstraint(
+            "experiment_id",
+            "signal_id",
+            "horizon_days",
+            name="uq_intel_signal_outcome",
+        ),
+        Index("ix_intel_signal_outcomes_signal", "signal_id"),
+        Index("ix_intel_signal_outcomes_experiment", "experiment_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("intel_experiments.id", ondelete="CASCADE"), nullable=False
+    )
+    signal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("intel_signals.id", ondelete="CASCADE"), nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    entry_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    entry_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    exit_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    exit_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    gross_return: Mapped[Decimal | None] = mapped_column(PERCENT)
+    benchmark_return: Mapped[Decimal | None] = mapped_column(PERCENT)
+    net_return: Mapped[Decimal | None] = mapped_column(PERCENT)
+    cost_bps: Mapped[Decimal] = mapped_column(PERCENT, nullable=False, default=0)
+    # ``ok`` | ``missing_price`` | ``missing_benchmark`` | ``delisted``
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="ok")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")

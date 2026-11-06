@@ -97,13 +97,34 @@ def test_a_viewer_may_read_research(client):
     assert response.status_code == 200
 
 
-def test_the_intelligence_surface_is_read_only(client):
-    """No research endpoint may mutate state, so no write verb is registered."""
+# Intelligence 1.1 adds three administrative writes. They can only change
+# research state — a backfill cursor or a job row — and they are admin-only.
+# Everything else on the surface stays read-only, and this list is the contract.
+ADMIN_RESEARCH_WRITES = {
+    "/v1/intelligence/backfill",
+    "/v1/intelligence/jobs/{name}/pause",
+    "/v1/intelligence/jobs/{name}/resume",
+}
+
+
+def test_the_intelligence_surface_is_read_only_except_for_admin_research_writes(client):
+    """No research endpoint may mutate trading state.
+
+    The read-only guarantee is the point: a GET on this surface can never change
+    a position, an order or a risk limit. The three admin writes below are the
+    only exceptions, and they are asserted to be admin-only elsewhere.
+    """
     schema = client.get("/openapi.json").json()
+    writes: set[str] = set()
     for path, operations in schema["paths"].items():
         if "/intelligence" not in path:
             continue
-        assert set(operations) <= {"get"}, f"{path} exposes a write verb: {set(operations)}"
+        verbs = set(operations)
+        if verbs <= {"get"}:
+            continue
+        assert verbs == {"post"}, f"{path} exposes an unexpected verb: {verbs}"
+        writes.add(path)
+    assert writes == ADMIN_RESEARCH_WRITES
 
 
 # --------------------------------------------------------------------------

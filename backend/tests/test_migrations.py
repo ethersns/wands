@@ -46,6 +46,15 @@ def test_upgrade_downgrade_upgrade(tmp_path, monkeypatch):
             "intel_signals",
             "intel_ingest_runs",
         } <= tables
+        # Intelligence 1.1: research state that has to survive a restart.
+        assert {
+            "intel_backfill_checkpoints",
+            "intel_security_identifiers",
+            "intel_jobs",
+            "intel_job_failures",
+            "intel_experiments",
+            "intel_signal_outcomes",
+        } <= tables
         engine.dispose()
 
         command.downgrade(config, "base")
