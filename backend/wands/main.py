@@ -17,16 +17,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from wands.api.deps import client_ip
 from wands.api.router import api_router
 from wands.bootstrap import bootstrap
 from wands.config import Settings, get_settings
 from wands.db.base import Base
 from wands.db.session import get_engine, session_scope
 from wands.envelope import envelope
-from wands.errors import EngineError
+from wands.errors import EngineError, Forbidden, Unauthorized
 from wands.intelligence.jobs import JobScheduler
 from wands.logging import configure_logging, get_logger
 from wands.marketdata.worker import MarketDataWorker
+from wands.security.audit import note_denial, record_denial
 from wands.telemetry import configure_telemetry
 
 logger = get_logger(__name__)
@@ -37,6 +39,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     configure_logging(settings.log_level)
     configure_telemetry(settings)
+
+    if settings.is_production and settings.is_sqlite:
+        # A production host pointed at SQLite would create an empty database and
+        # then serve it as though it were real state. Refuse rather than start
+        # healthy and wrong.
+        raise RuntimeError(
+            "Refusing to start: WANDS_DATABASE_URL points at SQLite in production. "
+            "A production host must use PostgreSQL."
+        )
 
     if settings.is_sqlite:
         # Development and tests only. Production runs `alembic upgrade head`.
@@ -146,6 +157,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "context": {"code": exc.code, "message": exc.message},
                 },
             )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": exc.to_payload()},
+            headers={"x-request-id": request_id} if request_id else None,
+        )
+
+    @app.exception_handler(Forbidden)
+    def forbidden_handler(request: Request, exc: Forbidden) -> JSONResponse:
+        """Audit an authenticated permission denial, then deny it.
+
+        Registered as a sync handler so the audit write runs in the threadpool
+        rather than blocking the event loop. ``MfaRequired`` subclasses
+        ``Forbidden``, so a missing second factor is recorded here too. The
+        response is unchanged: a denial is still a denial even if the audit
+        store is down.
+        """
+        request_id = getattr(request.state, "request_id", None)
+        principal = getattr(request.state, "principal", None)
+        # The concrete path, not the route template: the template drops the
+        # router prefix, and the exact resource is what an investigation needs.
+        target = f"{request.method} {request.url.path}"[:120]
+
+        if principal is not None:
+            record_denial(
+                actor=principal.subject,
+                actor_type="service" if principal.is_service else "user",
+                target=target,
+                detail={"code": exc.code, "reason": exc.message, "role": str(principal.role)},
+                request_id=request_id,
+                ip=client_ip(request),
+            )
+        note_denial(exc.code)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": exc.to_payload()},
+            headers={"x-request-id": request_id} if request_id else None,
+        )
+
+    @app.exception_handler(Unauthorized)
+    def unauthorized_handler(request: Request, exc: Unauthorized) -> JSONResponse:
+        """Count and log an unauthenticated rejection without persisting it.
+
+        There is no principal to name and the caller controls the retry rate, so
+        these are aggregated in memory and logged for alerting instead of being
+        written to the durable audit trail.
+        """
+        request_id = getattr(request.state, "request_id", None)
+        note_denial("unauthorized")
+        logger.warning(
+            "unauthenticated request rejected",
+            extra={
+                "event": "auth.rejected",
+                "request_id": request_id,
+                "route": request.url.path,
+                "context": {"ip": client_ip(request)},
+            },
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": exc.to_payload()},

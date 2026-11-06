@@ -7,15 +7,19 @@ default. Nothing else in the codebase calls ``os.environ``.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TradingMode = Literal["backtest", "paper", "live"]
+
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PLACEHOLDER_DOMAINS = ("example.com", "example.org", "example.net")
 
 
 def _parse_date(value: str, fallback: date) -> date:
@@ -176,6 +180,32 @@ class Settings(BaseSettings):
     @classmethod
     def _upper(cls, value: str) -> str:
         return value.upper()
+
+    @model_validator(mode="after")
+    def _require_real_sec_contact(self) -> Settings:
+        """Refuse to collect from SEC without a real operator contact.
+
+        SEC asks automated clients to identify themselves with a working
+        address. The shipped default is a placeholder, so enabling collection
+        without replacing it would hand them a contact that goes nowhere. This
+        validates rather than substitutes: inventing an address would be worse
+        than refusing to start.
+        """
+        if not self.intelligence_ingest_enabled:
+            return self
+
+        match = _EMAIL.search(self.sec_user_agent)
+        if match is None:
+            raise ValueError(
+                "WANDS_SEC_USER_AGENT must include a contact email before SEC ingestion "
+                "is enabled."
+            )
+        if match.group(0).lower().endswith(_PLACEHOLDER_DOMAINS):
+            raise ValueError(
+                "WANDS_SEC_USER_AGENT still carries the placeholder contact. Set it to an "
+                "agent string with a real operator address before enabling SEC ingestion."
+            )
+        return self
 
     @property
     def is_production(self) -> bool:

@@ -46,7 +46,11 @@ def current_principal(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> Principal:
-    return authenticate_token(session, bearer_token(request), settings)
+    principal = authenticate_token(session, bearer_token(request), settings)
+    # Stashed so the denial handler can still name the actor after a permission
+    # dependency has raised and the request is unwinding.
+    request.state.principal = principal
+    return principal
 
 
 def require_role(required: Role) -> Callable[..., Principal]:
