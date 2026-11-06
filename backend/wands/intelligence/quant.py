@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Sequence
+from typing import Any
 
 # Below this many observations a distribution statistic is reported but flagged.
 SMALL_SAMPLE = 30
@@ -312,7 +313,9 @@ def bootstrap_interval(
             method="bootstrap",
             note="At least two observations and one iteration are needed.",
         )
-    generator = random.Random(seed)
+    # Seeded on purpose: a bootstrap interval that changes between runs cannot
+    # be reproduced, and reproducibility is the whole point of the experiment log.
+    generator = random.Random(seed)  # noqa: S311
     means: list[float] = []
     for _ in range(iterations):
         total = 0.0
@@ -533,7 +536,7 @@ def benchmark_relative(
     """
     left = _floats(values)
     right = _floats(benchmark)
-    return [a - b for a, b in zip(left, right)]
+    return [a - b for a, b in zip(left, right, strict=False)]
 
 
 def equity_curve(values: Sequence[float | Decimal | None], *, start: float = 1.0) -> list[float]:
@@ -622,7 +625,9 @@ def multiple_testing_report(
     )
 
 
-def correlation(left: Sequence[float | Decimal | None], right: Sequence[float | Decimal | None]) -> float | None:
+def correlation(
+    left: Sequence[float | Decimal | None], right: Sequence[float | Decimal | None]
+) -> float | None:
     """Pearson correlation of two paired series."""
     a = _floats(left)
     b = _floats(right)
@@ -633,7 +638,7 @@ def correlation(left: Sequence[float | Decimal | None], right: Sequence[float | 
     b = b[:count]
     mean_a = sum(a) / count
     mean_b = sum(b) / count
-    covariance = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b))
+    covariance = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b, strict=True))
     variance_a = sum((x - mean_a) ** 2 for x in a)
     variance_b = sum((y - mean_b) ** 2 for y in b)
     if variance_a <= 0 or variance_b <= 0:

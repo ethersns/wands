@@ -30,9 +30,10 @@ a later fitting step honest.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -592,7 +593,8 @@ class SignalValidator:
         usable = sum(len(horizon.net_returns) for horizon in result.horizons)
         if usable == 0:
             return RESULT_NO_PRICE_DATA
-        if any(len(horizon.net_returns) < self.settings.intelligence_validation_min_sample for horizon in result.horizons):
+        minimum = self.settings.intelligence_validation_min_sample
+        if any(len(horizon.net_returns) < minimum for horizon in result.horizons):
             return RESULT_INSUFFICIENT
         return RESULT_COMPLETE
 

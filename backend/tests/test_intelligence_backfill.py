@@ -24,7 +24,7 @@ from wands.intelligence.backfill import (
     STREAM_PAUSED,
     BackfillRunner,
 )
-from wands.intelligence.base import SourceDataError, SourceUnavailable
+from wands.intelligence.base import SourceUnavailable
 from wands.intelligence.ingest import InsiderIngestor
 
 from .intelligence_fakes import FakeEdgarClient, filing_ref, form4_xml

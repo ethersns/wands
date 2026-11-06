@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -40,9 +41,8 @@ from wands.db.models import (
 )
 from wands.intelligence import quant
 from wands.intelligence.base import SignalCategory
-from wands.intelligence.fusion import WEIGHTS, SignalFusion
+from wands.intelligence.fusion import WEIGHTS
 from wands.intelligence.validation import (
-    RESULT_COMPLETE,
     SignalObservation,
     SignalValidator,
     ValidationResult,

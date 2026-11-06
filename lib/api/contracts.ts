@@ -853,3 +853,180 @@ export interface SymbolResearchSummary {
   freshness: IntelFreshness;
   caveats: string[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Research operations (intelligence 1.1)                              */
+/*                                                                     */
+/* These describe the machinery that produces the research above, not  */
+/* the research itself. A job that has stopped, a backfill that could  */
+/* not fetch a filing, and an experiment that ran out of price data    */
+/* are all states the UI has to be able to show honestly.              */
+/* ------------------------------------------------------------------ */
+
+export type IntelJobStatus =
+  | "idle"
+  | "running"
+  | "failed"
+  | "paused"
+  | "interrupted";
+
+export interface IntelJob {
+  name: string;
+  kind: string;
+  scheduleSeconds: number;
+  enabled: boolean;
+  paused: boolean;
+  status: IntelJobStatus;
+  lastStatus: string;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  nextRunAt: string | null;
+  lastError: string;
+  consecutiveFailures: number;
+  totalRuns: number;
+  totalFailures: number;
+  /** The worker holding the lease, or `null` when the job is not running. */
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+  metrics: Record<string, unknown>;
+}
+
+export interface IntelJobFeed {
+  items: IntelJob[];
+  total: number;
+  schedulerEnabled: boolean;
+  caveats: string[];
+}
+
+export type IntelBackfillStatus =
+  | "pending"
+  | "running"
+  | "complete"
+  | "paused"
+  | "failed";
+
+export interface IntelBackfillStream {
+  issuerCik: string;
+  formFamily: string;
+  status: IntelBackfillStatus;
+  /** The acceptance time of the last filing persisted. `null` means the
+   * stream has not stored anything yet, not that it is finished. */
+  cursor: string | null;
+  windowStart: string | null;
+  windowEnd: string | null;
+  filingsSeen: number;
+  filingsNew: number;
+  filingsSkipped: number;
+  /** Filings the SEC index listed but whose document could not be fetched. */
+  filingsUnavailable: number;
+  /** Filings that were fetched but could not be parsed. */
+  filingsMalformed: number;
+  attempts: number;
+  lastError: string;
+}
+
+export interface IntelCoverage {
+  filings: number;
+  transactions: number;
+  signals: number;
+  institutions: number;
+  holdings: number;
+  earliestFilingAt: string | null;
+  latestFilingAt: string | null;
+  earliestSignalAt: string | null;
+  latestSignalAt: string | null;
+  symbolsCovered: string[];
+  /** Identifier resolution counts, including unresolved CUSIPs. */
+  identifiers: Record<string, unknown>;
+  backfill: IntelBackfillStream[];
+  /** Which symbols have usable historical prices, and which do not. */
+  priceCoverage: Record<string, unknown>;
+  caveats: string[];
+}
+
+export type IntelExperimentStatus =
+  | "complete"
+  | "insufficient_data"
+  | "no_price_data"
+  | "failed";
+
+export interface IntelExperiment {
+  id: string;
+  name: string;
+  signalVersion: string;
+  dataVersion: string;
+  periodStart: string;
+  periodEnd: string;
+  /** No signal published after this instant may enter the sample. */
+  informationCutoff: string;
+  benchmark: string;
+  parameters: Record<string, unknown>;
+  executionAssumptions: Record<string, unknown>;
+  costAssumptions: Record<string, unknown>;
+  sampleSize: number;
+  coverage: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  status: IntelExperimentStatus;
+  /** Why a result is incomplete. Empty only when the experiment is sound. */
+  flags: string[];
+  /** Identifies the definition. Two runs with the same hash are comparable. */
+  definitionHash: string;
+  /** Identifies the input data. A changed fingerprint means the data moved. */
+  dataFingerprint: string;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface IntelExperimentFeed {
+  items: IntelExperiment[];
+  total: number;
+  caveats: string[];
+}
+
+export type IntelValidationStatus =
+  | "complete"
+  | "insufficient_sample"
+  | "no_price_data"
+  | "no_signals";
+
+export interface IntelValidation {
+  signalId: string;
+  category: ResearchSignalCategory;
+  status: IntelValidationStatus;
+  benchmark: string;
+  costBps: number;
+  sampleSize: number;
+  coverage: Record<string, unknown>;
+  flags: string[];
+  /** How much the sample overlaps itself. Overlapping windows are not
+   * independent observations. */
+  overlap: Record<string, unknown>;
+  multipleTesting: Record<string, unknown> | null;
+  horizons: Record<string, unknown>[];
+  splits: Record<string, unknown>[];
+}
+
+export interface IntelBackfillRequest {
+  ciks?: string[];
+  formFamily?: "ownership" | "institutional";
+  startDate?: string;
+  endDate?: string;
+  maxFilings?: number;
+}
+
+export interface IntelBackfillResult {
+  source: string;
+  status: "ok" | "partial" | "failed" | "paused";
+  streams: number;
+  completed: number;
+  failed: number;
+  paused: number;
+  filingsSeen: number;
+  filingsNew: number;
+  filingsSkipped: number;
+  filingsUnavailable: number;
+  filingsMalformed: number;
+  stoppedEarly: boolean;
+  errors: { kind: string; message: string }[];
+  progress: IntelBackfillStream[];
+}

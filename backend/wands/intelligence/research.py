@@ -26,10 +26,9 @@ from wands.config import Settings
 from wands.db.models import (
     IntelBackfillCheckpointRow,
     IntelFilingRow,
-    IntelIngestRunRow,
-    IntelInstitutionRow,
-    IntelInstitutionalHoldingRow,
     IntelInsiderTransactionRow,
+    IntelInstitutionalHoldingRow,
+    IntelInstitutionRow,
     IntelJobRow,
     IntelSignalRow,
     MarketCandleRow,
@@ -287,7 +286,6 @@ class ResearchService:
         would hold a worker open and time out at the proxy. A long crawl belongs
         to the scheduler, and this endpoint is for a targeted catch-up.
         """
-        from datetime import date
 
         start = _parse_date(request.start_date)
         end = _parse_date(request.end_date)

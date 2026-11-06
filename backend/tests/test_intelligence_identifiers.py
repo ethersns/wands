@@ -211,11 +211,11 @@ def test_a_provisional_mapping_is_reported_but_not_used_for_fusion(session):
 
 
 def test_a_mapping_without_an_effective_date_does_not_claim_the_past(session):
-    from wands.intelligence.identifiers import FileMappingSource
-
     import json
     import tempfile
     from pathlib import Path
+
+    from wands.intelligence.identifiers import FileMappingSource
 
     payload = [{"cusip": CUSIP, "symbol": "AAPL", "observed_at": "2024-01-01"}]
     path = Path(tempfile.mkdtemp()) / "mappings.json"

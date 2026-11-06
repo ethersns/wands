@@ -10,10 +10,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
 from sqlalchemy import select
 
-from wands.config import get_settings
 from wands.db.models import AuditEvent, IntelJobRow, IntelSignalRow
 from wands.intelligence.base import SignalCategory
 
