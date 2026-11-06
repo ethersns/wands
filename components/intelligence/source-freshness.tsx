@@ -34,9 +34,9 @@ export function SourceFreshnessTable({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead>Source</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead className="hidden text-right sm:table-cell">Last success</TableHead>
-            <TableHead className="hidden text-right md:table-cell">Stale after</TableHead>
+            <TableHead className="whitespace-nowrap">State</TableHead>
+            <TableHead className="hidden text-right 2xl:table-cell">Last success</TableHead>
+            <TableHead className="hidden text-right 2xl:table-cell">Stale after</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -48,23 +48,23 @@ export function SourceFreshnessTable({
                     {source.source}
                   </span>
                   {source.detail ? (
-                    <span className="max-w-64 text-[10px] leading-relaxed text-muted-foreground">
+                    <span className="max-w-44 text-[10px] leading-relaxed text-muted-foreground">
                       {source.detail}
                     </span>
                   ) : null}
                 </div>
               </TableCell>
-              <TableCell>
+              <TableCell className="whitespace-nowrap">
                 <FreshnessIndicator
                   freshness={source.status}
                   ageSeconds={source.ageSeconds}
                   lastSuccessAt={source.lastSuccessAt}
                 />
               </TableCell>
-              <TableCell className="hidden text-right font-mono text-[10px] tabular text-muted-foreground sm:table-cell">
+              <TableCell className="hidden text-right font-mono text-[10px] tabular text-muted-foreground 2xl:table-cell">
                 {source.lastSuccessAt ? formatDateTime(source.lastSuccessAt) : "never"}
               </TableCell>
-              <TableCell className="hidden text-right font-mono text-[10px] tabular text-muted-foreground md:table-cell">
+              <TableCell className="hidden text-right font-mono text-[10px] tabular text-muted-foreground 2xl:table-cell">
                 {formatDuration(source.staleAfterSeconds)}
               </TableCell>
             </TableRow>

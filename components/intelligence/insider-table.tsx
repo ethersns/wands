@@ -168,7 +168,7 @@ export function InsiderTable({
               active={sort.key === "acceptedAt"}
               direction={sort.direction}
               onSort={onSort}
-              className="hidden text-right lg:table-cell"
+              className="hidden text-right xl:table-cell"
             />
             <TableHead className="text-right">
               <span className="sr-only">Evidence</span>
@@ -243,7 +243,7 @@ export function InsiderTable({
                   <TableCell className="hidden font-mono text-[11px] tabular text-muted-foreground 2xl:table-cell">
                     {formatDateTime(row.transactionDate)}
                   </TableCell>
-                  <TableCell className="hidden text-right font-mono text-[11px] tabular text-muted-foreground lg:table-cell">
+                  <TableCell className="hidden text-right font-mono text-[11px] tabular text-muted-foreground xl:table-cell">
                     {formatDateTime(row.acceptedAt)}
                   </TableCell>
                   <TableCell className="text-right">

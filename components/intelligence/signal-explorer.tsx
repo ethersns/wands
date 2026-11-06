@@ -397,7 +397,10 @@ export function SignalExplorer({
                         {signal.symbol}
                       </TableCell>
                       <TableCell>
-                        <SignalBadge category={signal.category} />
+                        <SignalBadge
+                          category={signal.category}
+                          className="max-w-28 truncate sm:max-w-none"
+                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <ResearchScore score={signal.score} className="justify-end" />
