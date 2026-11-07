@@ -31,6 +31,7 @@
  */
 
 import type {
+  Envelope,
   FusionRanking,
   InsiderFeed,
   InsiderSymbolSummary,
@@ -43,6 +44,19 @@ import type {
 } from "./contracts";
 
 export const RESEARCH_CONTRACT_VERSION = "1.0.0" as const;
+
+/**
+ * A research envelope, plus whether the engine was reachable at all.
+ *
+ * `provenance: "unavailable"` covers two situations that must never be shown as
+ * one: the engine answered and has nothing stored for the subject, and the
+ * engine could not be reached. The first is a collection state; the second is an
+ * outage. `unreachable` separates them so a page cannot tell a member the engine
+ * is down when it actually replied.
+ */
+export interface ResearchEnvelope<T> extends Envelope<T> {
+  unreachable: boolean;
+}
 
 /* ------------------------------------------------------------------ */
 /* Evidence                                                            */

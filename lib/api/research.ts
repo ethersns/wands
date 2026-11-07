@@ -2,9 +2,8 @@ import "server-only";
 
 import { cache } from "react";
 
-import { engineConfig, engineFetch } from "./client";
+import { researchConfig, researchFetch } from "./client";
 import type {
-  Envelope,
   FusionRanking,
   InsiderFeed,
   InsiderSymbolSummary,
@@ -18,6 +17,7 @@ import type {
   AssetResearch,
   ResearchCoverageDisclosure,
   ResearchDashboard,
+  ResearchEnvelope,
   ResearchSourceLink,
   ResearchSourceSubject,
 } from "./research-contract";
@@ -31,21 +31,28 @@ import type {
  * caller must render that state rather than a zero.
  */
 
-function unavailableEnvelope<T>(data: T, warnings: string[]): Envelope<T> {
+/** The engine could not be reached, so nothing was read. */
+function unavailableEnvelope<T>(data: T, warnings: string[]): ResearchEnvelope<T> {
   return {
     data,
     provenance: "unavailable",
     generatedAt: new Date().toISOString(),
     source: "wands-engine",
     warnings,
+    unreachable: true,
   };
+}
+
+/** The engine answered, but has nothing stored for this subject. */
+function emptyEnvelope<T>(data: T, warnings: string[]): ResearchEnvelope<T> {
+  return { ...unavailableEnvelope(data, warnings), unreachable: false };
 }
 
 async function loadResearch<T>(
   path: string,
   empty: () => T,
-): Promise<Envelope<T>> {
-  const { configured } = engineConfig();
+): Promise<ResearchEnvelope<T>> {
+  const { configured } = researchConfig();
 
   if (!configured) {
     return unavailableEnvelope(empty(), [
@@ -53,10 +60,10 @@ async function loadResearch<T>(
     ]);
   }
 
-  const result = await engineFetch<T>(path, {});
+  const result = await researchFetch<T>(path, {});
 
   if (result.ok) {
-    return result.envelope;
+    return { ...result.envelope, unreachable: false };
   }
 
   return unavailableEnvelope(empty(), [
@@ -159,7 +166,7 @@ export const getResearchDashboard = cache(() =>
 );
 
 export const getAssetResearch = cache(
-  async (symbol: string): Promise<Envelope<AssetResearch>> => {
+  async (symbol: string): Promise<ResearchEnvelope<AssetResearch>> => {
     const upper = symbol.trim().toUpperCase();
     const envelope = await loadResearch<Partial<AssetResearch>>(
       `/v1/intelligence/symbols/${encodeURIComponent(upper)}/summary`,
@@ -202,8 +209,8 @@ export const getPublicCoverage = cache(() =>
  * record is gone or the engine is down.
  */
 export const getSignal = cache(
-  async (id: string): Promise<Envelope<ResearchSignal | null>> => {
-    const { configured } = engineConfig();
+  async (id: string): Promise<ResearchEnvelope<ResearchSignal | null>> => {
+    const { configured } = researchConfig();
 
     if (!configured) {
       return unavailableEnvelope<ResearchSignal | null>(null, [
@@ -211,18 +218,24 @@ export const getSignal = cache(
       ]);
     }
 
-    const result = await engineFetch<ResearchSignal>(
+    const result = await researchFetch<ResearchSignal>(
       `/v1/intelligence/signals/${encodeURIComponent(id)}`,
       {},
     );
 
     if (result.ok) {
-      return result.envelope;
+      return { ...result.envelope, unreachable: false };
     }
 
     if (result.error.status === 404) {
-      return unavailableEnvelope<ResearchSignal | null>(null, [
+      return emptyEnvelope<ResearchSignal | null>(null, [
         "The engine has no stored signal with this identifier.",
+      ]);
+    }
+
+    if (result.error.status === 422) {
+      return emptyEnvelope<ResearchSignal | null>(null, [
+        "This is not a signal identifier, so the engine has no record to return.",
       ]);
     }
 
@@ -280,15 +293,20 @@ export const getInstitutionFeed = cache((page = 1, limit = 50) =>
 /**
  * One insider transaction by its stable identifier.
  *
- * `insiderTransaction` is declared `new` in the contract, so the engine may not
- * serve it yet. Until it does, a request falls through to the published feed so
- * a recent filing still opens. The fallback is stated in the warning rather than
- * hidden, because "not in the published feed" and "not stored" are different
- * claims and only the engine can tell them apart.
+ * The engine reads the row directly, so a filing stays reachable after it has
+ * aged out of the published feed. There is no feed scan behind this: scanning a
+ * page of the feed could not open an older filing, and it made "not in the
+ * published window" look like "not stored".
+ *
+ * The three outcomes stay distinct, because a member reopening a saved record
+ * needs to know which one happened:
+ * - `404` — the engine has no filing with this identifier.
+ * - `422` — the identifier is not a filing id at all.
+ * - anything else — the engine could not be reached or refused the credential.
  */
 export const getInsiderTransaction = cache(
-  async (id: string): Promise<Envelope<InsiderTransaction | null>> => {
-    const { configured } = engineConfig();
+  async (id: string): Promise<ResearchEnvelope<InsiderTransaction | null>> => {
+    const { configured } = researchConfig();
 
     if (!configured) {
       return unavailableEnvelope<InsiderTransaction | null>(null, [
@@ -296,24 +314,29 @@ export const getInsiderTransaction = cache(
       ]);
     }
 
-    const result = await engineFetch<InsiderTransaction>(
+    const result = await researchFetch<InsiderTransaction>(
       `/v1/intelligence/insiders/transactions/${encodeURIComponent(id)}`,
       {},
     );
 
     if (result.ok) {
-      return result.envelope;
+      return { ...result.envelope, unreachable: false };
     }
 
-    const feed = await getInsiderFeed({ limit: 200 });
-    const found = feed.data.items.find((item) => item.id === id) ?? null;
+    if (result.error.status === 404) {
+      return emptyEnvelope<InsiderTransaction | null>(null, [
+        "The engine has no stored filing with this identifier.",
+      ]);
+    }
 
-    if (found) {
-      return { ...feed, data: found };
+    if (result.error.status === 422) {
+      return emptyEnvelope<InsiderTransaction | null>(null, [
+        "This is not a filing identifier, so the engine has no record to return.",
+      ]);
     }
 
     return unavailableEnvelope<InsiderTransaction | null>(null, [
-      "The engine did not return this filing by its identifier, and it is not in the published feed.",
+      `Research data unavailable (${result.error.code}): ${result.error.message}`,
     ]);
   },
 );

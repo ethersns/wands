@@ -121,12 +121,16 @@ export function ProvenanceNote({
   provenance,
   generatedAt,
   warnings,
+  unreachable = false,
 }: {
   provenance: string;
   generatedAt: string;
   warnings: string[];
+  /** The engine could not be reached, as opposed to answering with nothing stored. */
+  unreachable?: boolean;
 }) {
   const live = provenance !== "unavailable";
+  const label = live ? "Live data" : unreachable ? "Engine unreachable" : "Unavailable";
   const stamp = new Date(generatedAt);
   // Callers concatenate warnings from several envelopes, so the same reason can
   // arrive twice. Dedupe before keying the list on the message itself.
@@ -135,7 +139,7 @@ export function ProvenanceNote({
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-mk-line bg-mk-deep/40 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={live ? "emerald" : "warn"}>{live ? "Live data" : "Unavailable"}</Badge>
+        <Badge tone={live ? "emerald" : "warn"}>{label}</Badge>
         <span className="font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
           {Number.isNaN(stamp.getTime()) ? "unknown time" : stamp.toISOString().replace("T", " ").slice(0, 16)} UTC
         </span>

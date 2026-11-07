@@ -122,6 +122,7 @@ export default async function ResearchIndexPage() {
         provenance={coverage.provenance}
         generatedAt={coverage.generatedAt}
         warnings={coverage.warnings}
+        unreachable={coverage.unreachable}
       />
     </div>
   );

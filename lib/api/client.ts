@@ -21,6 +21,39 @@ export function engineConfig(): EngineConfig {
   return { baseUrl, token, configured: Boolean(baseUrl) };
 }
 
+export interface ResearchConfig extends EngineConfig {
+  /**
+   * True when the research path holds its own credential rather than borrowing
+   * the operator one. A research credential carries `research:read` and a
+   * viewer role, so it can read filings and signals but cannot reach backfill,
+   * job control, orders, risk or connections even if a member code path asked
+   * for them.
+   */
+  scoped: boolean;
+}
+
+/**
+ * The credential the member research surface uses.
+ *
+ * `WANDS_RESEARCH_TOKEN` is a least-privilege credential issued for the member
+ * workspace. When it is absent the research path falls back to the operator
+ * token so the workspace still works, but `scoped` reports false: the member
+ * surface is then running on a credential that can also reach operator
+ * functions, which is a deployment gap rather than a code one.
+ */
+export function researchConfig(): ResearchConfig {
+  const baseUrl = process.env.WANDS_ENGINE_URL?.trim() || null;
+  const scopedToken = process.env.WANDS_RESEARCH_TOKEN?.trim() || null;
+  const engineToken = process.env.WANDS_ENGINE_TOKEN?.trim() || null;
+
+  return {
+    baseUrl,
+    token: scopedToken ?? engineToken,
+    configured: Boolean(baseUrl),
+    scoped: Boolean(scopedToken),
+  };
+}
+
 function errorOf(code: ApiError["code"], message: string, status?: number): ApiError {
   return { code, message, status };
 }
@@ -41,9 +74,10 @@ function isEnvelope(value: unknown): value is Envelope<unknown> {
  */
 export async function engineFetch<T>(
   path: string,
-  init: RequestInit & { timeoutMs?: number } = {},
+  init: RequestInit & { timeoutMs?: number; config?: EngineConfig } = {},
 ): Promise<ApiResult<T>> {
-  const { baseUrl, token, configured } = engineConfig();
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, headers, config, ...rest } = init;
+  const { baseUrl, token, configured } = config ?? engineConfig();
 
   if (!configured || !baseUrl) {
     return {
@@ -55,7 +89,6 @@ export async function engineFetch<T>(
     };
   }
 
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, headers, ...rest } = init;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -123,4 +156,18 @@ export async function engineFetch<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Calls the engine with the member research credential.
+ *
+ * Every read in `lib/api/research.ts` goes through here rather than
+ * `engineFetch`, so the member surface is confined to the credential issued for
+ * it. The operator console keeps using `engineFetch` and the operator token.
+ */
+export function researchFetch<T>(
+  path: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<ApiResult<T>> {
+  return engineFetch<T>(path, { ...init, config: researchConfig() });
 }
