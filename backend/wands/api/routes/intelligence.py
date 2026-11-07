@@ -18,13 +18,14 @@ been collected" rather than "nothing happened".
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from wands.api.deps import (
+    allow_research_read,
     client_ip,
     deny_research_only,
     request_id_of,
@@ -51,12 +52,15 @@ from wands.intelligence.schemas import (
     IntelJobFeedOut,
     IntelValidationOut,
     PriceSeriesOut,
+    QuantLabRunOut,
+    QuantLabRunRequest,
     ResearchCoverageDisclosureOut,
     ResearchDashboardOut,
     ResearchSourceLinkOut,
     SignalFeedOut,
     SignalOut,
 )
+from wands.intelligence.studies import QuantLab, experiment_payload
 from wands.intelligence.service import INSIDER_CAVEATS, IntelligenceService
 from wands.schemas import dump, dump_many
 from wands.security.audit import record_for_principal
@@ -333,8 +337,15 @@ def experiments(
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(deny_research_only()),
+    principal: Principal = Depends(allow_research_read()),
 ) -> dict:
+    """Recorded research experiments.
+
+    Readable by a research-scoped credential because a stored experiment is a
+    research result, not collection machinery: it carries the definition, the
+    sample size, the coverage and the flags, and nothing that can reach an order
+    or a credential. Creating one is operator-only.
+    """
     feed: IntelExperimentFeedOut = _research(session, settings).experiments(limit=limit)
     payload = dump(feed)
     if not feed.items:
@@ -351,7 +362,7 @@ def experiment(
     experiment_id: str,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(deny_research_only()),
+    principal: Principal = Depends(allow_research_read()),
 ) -> dict:
     try:
         uuid.UUID(experiment_id)
@@ -398,6 +409,64 @@ def signal_validation(
             "status and flags say why, and no performance statistic is reported.",
         )
     return envelope(payload, warnings=list(result.flags))
+
+
+@router.post("/quant-lab/run")
+def quant_lab_run(
+    payload: QuantLabRunRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_role(Role.ADMIN)),
+) -> dict:
+    """Execute the Quant Lab studies and record them as experiments.
+
+    Operator-only and audited. A run writes experiment rows and nothing else: the
+    intelligence package does not import the order path, so no study can place a
+    trade. Re-running an unchanged definition returns the stored result rather
+    than recording a second one.
+    """
+    now = datetime.now(tz=UTC)
+    start = payload.period_start or datetime(2023, 1, 1, tzinfo=UTC)
+    end = payload.period_end or now
+    cutoff = payload.information_cutoff or end
+
+    if start >= end:
+        raise BadRequest("periodStart must be earlier than periodEnd.")
+
+    outcomes = QuantLab(session, settings).run_all(
+        period_start=start, period_end=end, cutoff=cutoff
+    )
+    session.commit()
+
+    items = [IntelExperimentOut(**experiment_payload(item.experiment)) for item in outcomes]
+    record_for_principal(
+        session,
+        principal,
+        action="intelligence.quant_lab.run",
+        target="quant_lab",
+        outcome="success",
+        detail={
+            "experiments": len(items),
+            "statuses": {item.experiment.name: item.experiment.status for item in outcomes},
+            "periodStart": start.isoformat(),
+            "periodEnd": end.isoformat(),
+        },
+    )
+    session.commit()
+
+    return envelope(
+        dump(
+            QuantLabRunOut(
+                items=items,
+                reproduction={
+                    item.experiment.name: item.reproduction for item in outcomes
+                },
+                caveats=[item.note for item in outcomes if item.note],
+            )
+        ),
+        warnings=[item.note for item in outcomes if item.note],
+    )
 
 
 @router.post("/backfill")

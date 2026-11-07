@@ -36,19 +36,19 @@ export interface ResearchConfig extends EngineConfig {
  * The credential the member research surface uses.
  *
  * `WANDS_RESEARCH_TOKEN` is a least-privilege credential issued for the member
- * workspace. When it is absent the research path falls back to the operator
- * token so the workspace still works, but `scoped` reports false: the member
- * surface is then running on a credential that can also reach operator
- * functions, which is a deployment gap rather than a code one.
+ * workspace. There is deliberately no fallback to the operator token: a member
+ * request that borrowed it would carry the authority to place orders, read
+ * credentials and control jobs, and a single missing environment variable would
+ * silently widen the member surface to the whole engine. When the credential is
+ * absent the research path reports itself unconfigured instead.
  */
 export function researchConfig(): ResearchConfig {
   const baseUrl = process.env.WANDS_ENGINE_URL?.trim() || null;
   const scopedToken = process.env.WANDS_RESEARCH_TOKEN?.trim() || null;
-  const engineToken = process.env.WANDS_ENGINE_TOKEN?.trim() || null;
 
   return {
     baseUrl,
-    token: scopedToken ?? engineToken,
+    token: scopedToken,
     configured: Boolean(baseUrl),
     scoped: Boolean(scopedToken),
   };
@@ -169,5 +169,17 @@ export function researchFetch<T>(
   path: string,
   init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<ApiResult<T>> {
-  return engineFetch<T>(path, { ...init, config: researchConfig() });
+  const config = researchConfig();
+
+  if (!config.token) {
+    return Promise.resolve({
+      ok: false,
+      error: errorOf(
+        "research_unconfigured",
+        "WANDS_RESEARCH_TOKEN is not set. The member research surface requires its own research-scoped credential and will not borrow the operator token.",
+      ),
+    });
+  }
+
+  return engineFetch<T>(path, { ...init, config });
 }

@@ -104,6 +104,7 @@ ADMIN_RESEARCH_WRITES = {
     "/v1/intelligence/backfill",
     "/v1/intelligence/jobs/{name}/pause",
     "/v1/intelligence/jobs/{name}/resume",
+    "/v1/intelligence/quant-lab/run",
 }
 
 

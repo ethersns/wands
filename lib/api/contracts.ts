@@ -46,6 +46,7 @@ export interface Envelope<T> {
 export interface ApiError {
   code:
     | "not_configured"
+    | "research_unconfigured"
     | "unreachable"
     | "unauthorized"
     | "timeout"

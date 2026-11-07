@@ -188,12 +188,13 @@ OPERATOR_PATHS = (
     "/v1/risk",
     "/v1/engine/status",
     "/v1/engine/audit",
-    # Intelligence administration: collection jobs, operator coverage,
-    # experiment management and the administrative status projection.
+    # Intelligence administration: collection jobs, operator coverage and the
+    # administrative status projection. Recorded experiments are deliberately
+    # absent: a stored experiment is a research result the member workspace reads
+    # through the same endpoint, so it is not an operator-only surface.
     "/v1/intelligence/status",
     "/v1/intelligence/jobs",
     "/v1/intelligence/coverage",
-    "/v1/intelligence/experiments",
 )
 
 
@@ -258,6 +259,7 @@ def test_the_member_surface_adds_no_write_routes():
         ("/intelligence/backfill", "POST"),
         ("/intelligence/jobs/{name}/pause", "POST"),
         ("/intelligence/jobs/{name}/resume", "POST"),
+        ("/intelligence/quant-lab/run", "POST"),
     }
 
 

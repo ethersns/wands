@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MEMBER_FOOTER_NAV, MEMBER_NAV } from "@/components/member/member-shell";
 import { ProvenanceNote } from "@/components/member/ui";
@@ -16,6 +16,12 @@ import { assetHref, filingHref, savedHref, savedItemHref, signalHref } from "@/l
 import { memberResearch } from "@/lib/member/research";
 
 const ALL_NAV = [...MEMBER_NAV, ...MEMBER_FOOTER_NAV];
+
+// The member research surface requires its own credential. Stubbing one here
+// keeps the read tests about the read, and the credential tests override it.
+beforeEach(() => {
+  vi.stubEnv("WANDS_RESEARCH_TOKEN", "research-token");
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -63,6 +69,8 @@ describe("member research permissions", () => {
       "asset",
       "coverage",
       "dashboard",
+      "experiment",
+      "experiments",
       "insiderTransaction",
       "insiders",
       "institutions",
@@ -359,15 +367,29 @@ describe("research credential", () => {
     expect(config.scoped).toBe(true);
   });
 
-  it("reports an unscoped fallback when no research token is issued", () => {
+  it("never falls back to the operator token when no research token is issued", () => {
     vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
     vi.stubEnv("WANDS_ENGINE_TOKEN", "operator-token");
     vi.stubEnv("WANDS_RESEARCH_TOKEN", "");
 
     const config = researchConfig();
 
-    expect(config.token).toBe("operator-token");
+    expect(config.token).toBeNull();
     expect(config.scoped).toBe(false);
+  });
+
+  it("reports an explicit unconfigured state instead of reading with the operator token", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.stubEnv("WANDS_ENGINE_TOKEN", "operator-token");
+    vi.stubEnv("WANDS_RESEARCH_TOKEN", "");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const envelope = await getResearchDashboard();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.warnings.join(" ")).toMatch(/WANDS_RESEARCH_TOKEN/);
+    expect(envelope.warnings.join(" ")).toMatch(/operator credential is never used/);
   });
 
   it("sends the research credential on a member research read", async () => {

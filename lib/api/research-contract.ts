@@ -279,6 +279,160 @@ export interface ResearchDashboard {
  * `omit` names fields that exist on the operator projection and must not appear
  * in the customer response.
  */
+/* ------------------------------------------------------------------ */
+/* Quant Lab                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One simulated round trip. `netReturn` has both legs' costs deducted, so it is
+ * the number a reader should judge the rule by, not `grossReturn`.
+ */
+export interface QuantTrade {
+  entryAt: string;
+  entryPrice: number;
+  exitAt: string;
+  exitPrice: number;
+  grossReturn: number;
+  netReturn: number;
+  cost: number;
+  barsHeld: number;
+  exitReason: string;
+}
+
+/** Pooled performance across the symbols a strategy was run on. */
+export interface QuantStudySummary {
+  tradeCount?: number;
+  meanTradeReturn?: number | null;
+  medianTradeReturn?: number | null;
+  winRate?: number | null;
+  profitFactor?: number | null;
+  totalCosts?: number | null;
+  meanStrategyReturn?: number | null;
+  meanBenchmarkReturn?: number | null;
+  meanExcessReturn?: number | null;
+  smallSample?: boolean;
+  tradeReturnInterval?: {
+    lower: number | null;
+    upper: number | null;
+    confidence: number;
+    method: string;
+    note: string;
+  };
+  tradeReturnSignificance?: {
+    tStatistic: number | null;
+    pValue: number | null;
+    degreesOfFreedom: number;
+    significant: boolean;
+    note: string;
+  };
+}
+
+/** One instrument's run within a strategy study. */
+export interface QuantStudySeries {
+  symbol: string;
+  status: string;
+  note?: string;
+  metrics?: {
+    totalReturn?: number | null;
+    benchmarkReturn?: number | null;
+    excessReturn?: number | null;
+    tradeCount?: number;
+    winRate?: number | null;
+    maxDrawdown?: number | null;
+    totalCosts?: number | null;
+    exposure?: number | null;
+    sharpe?: { value: number | null; annualised: number | null; appropriate: boolean };
+    [key: string]: unknown;
+  };
+  coverage?: Record<string, unknown>;
+  flags?: string[];
+  equityCurve?: number[];
+  /** Buy-and-hold of the same instrument, marked at each close. */
+  benchmarkCurve?: number[];
+  curveDates?: string[];
+  trades?: QuantTrade[];
+}
+
+/** One event category within the institutional study. */
+export interface QuantCategory {
+  category: string;
+  sampleSize: number;
+  status: string;
+  note?: string;
+  horizons?: {
+    horizonDays: number;
+    sampleSize: number;
+    coverage: Record<string, unknown>;
+    descriptive: { mean: number | null; hitRate: number | null; count: number } | null;
+    meanInterval: { lower: number | null; upper: number | null } | null;
+    significance: { pValue: number | null; significant: boolean } | null;
+  }[];
+  coverage?: Record<string, unknown>;
+  flags?: string[];
+}
+
+/**
+ * The stored result of a study. `status` is authoritative: `insufficient_data`
+ * means the sample did not clear the minimum, and the numbers beside it are
+ * descriptive rather than evidence.
+ */
+export interface QuantStudyResult {
+  study: string;
+  title: string;
+  status: string;
+  sampleSize: number;
+  symbols?: string[];
+  parameters?: Record<string, unknown>;
+  benchmark?: string;
+  costBps?: number;
+  summary?: QuantStudySummary;
+  series?: QuantStudySeries[];
+  categories?: QuantCategory[];
+  concentration?: {
+    status?: string;
+    samples?: number;
+    meanTopWeight?: number;
+    maxTopWeight?: number;
+    minTopWeight?: number;
+    note?: string;
+  };
+  coverage?: Record<string, unknown>;
+  dataAvailability?: Record<string, unknown>;
+  horizons?: Record<string, unknown>[];
+  flags?: string[];
+  limitations?: string[];
+}
+
+/** A recorded experiment, as the member surface reads it. */
+export interface QuantExperiment {
+  id: string;
+  name: string;
+  status: string;
+  signalVersion: string;
+  dataVersion: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  informationCutoff: string | null;
+  benchmark: string;
+  parameters: Record<string, unknown>;
+  executionAssumptions: Record<string, unknown>;
+  costAssumptions: Record<string, unknown>;
+  sampleSize: number;
+  coverage: Record<string, unknown>;
+  metrics: QuantStudyResult;
+  flags: string[];
+  definitionHash: string;
+  dataFingerprint: string;
+  createdAt: string | null;
+  completedAt: string | null;
+}
+
+export interface QuantExperimentFeed {
+  items: QuantExperiment[];
+  total: number;
+  caveats: string[];
+}
+
 export const RESEARCH_ENDPOINTS = {
   dashboard: {
     method: "GET",
@@ -350,6 +504,20 @@ export const RESEARCH_ENDPOINTS = {
     status: "new",
     omit: ["identifiers", "backfill", "priceCoverage", "jobs"],
   },
+  experiments: {
+    method: "GET",
+    path: "/v1/intelligence/experiments",
+    query: ["limit"],
+    status: "new",
+    omit: ["jobs", "backfill", "leaseOwner", "lastError"],
+  },
+  experiment: {
+    method: "GET",
+    path: "/v1/intelligence/experiments/{id}",
+    query: [],
+    status: "new",
+    omit: ["jobs", "backfill", "leaseOwner", "lastError"],
+  },
 } as const;
 
 export type ResearchEndpointName = keyof typeof RESEARCH_ENDPOINTS;
@@ -365,6 +533,8 @@ export interface ResearchResponseMap {
   signals: SignalFeed;
   sources: ResearchSourceLink[];
   coverage: ResearchCoverageDisclosure;
+  experiments: QuantExperimentFeed;
+  experiment: QuantExperiment;
 }
 
 export type ResearchResponse<K extends ResearchEndpointName> =

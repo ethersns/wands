@@ -286,6 +286,25 @@ class IntelExperimentFeedOut(CamelModel):
     caveats: list[str] = Field(default_factory=list)
 
 
+class QuantLabRunRequest(CamelModel):
+    """The window a Quant Lab run covers.
+
+    ``information_cutoff`` defaults to the period end. It exists separately so a
+    run can be pinned to what was knowable at a chosen moment, which is what
+    makes a later re-run comparable.
+    """
+
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    information_cutoff: datetime | None = None
+
+
+class QuantLabRunOut(CamelModel):
+    items: list[IntelExperimentOut]
+    reproduction: dict[str, str] = Field(default_factory=dict)
+    caveats: list[str] = Field(default_factory=list)
+
+
 class IntelValidationOut(CamelModel):
     signal_id: str
     category: str

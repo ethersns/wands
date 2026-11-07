@@ -304,4 +304,5 @@ def test_the_research_endpoints_are_read_only_except_for_the_admin_ones():
         ("/intelligence/backfill", "POST"),
         ("/intelligence/jobs/{name}/pause", "POST"),
         ("/intelligence/jobs/{name}/resume", "POST"),
+        ("/intelligence/quant-lab/run", "POST"),
     }
