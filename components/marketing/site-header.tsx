@@ -109,10 +109,16 @@ export function SiteHeader() {
 
           <div className="hidden items-center gap-1 lg:flex">
             <Link
-              href="/login"
+              href="/signin"
               className="rounded-md px-3 py-1.5 font-marketing-mono text-[10.5px] tracking-[0.14em] text-mk-muted uppercase transition-colors hover:text-mk-fg"
             >
               Sign in
+            </Link>
+            <Link
+              href="/signup"
+              className="rounded-md px-3 py-1.5 font-marketing-mono text-[10.5px] tracking-[0.14em] text-mk-muted uppercase transition-colors hover:text-mk-fg"
+            >
+              Create account
             </Link>
             <Link
               href={primaryCta.href}
@@ -175,11 +181,18 @@ export function SiteHeader() {
                   {primaryCta.label}
                 </Link>
                 <Link
-                  href="/login"
+                  href="/signin"
                   onClick={() => setOpen(false)}
                   className="inline-flex h-12 items-center justify-center rounded-full border border-mk-line-strong font-marketing-mono text-[11px] tracking-[0.14em] text-mk-fg uppercase"
                 >
                   Sign in
+                </Link>
+                <Link
+                  href="/signup"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex h-12 items-center justify-center rounded-full border border-mk-line-strong font-marketing-mono text-[11px] tracking-[0.14em] text-mk-fg uppercase"
+                >
+                  Create account
                 </Link>
               </div>
             </nav>

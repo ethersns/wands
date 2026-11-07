@@ -47,11 +47,37 @@ export const OPERATOR_PREFIXES = [
  * it must never authorise anything in `OPERATOR_PREFIXES`.
  */
 export const CUSTOMER_PREFIXES = [
+  "/app",
+  "/onboarding",
   "/account",
   "/billing",
+  "/api/member",
   "/api/account",
   "/api/billing/portal",
 ] as const;
+
+/**
+ * Customer pages that require a member session. Middleware only performs an
+ * optimistic cookie check on these; the layout re-validates the session against
+ * the database, which is the authoritative gate.
+ */
+export const MEMBER_PAGE_PREFIXES = ["/app", "/onboarding"] as const;
+
+/**
+ * Better Auth's session cookie, prefixed by the `cookiePrefix` in
+ * `lib/auth/member.ts`. Kept here because middleware runs on the edge and
+ * cannot import the auth instance.
+ *
+ * Better Auth prepends `__Secure-` whenever the cookie is marked secure, which
+ * it is in development (for the cross-site preview iframe) and on HTTPS in
+ * production. Both names have to be recognised or the optimistic check misses a
+ * valid session and bounces the visitor between `/app` and `/signin`.
+ */
+export const MEMBER_SESSION_COOKIES = ["wands.session_token", "__Secure-wands.session_token"] as const;
+
+export function hasMemberSessionCookie(cookies: { has(name: string): boolean }): boolean {
+  return MEMBER_SESSION_COOKIES.some((name) => cookies.has(name));
+}
 
 /**
  * The only API routes reachable without a session. Each is listed deliberately:
@@ -60,6 +86,7 @@ export const CUSTOMER_PREFIXES = [
  * cannot hold a session — it authenticates with a signature instead.
  */
 export const PUBLIC_API_PREFIXES = [
+  "/api/auth",
   "/api/session",
   "/api/waitlist",
   "/api/contact",
@@ -76,6 +103,10 @@ function matches(pathname: string, prefixes: readonly string[]): boolean {
 /** True for the routes that answer with JSON rather than a page. */
 export function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+export function isMemberPage(pathname: string): boolean {
+  return matches(pathname, MEMBER_PAGE_PREFIXES);
 }
 
 export function routeTier(pathname: string): RouteTier {

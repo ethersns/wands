@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CUSTOMER_PREFIXES,
+  MEMBER_PAGE_PREFIXES,
+  MEMBER_SESSION_COOKIES,
   OPERATOR_PREFIXES,
   PUBLIC_API_PREFIXES,
+  isMemberPage,
   routeTier,
 } from "@/lib/auth/routes";
 import { SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
@@ -209,8 +212,8 @@ describe("unclassified API routes", () => {
 });
 
 describe("customer tier", () => {
-  it("does not gate subscriber surfaces behind the operator session", async () => {
-    for (const path of CUSTOMER_PREFIXES) {
+  it("does not gate non-member subscriber surfaces behind the operator session", async () => {
+    for (const path of CUSTOMER_PREFIXES.filter((prefix) => !isMemberPage(prefix))) {
       const response = await middleware(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
@@ -233,12 +236,59 @@ describe("customer tier", () => {
   });
 });
 
-describe("matcher parity", () => {
-  function matcherCovers(pattern: string, pathname: string): boolean {
-    const base = pattern.replace(/\/:path\*$/, "");
-    return pathname === base || pathname.startsWith(`${base}/`);
-  }
+function matcherCovers(pattern: string, pathname: string): boolean {
+  const base = pattern.replace(/\/:path\*$/, "");
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
 
+describe("member pages", () => {
+  it("sends a signed-out visitor to the customer sign-in form", async () => {
+    const response = await middleware(request("/app/watchlists"));
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/signin");
+    expect(location.searchParams.get("next")).toBe("/app/watchlists");
+  });
+
+  it("lets a request carrying a member cookie through to the layout", async () => {
+    for (const name of MEMBER_SESSION_COOKIES) {
+      const response = await middleware(request("/app", `${name}=present`));
+      expect(passedThrough(response), name).toBe(true);
+    }
+  });
+
+  it("recognises the secure-prefixed cookie Better Auth issues on HTTPS", async () => {
+    // Better Auth prepends `__Secure-` when the cookie is secure. Missing this
+    // name bounced signed-in visitors between /app and /signin.
+    expect(MEMBER_SESSION_COOKIES).toContain("__Secure-wands.session_token");
+  });
+
+  it("never treats a member cookie as an operator session", async () => {
+    for (const name of MEMBER_SESSION_COOKIES) {
+      const response = await middleware(request("/api/wands/engine/status", `${name}=present`));
+      expect(response.status, name).toBe(401);
+    }
+  });
+
+  it("keeps member APIs reachable so the route handler can authorise them", async () => {
+    const response = await middleware(request("/api/member/watchlists"));
+    expect(passedThrough(response)).toBe(true);
+  });
+
+  it("keeps the auth endpoints public so sign-in can run", async () => {
+    const response = await middleware(request("/api/auth/sign-in/email"));
+    expect(passedThrough(response)).toBe(true);
+  });
+
+  it("covers every member page in the matcher", () => {
+    for (const prefix of MEMBER_PAGE_PREFIXES) {
+      const covered = config.matcher.some((pattern) => matcherCovers(pattern, prefix));
+      expect(covered, `matcher is missing ${prefix}`).toBe(true);
+    }
+  });
+});
+
+describe("matcher parity", () => {
   it("covers every operator prefix", () => {
     for (const prefix of OPERATOR_PREFIXES) {
       const covered = config.matcher.some((pattern) =>
