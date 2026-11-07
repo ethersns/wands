@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { QuantExperiment } from "@/lib/api/research-contract";
 import {
   formatPercent,
+  formatPoints,
   formatPValue,
   formatShare,
   headline,
+  humanizeKey,
 } from "@/lib/member/quant";
 
 describe("formatPValue", () => {
@@ -35,6 +37,25 @@ describe("formatShare", () => {
 
   it("reports a missing share as missing", () => {
     expect(formatShare(null)).toBe("—");
+  });
+});
+
+describe("formatPoints", () => {
+  it("labels a difference of two returns as points, not as a return", () => {
+    expect(formatPoints(0.494 - 1.628)).toBe("-113.4 pp");
+    expect(formatPoints(0.12)).toBe("+12.0 pp");
+  });
+
+  it("reports a missing difference as missing", () => {
+    expect(formatPoints(null)).toBe("—");
+  });
+});
+
+describe("humanizeKey", () => {
+  it("turns a metric key into a readable label", () => {
+    expect(humanizeKey("meanExcessVsMatched")).toBe("Mean excess vs matched");
+    expect(humanizeKey("costDrag")).toBe("Cost drag");
+    expect(humanizeKey("total_costs")).toBe("Total costs");
   });
 });
 

@@ -25,6 +25,27 @@ export function formatShare(value: number | null | undefined, digits = 1): strin
 }
 
 /**
+ * A difference between two returns, in percentage points.
+ *
+ * Subtracting one return from another gives points, not a return: a rule that
+ * made +49.4% against a +162.8% hold is 113.4 points behind, not down 113.4%.
+ */
+export function formatPoints(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)} pp`;
+}
+
+/** `meanExcessVsMatched` -> `Mean excess vs matched`. */
+export function humanizeKey(key: string): string {
+  const spaced = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim()
+    .toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
  * A p-value at the precision the test can actually support.
  *
  * `0.000` claims the probability is zero, which no finite sample can establish.

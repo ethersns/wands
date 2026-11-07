@@ -17,6 +17,7 @@ import {
   formatPercent,
   formatPValue,
   formatShare,
+  humanizeKey,
   periodLabel,
   statusLabel,
   statusTone,
@@ -281,7 +282,7 @@ export default async function ExperimentPage({
                 {Object.entries(result.definitions).map(([key, text]) => (
                   <div key={key}>
                     <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
-                      {key}
+                      {humanizeKey(key)}
                     </dt>
                     <dd className="mt-0.5 text-sm leading-relaxed text-mk-muted text-pretty">
                       {text}

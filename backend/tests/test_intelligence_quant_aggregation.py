@@ -15,8 +15,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from wands.config import get_settings
 from wands.db.models import IntelExperimentRow
 from wands.intelligence import quant
+from wands.intelligence.experiments import ExperimentRunner
 from wands.intelligence.strategies import (
     MEAN_REVERSION,
     RULE_BREAKOUT,
@@ -276,6 +278,36 @@ def test_the_study_summary_reports_a_mean_and_never_a_sum(session):
     assert summary["costDrag"] is not None
     assert "definitions" in outcome.payload
     assert "meanExcessVsMatched" in outcome.payload["definitions"]
+
+
+def test_the_feed_shows_one_row_per_study_and_keeps_the_newest_definition(session):
+    """A superseded definition must not be listed beside the current one.
+
+    The older row never recorded the fields the current one reports, so it
+    renders as a result full of dashes rather than as a superseded result.
+    """
+    _candles(session, symbol="AAPL", step=0.4)
+    lab = _lab(session)
+    parameters = {
+        "symbols": ["AAPL"],
+        "strategy": {
+            "kind": TREND,
+            "rule": RULE_MOVING_AVERAGE,
+            "fastWindow": 5,
+            "slowWindow": 20,
+        },
+    }
+
+    lab.run_strategy_study(_strategy_definition(parameters=parameters))
+    lab.run_strategy_study(
+        _strategy_definition(signal_version="1.1", parameters=parameters)
+    )
+    session.commit()
+
+    rows = ExperimentRunner(session, get_settings()).list()
+
+    assert len(rows) == 1
+    assert rows[0].signal_version == "1.1"
 
 
 def test_the_multiple_testing_correction_reaches_the_database(session):
