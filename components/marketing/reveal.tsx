@@ -8,10 +8,12 @@ export function Reveal({
   children,
   className,
   delay = 0,
+  variant = "rise",
 }: {
   children: React.ReactNode;
   className?: string;
   delay?: number;
+  variant?: "rise" | "lines";
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -19,8 +21,10 @@ export function Reveal({
     const element = ref.current;
     if (!element) return;
 
+    const settled = variant === "lines" ? "lines-in" : "in";
+
     if (typeof IntersectionObserver === "undefined") {
-      element.dataset.reveal = "in";
+      element.dataset.reveal = settled;
       return;
     }
 
@@ -28,7 +32,7 @@ export function Reveal({
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            element.dataset.reveal = "in";
+            element.dataset.reveal = settled;
             observer.disconnect();
           }
         }
@@ -38,12 +42,12 @@ export function Reveal({
 
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [variant]);
 
   return (
     <div
       ref={ref}
-      data-reveal=""
+      data-reveal={variant === "lines" ? "lines" : ""}
       style={delay ? { animationDelay: `${delay}ms` } : undefined}
       className={cn(className)}
     >
