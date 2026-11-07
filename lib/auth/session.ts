@@ -17,6 +17,10 @@ function envValue(name: string): string | null {
   return value ? value : null;
 }
 
+export function operatorUsername(): string | null {
+  return envValue("WANDS_OPERATOR_USERNAME");
+}
+
 export function operatorPassword(): string | null {
   return envValue("WANDS_OPERATOR_PASSWORD");
 }
@@ -25,9 +29,13 @@ export function sessionSecret(): string | null {
   return envValue("WANDS_SESSION_SECRET");
 }
 
-/** True when the deployment has configured both halves of the gate. */
+/** True when the deployment has configured every half of the gate. */
 export function gateConfigured(): boolean {
-  return operatorPassword() !== null && sessionSecret() !== null;
+  return (
+    operatorUsername() !== null &&
+    operatorPassword() !== null &&
+    sessionSecret() !== null
+  );
 }
 
 function toBase64Url(bytes: Uint8Array): string {
@@ -91,18 +99,34 @@ export async function verifySessionToken(
 }
 
 /**
- * Compares the submitted password against the configured one by hashing both
- * first, so the comparison is over equal-length digests and cannot leak the
- * password's length through timing.
+ * Compares the submitted username and password against the configured pair by
+ * hashing all four values first, so every comparison is over equal-length
+ * digests and cannot leak the length of either credential through timing. Both
+ * comparisons always run, so a wrong username costs the same as a wrong
+ * password.
  */
-export async function checkPassword(candidate: string): Promise<boolean> {
-  const expected = operatorPassword();
+export async function checkCredentials(
+  username: string,
+  password: string,
+): Promise<boolean> {
+  const expectedUsername = operatorUsername();
+  const expectedPassword = operatorPassword();
   const secret = sessionSecret();
-  if (!expected || !secret) return false;
+  if (!expectedUsername || !expectedPassword || !secret) return false;
 
-  const [submitted, configured] = await Promise.all([
-    sign(candidate, secret),
-    sign(expected, secret),
+  const [
+    submittedUsername,
+    configuredUsername,
+    submittedPassword,
+    configuredPassword,
+  ] = await Promise.all([
+    sign(username, secret),
+    sign(expectedUsername, secret),
+    sign(password, secret),
+    sign(expectedPassword, secret),
   ]);
-  return timingSafeEqual(submitted, configured);
+
+  const usernameMatches = timingSafeEqual(submittedUsername, configuredUsername);
+  const passwordMatches = timingSafeEqual(submittedPassword, configuredPassword);
+  return usernameMatches && passwordMatches;
 }

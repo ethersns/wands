@@ -16,13 +16,14 @@ import { Suspense, useState } from "react";
  * form into an open redirect.
  */
 function safeNext(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
   return value;
 }
 
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -36,7 +37,7 @@ function SignInForm() {
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
 
       if (!response.ok) {
@@ -62,8 +63,27 @@ function SignInForm() {
       className="rounded-xl border border-border bg-card p-6"
     >
       <label
-        htmlFor="password"
+        htmlFor="username"
         className="block text-sm font-medium text-foreground"
+      >
+        Operator username
+      </label>
+      <input
+        id="username"
+        name="username"
+        type="text"
+        autoComplete="username"
+        required
+        value={username}
+        onChange={(event) => setUsername(event.target.value)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? "signin-error" : undefined}
+        className="mt-2 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+
+      <label
+        htmlFor="password"
+        className="mt-4 block text-sm font-medium text-foreground"
       >
         Operator password
       </label>
@@ -119,7 +139,7 @@ export default function LoginPage() {
 
         <Suspense
           fallback={
-            <div className="h-56 rounded-xl border border-border bg-card" />
+            <div className="h-72 rounded-xl border border-border bg-card" />
           }
         >
           <SignInForm />

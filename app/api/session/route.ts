@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
-  checkPassword,
+  checkCredentials,
   createSessionToken,
   gateConfigured,
 } from "@/lib/auth/session";
@@ -20,7 +20,7 @@ const UNCONFIGURED = {
   error: {
     code: "operator_gate_unconfigured",
     message:
-      "Set WANDS_OPERATOR_PASSWORD and WANDS_SESSION_SECRET on the server to enable engine actions.",
+      "Set WANDS_OPERATOR_USERNAME, WANDS_OPERATOR_PASSWORD and WANDS_SESSION_SECRET on the server to enable engine actions.",
   },
 };
 
@@ -30,16 +30,18 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => null)) as {
+    username?: unknown;
     password?: unknown;
   } | null;
+  const username = typeof body?.username === "string" ? body.username : "";
   const password = typeof body?.password === "string" ? body.password : "";
 
-  if (!(await checkPassword(password))) {
+  if (!(await checkCredentials(username, password))) {
     return NextResponse.json(
       {
         error: {
           code: "unauthorized",
-          message: "That password is not correct.",
+          message: "That username or password is not correct.",
         },
       },
       { status: 401 },

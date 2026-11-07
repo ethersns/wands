@@ -15,6 +15,7 @@ import {
 import { SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
 import { config, middleware } from "@/middleware";
 
+const USERNAME = "operator";
 const PASSWORD = "correct horse battery staple";
 const SECRET = "test-session-secret";
 
@@ -29,11 +30,13 @@ function passedThrough(response: Response): boolean {
 }
 
 beforeEach(() => {
+  process.env.WANDS_OPERATOR_USERNAME = USERNAME;
   process.env.WANDS_OPERATOR_PASSWORD = PASSWORD;
   process.env.WANDS_SESSION_SECRET = SECRET;
 });
 
 afterEach(() => {
+  delete process.env.WANDS_OPERATOR_USERNAME;
   delete process.env.WANDS_OPERATOR_PASSWORD;
   delete process.env.WANDS_SESSION_SECRET;
   vi.unstubAllEnvs();

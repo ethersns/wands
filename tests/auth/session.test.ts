@@ -4,26 +4,34 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   SESSION_TTL_SECONDS,
-  checkPassword,
+  checkCredentials,
   createSessionToken,
   gateConfigured,
   verifySessionToken,
 } from "@/lib/auth/session";
 
+const USERNAME = "operator";
 const PASSWORD = "correct horse battery staple";
 const SECRET = "test-session-secret";
 
 beforeEach(() => {
+  process.env.WANDS_OPERATOR_USERNAME = USERNAME;
   process.env.WANDS_OPERATOR_PASSWORD = PASSWORD;
   process.env.WANDS_SESSION_SECRET = SECRET;
 });
 
 afterEach(() => {
+  delete process.env.WANDS_OPERATOR_USERNAME;
   delete process.env.WANDS_OPERATOR_PASSWORD;
   delete process.env.WANDS_SESSION_SECRET;
 });
 
 describe("gate configuration", () => {
+  it("is unconfigured when the username is missing", () => {
+    delete process.env.WANDS_OPERATOR_USERNAME;
+    expect(gateConfigured()).toBe(false);
+  });
+
   it("is unconfigured when the password is missing", () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     expect(gateConfigured()).toBe(false);
@@ -34,7 +42,7 @@ describe("gate configuration", () => {
     expect(gateConfigured()).toBe(false);
   });
 
-  it("is configured when both are present", () => {
+  it("is configured when all three are present", () => {
     expect(gateConfigured()).toBe(true);
   });
 });
@@ -87,21 +95,26 @@ describe("session tokens", () => {
   });
 });
 
-describe("password check", () => {
-  it("accepts the configured password", async () => {
-    expect(await checkPassword(PASSWORD)).toBe(true);
+describe("credential check", () => {
+  it("accepts the configured username and password", async () => {
+    expect(await checkCredentials(USERNAME, PASSWORD)).toBe(true);
   });
 
   it("rejects a wrong password", async () => {
-    expect(await checkPassword("wrong")).toBe(false);
+    expect(await checkCredentials(USERNAME, "wrong")).toBe(false);
   });
 
-  it("rejects an empty password", async () => {
-    expect(await checkPassword("")).toBe(false);
+  it("rejects a wrong username", async () => {
+    expect(await checkCredentials("someone-else", PASSWORD)).toBe(false);
+  });
+
+  it("rejects an empty username or password", async () => {
+    expect(await checkCredentials("", PASSWORD)).toBe(false);
+    expect(await checkCredentials(USERNAME, "")).toBe(false);
   });
 
   it("rejects everything when the gate is unconfigured", async () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
-    expect(await checkPassword("")).toBe(false);
+    expect(await checkCredentials(USERNAME, PASSWORD)).toBe(false);
   });
 });
