@@ -35,6 +35,14 @@ export function SiteHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [lastPathname, setLastPathname] = useState(pathname);
+
+  // Close the mobile menu when navigation changes the route. Adjusting state
+  // during render is the documented alternative to an effect for this.
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setOpen(false);
+  }
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
