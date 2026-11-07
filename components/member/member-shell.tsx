@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Bell,
   Bookmark,
@@ -54,10 +54,6 @@ export function MemberShell({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
   const nav = (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Workspace">
       {NAV.map((item) => {
@@ -67,6 +63,7 @@ export function MemberShell({
           <Link
             key={item.href}
             href={item.href}
+            onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -100,6 +97,7 @@ export function MemberShell({
           <Link
             key={item.href}
             href={item.href}
+            onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

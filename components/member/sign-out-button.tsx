@@ -11,10 +11,8 @@ export function SignOutButton() {
   const [pending, setPending] = useState(false);
 
   async function signOut() {
-    console.log("[v0] signOut clicked");
     setPending(true);
-    const result = await memberAuthClient.signOut();
-    console.log("[v0] signOut result", JSON.stringify(result));
+    await memberAuthClient.signOut();
     router.push("/");
     router.refresh();
   }
