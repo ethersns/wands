@@ -17,8 +17,8 @@ export default async function FilingDetailPage({ params }: PageProps) {
   const { id } = await params;
   const session = await requireMember(`/app/insiders/${id}`);
 
-  const feed = await memberResearch.insiders({ limit: 100 });
-  const transaction = feed.data.items.find((item) => item.id === id) ?? null;
+  const envelope = await memberResearch.insiderTransaction(id);
+  const transaction = envelope.data;
 
   if (!transaction) {
     return (
@@ -26,11 +26,11 @@ export default async function FilingDetailPage({ params }: PageProps) {
         <PageHeader
           eyebrow="Filing"
           title="This filing is not available"
-          description="Filings are read from the engine's published feed. This one is not in it, so nothing is shown rather than a reconstructed record."
+          description="Filings are read from the engine by their identifier. The engine returned no record for this one, so nothing is shown rather than a reconstructed record."
         />
         <EmptyState
           title="Filing unavailable"
-          description="The engine did not return this filing. It may be outside the published window, or the engine may be unreachable right now."
+          description="The engine did not return this filing. It may have aged out of the published feed, or the engine may be unreachable right now."
           action={
             <Link
               href="/app/insiders"
@@ -40,7 +40,11 @@ export default async function FilingDetailPage({ params }: PageProps) {
             </Link>
           }
         />
-        <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+        <ProvenanceNote
+          provenance={envelope.provenance}
+          generatedAt={envelope.generatedAt}
+          warnings={envelope.warnings}
+        />
       </div>
     );
   }
@@ -157,7 +161,11 @@ export default async function FilingDetailPage({ params }: PageProps) {
         </div>
       </Panel>
 
-      <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+      <ProvenanceNote
+        provenance={envelope.provenance}
+        generatedAt={envelope.generatedAt}
+        warnings={envelope.warnings}
+      />
     </div>
   );
 }

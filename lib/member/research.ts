@@ -3,6 +3,7 @@ import "server-only";
 import {
   getAssetResearch,
   getInsiderFeed,
+  getInsiderTransaction,
   getInstitutionFeed,
   getPublicCoverage,
   getResearchDashboard,
@@ -28,6 +29,7 @@ export const memberResearch = {
   dashboard: getResearchDashboard,
   asset: getAssetResearch,
   insiders: getInsiderFeed,
+  insiderTransaction: getInsiderTransaction,
   signals: getSignalFeed,
   signal: getSignal,
   institutions: getInstitutionFeed,

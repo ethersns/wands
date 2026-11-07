@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MEMBER_FOOTER_NAV, MEMBER_NAV } from "@/components/member/member-shell";
 import { ProvenanceNote } from "@/components/member/ui";
-import { getAssetResearch, getResearchDashboard, getSignal, getSignalFeed } from "@/lib/api/research";
+import {
+  getAssetResearch,
+  getInsiderTransaction,
+  getResearchDashboard,
+  getSignal,
+  getSignalFeed,
+} from "@/lib/api/research";
 import { routeTier } from "@/lib/auth/routes";
 import { assetHref, filingHref, savedHref, savedItemHref, signalHref } from "@/lib/member/links";
 import { memberResearch } from "@/lib/member/research";
@@ -56,6 +62,7 @@ describe("member research permissions", () => {
       "asset",
       "coverage",
       "dashboard",
+      "insiderTransaction",
       "insiders",
       "institutions",
       "signal",
@@ -178,6 +185,16 @@ describe("unavailable research states", () => {
     expect(envelope.provenance).toBe("unavailable");
     expect(envelope.data).toBeNull();
     expect(envelope.warnings[0]).toMatch(/no stored signal/i);
+  });
+
+  it("returns no single filing record rather than a fabricated one", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "");
+
+    const envelope = await getInsiderTransaction("tx-1");
+
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings.length).toBeGreaterThan(0);
   });
 
   it("degrades to unavailable when the engine cannot be reached", async () => {
