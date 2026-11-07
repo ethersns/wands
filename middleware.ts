@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isApiPath, routeTier } from "@/lib/auth/routes";
+import { hasMemberSessionCookie, isApiPath, isMemberPage, routeTier } from "@/lib/auth/routes";
 import {
   SESSION_COOKIE,
   gateConfigured,
@@ -69,6 +69,19 @@ export async function middleware(request: NextRequest) {
     return notFoundResponse();
   }
 
+  // Customer pages get an optimistic cookie check so a signed-out visitor is
+  // sent to the sign-in form without rendering the workspace first. This is a
+  // convenience, not the security boundary: the member layout and every member
+  // API route re-validate the session against the database.
+  if (tier === "customer" && isMemberPage(pathname)) {
+    if (!hasMemberSessionCookie(request.cookies)) {
+      const signIn = new URL("/signin", request.url);
+      signIn.searchParams.set("next", pathname);
+      return NextResponse.redirect(signIn);
+    }
+    return NextResponse.next();
+  }
+
   if (tier !== "operator") {
     return NextResponse.next();
   }
@@ -109,6 +122,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/api/:path*",
+    "/app/:path*",
+    "/onboarding",
     "/dashboard/:path*",
     "/portfolio/:path*",
     "/markets/:path*",
