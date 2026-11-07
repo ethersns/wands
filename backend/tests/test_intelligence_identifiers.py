@@ -285,6 +285,21 @@ def test_ingesting_the_same_mapping_twice_updates_rather_than_duplicates(session
     assert len(resolver.history(CUSIP)) == 1
 
 
+def test_re_observing_the_same_claim_does_not_add_a_second_window(session):
+    # A collection run re-observes every CUSIP it already knows. Recording that
+    # as a new version would fill the history with identical open windows.
+    resolver = IdentifierResolver(session)
+    resolver.ingest([_mapping(symbol="AAPL", effective_from=datetime(2024, 1, 1, tzinfo=UTC))])
+
+    summary = resolver.ingest(
+        [_mapping(symbol="AAPL", effective_from=datetime(2024, 6, 1, tzinfo=UTC))]
+    )
+
+    assert summary.inserted == 0
+    assert summary.updated == 1
+    assert len(resolver.history(CUSIP)) == 1
+
+
 def test_fingerprint_is_stable_and_order_independent():
     left = _mapping(symbol="AAA", effective_from=datetime(2010, 1, 1, tzinfo=UTC))
     right = _mapping(

@@ -265,10 +265,15 @@ class NasdaqHistoricalProvider:
 
     This is a development source. It is not a contracted feed, so it is labelled
     as its own provider and never presented as Alpaca data.
+
+    The endpoint returns a split-adjusted series: NVDA's 2023 close comes back as
+    the post-10:1-split value with no discontinuity at the split date. The label
+    says so, because a split-adjusted close and a raw close are different
+    numbers for the same day and a reader must not have to infer which they have.
     """
 
     name = "nasdaq"
-    adjustment = None
+    adjustment = "split"
 
     BASE_URL = "https://api.nasdaq.com/api/quote"
 

@@ -406,6 +406,82 @@ class ResearchDashboardOut(CamelModel):
     caveats: list[str] = Field(default_factory=list)
 
 
+class PriceBarOut(CamelModel):
+    """One stored daily bar, with the provider and adjustment that produced it."""
+
+    trading_date: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+    provider: str
+    adjustment: str | None = None
+    quality: str
+
+
+class PriceSeriesOut(CamelModel):
+    """Recent daily bars for a symbol, and what the series does not cover."""
+
+    symbol: str
+    interval: str = "1d"
+    provider: str | None = None
+    adjustment: str | None = None
+    bars: list[PriceBarOut] = Field(default_factory=list)
+    coverage: PriceCoverageOut | None = None
+    caveats: list[str] = Field(default_factory=list)
+
+
+class AssetIdentifierOut(CamelModel):
+    """A verified claim that a reported CUSIP is this security."""
+
+    cusip: str
+    symbol: str
+    issuer_name: str = ""
+    security_description: str = ""
+    share_class: str = ""
+    source: str = ""
+    verification_status: str
+    confidence: Decimal
+    effective_from: datetime
+    effective_to: datetime | None = None
+    notes: str = ""
+
+
+class AssetHoldingOut(CamelModel):
+    """One institution's reported position in the asset, as filed.
+
+    ``period_of_report`` is the quarter end and ``public_available_at`` is when
+    the filing became readable. They are never interchangeable: a position is
+    only shown once the filing was public.
+    """
+
+    institution_cik: str
+    institution_name: str
+    cusip: str
+    class_title: str = ""
+    shares: Decimal | None = None
+    value_usd: Decimal | None = None
+    period_of_report: datetime
+    public_available_at: datetime
+    share_change: Decimal | None = None
+    share_change_pct: Decimal | None = None
+    prior_period_of_report: datetime | None = None
+    source_url: str = ""
+    mapping_status: str
+    mapping_source: str = ""
+
+
+class AssetInstitutionalOut(CamelModel):
+    """Institutional ownership of one asset, and what could not be attributed."""
+
+    holdings: list[AssetHoldingOut] = Field(default_factory=list)
+    institutions: int = 0
+    latest_period: datetime | None = None
+    unresolved_holdings: int = 0
+    caveats: list[str] = Field(default_factory=list)
+
+
 class AssetResearchOut(CamelModel):
     symbol: str
     issuer_name: str | None = None
@@ -417,11 +493,18 @@ class AssetResearchOut(CamelModel):
     sources: list[ResearchSourceLinkOut] = Field(default_factory=list)
     coverage: ResearchCoverageDisclosureOut
     price_coverage: PriceCoverageOut | None = None
+    identifier_mappings: list[AssetIdentifierOut] = Field(default_factory=list)
+    institutional: AssetInstitutionalOut = Field(default_factory=AssetInstitutionalOut)
     caveats: list[str] = Field(default_factory=list)
 
 
 __all__ = [
+    "AssetHoldingOut",
+    "AssetIdentifierOut",
+    "AssetInstitutionalOut",
     "AssetResearchOut",
+    "PriceBarOut",
+    "PriceSeriesOut",
     "FusionComponentOut",
     "FusionOut",
     "InsiderFeedOut",

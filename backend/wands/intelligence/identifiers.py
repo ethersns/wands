@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -80,6 +81,52 @@ def normalize_cusip(value: str) -> str:
     if len(text) < CUSIP_BASE_LENGTH:
         return ""
     return text[:CUSIP_BASE_LENGTH]
+
+
+def cusip_check_digit(base: str) -> str:
+    """The check digit for an eight-character CUSIP base.
+
+    The digit is a deterministic function of the base, so restoring it from a
+    stored base reproduces the identifier a filing reported rather than
+    inventing one. Returns an empty string when the base is not a valid CUSIP
+    base, which keeps a malformed identifier out of the request.
+    """
+    if len(base) != CUSIP_BASE_LENGTH:
+        return ""
+    total = 0
+    for index, character in enumerate(base):
+        if character.isdigit():
+            value = int(character)
+        elif "A" <= character <= "Z":
+            value = ord(character) - ord("A") + 10
+        elif character in "*@#":
+            value = {"*": 36, "@": 37, "#": 38}[character]
+        else:
+            return ""
+        if index % 2 == 1:
+            value *= 2
+        total += value // 10 + value % 10
+    return str((10 - (total % 10)) % 10)
+
+
+def full_cusip(value: str) -> str:
+    """The nine-character CUSIP for a reported identifier.
+
+    A 13F reports the full CUSIP, but a stored base may have lost its check
+    digit. A nine-character value is accepted only when its digit checks out, so
+    a corrupted identifier is rejected instead of being sent to a resolver.
+    """
+    text = "".join(
+        character
+        for character in str(value or "").upper()
+        if character.isalnum() or character in "*@#"
+    )
+    if len(text) == CUSIP_BASE_LENGTH + 1:
+        return text if text[-1] == cusip_check_digit(text[:CUSIP_BASE_LENGTH]) else ""
+    if len(text) == CUSIP_BASE_LENGTH:
+        digit = cusip_check_digit(text)
+        return f"{text}{digit}" if digit else ""
+    return ""
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -281,6 +328,169 @@ class FileMappingSource:
         )
 
 
+class OpenFigiSource:
+    """CUSIP to security resolution from the OpenFIGI mapping API.
+
+    OpenFIGI is Bloomberg's open identifier registry. It is a legitimate public
+    cross-reference: it answers "which security is this CUSIP" without a CUSIP
+    Global Services licence, and it returns the exchange listings, the share
+    class and the security type alongside the ticker.
+
+    It is not a licensed CUSIP master file, and it is not treated as one. It
+    reports what it knows at the moment it is asked, so a mapping it supplies is
+    dated at observation time and is never backdated to a filing's period. A
+    CUSIP that lists under more than one ticker is stored as a conflict for each
+    ticker rather than resolved by preference, so the ambiguity stays visible.
+    """
+
+    name = "openfigi"
+    supplies_cusip = True
+
+    ENDPOINT = "https://api.openfigi.com/v3/mapping"
+    # The mapping endpoint accepts at most ten identifiers per request.
+    BATCH_SIZE = 10
+    # An unauthenticated caller gets 25 requests a minute. The pause keeps a
+    # larger pilot inside that budget instead of collecting 429s.
+    BATCH_PAUSE_SECONDS = 2.5
+
+    def __init__(
+        self,
+        cusips: Sequence[str],
+        *,
+        client: Any | None = None,
+        api_key: str | None = None,
+        observed_at: datetime | None = None,
+        sleep=time.sleep,
+        batch_pause: float | None = None,
+    ) -> None:
+        # Kept as reported: the resolver needs the full nine-character CUSIP,
+        # while storage normalizes to the base.
+        self.cusips = [str(cusip or "").strip().upper() for cusip in cusips]
+        self._client = client
+        self._api_key = api_key
+        self._observed_at = observed_at
+        self._sleep = sleep
+        self._batch_pause = (
+            self.BATCH_PAUSE_SECONDS if batch_pause is None else batch_pause
+        )
+
+    def fetch(self) -> list[IdentifierMapping]:
+        observed = _as_utc(self._observed_at or datetime.now(tz=UTC))
+        wanted = [cusip for cusip in dict.fromkeys(self.cusips) if full_cusip(cusip)]
+        mappings: list[IdentifierMapping] = []
+        for index in range(0, len(wanted), self.BATCH_SIZE):
+            batch = wanted[index : index + self.BATCH_SIZE]
+            if index:
+                self._sleep(self._batch_pause)
+            results = self._post(batch)
+            if len(results) != len(batch):
+                raise ValueError(
+                    f"OpenFIGI returned {len(results)} results for {len(batch)} CUSIPs."
+                )
+            for cusip, payload in zip(batch, results, strict=True):
+                mappings.extend(self._mappings(cusip, payload, observed))
+        return mappings
+
+    def _post(self, batch: list[str]) -> list[Any]:
+        body = [{"idType": "ID_CUSIP", "idValue": full_cusip(cusip)} for cusip in batch]
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["X-OPENFIGI-APIKEY"] = self._api_key
+        response = self._http().post(self.ENDPOINT, json=body, headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise ValueError("OpenFIGI returned a non-list mapping response.")
+        return payload
+
+    def _mappings(
+        self, cusip: str, payload: Any, observed: datetime
+    ) -> list[IdentifierMapping]:
+        base = normalize_cusip(cusip)
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not rows:
+            return []
+        equities = [
+            row
+            for row in rows
+            if isinstance(row, dict) and str(row.get("marketSector") or "") == "Equity"
+        ]
+        if not equities:
+            return []
+        # A CUSIP lists on many venues. The US composite is the listing a US
+        # ticker refers to, so it decides the ticker when it is present; a
+        # foreign listing must not turn one security into a conflict.
+        us = [row for row in equities if str(row.get("exchCode") or "") == "US"]
+        considered = us or equities
+        tickers = sorted(
+            {
+                str(row.get("ticker") or "").strip().upper()
+                for row in considered
+                if str(row.get("ticker") or "").strip()
+            }
+        )
+        if not tickers:
+            return []
+        if len(tickers) > 1:
+            # One source, one date, one row: a claim is keyed on
+            # (cusip, effective_from, source). The ambiguity is carried in the
+            # status and the note rather than split across rows the uniqueness
+            # rule would reject, and a conflict is never fusion-eligible.
+            reason = (
+                "OpenFIGI lists this CUSIP under several US tickers"
+                if us
+                else (
+                    "OpenFIGI returned no US listing for this CUSIP and lists it "
+                    "under several local tickers"
+                )
+            )
+            return [
+                IdentifierMapping(
+                    cusip=base,
+                    symbol=tickers[0],
+                    effective_from=observed,
+                    source=self.name,
+                    verification_status=MappingStatus.CONFLICT,
+                    confidence=Decimal("0"),
+                    notes=(
+                        f"{reason} ({', '.join(tickers)}), so it is not resolved to "
+                        f"one security. {OBSERVED_AT}"
+                    ),
+                )
+            ]
+
+        chosen = considered[0]
+        return [
+            IdentifierMapping(
+                cusip=base,
+                symbol=tickers[0],
+                effective_from=observed,
+                issuer_name=str(chosen.get("name") or "").strip(),
+                security_description=str(
+                    chosen.get("securityType2") or chosen.get("securityType") or ""
+                ).strip(),
+                share_class=str(chosen.get("shareClassFIGI") or "").strip(),
+                source=self.name,
+                verification_status=MappingStatus.VERIFIED,
+                confidence=Decimal("95"),
+                is_primary=True,
+                notes=(
+                    "Resolved by CUSIP through OpenFIGI to a single equity listing"
+                    + ("" if us else " (no US listing was returned)")
+                    + ". share_class holds the share-class FIGI. "
+                    + OBSERVED_AT
+                ),
+            )
+        ]
+
+    def _http(self):
+        if self._client is None:
+            import httpx
+
+            self._client = httpx.Client(timeout=30.0, follow_redirects=True)
+        return self._client
+
+
 def _parse_moment(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
@@ -355,6 +565,31 @@ class IdentifierResolver:
                 existing.confidence = mapping.confidence
                 existing.is_primary = mapping.is_primary
                 existing.notes = mapping.notes
+                summary.updated += 1
+                continue
+
+            # A re-observation of the same claim is not a new version. Without
+            # this, every collection run would add a row per CUSIP and the
+            # history would fill with identical open windows.
+            open_row = self.session.scalar(
+                select(IntelSecurityIdentifierRow).where(
+                    IntelSecurityIdentifierRow.cusip == cusip,
+                    IntelSecurityIdentifierRow.source == (source or mapping.source),
+                    IntelSecurityIdentifierRow.symbol == mapping.symbol,
+                    IntelSecurityIdentifierRow.effective_to.is_(None),
+                )
+            )
+            if open_row is not None:
+                open_row.issuer_cik = mapping.issuer_cik or open_row.issuer_cik
+                open_row.issuer_name = mapping.issuer_name or open_row.issuer_name
+                open_row.security_description = (
+                    mapping.security_description or open_row.security_description
+                )
+                open_row.share_class = mapping.share_class or open_row.share_class
+                open_row.verification_status = mapping.verification_status.value
+                open_row.confidence = mapping.confidence
+                open_row.is_primary = mapping.is_primary
+                open_row.notes = mapping.notes
                 summary.updated += 1
                 continue
 

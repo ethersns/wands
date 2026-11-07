@@ -15,6 +15,7 @@ import type {
 } from "./contracts";
 import type {
   AssetResearch,
+  PriceSeries,
   ResearchCoverageDisclosure,
   ResearchDashboard,
   ResearchEnvelope,
@@ -137,6 +138,14 @@ function normalizeAsset(
     sources: raw?.sources ?? [],
     coverage: raw?.coverage ?? emptyCoverage,
     priceCoverage: raw?.priceCoverage ?? null,
+    identifierMappings: raw?.identifierMappings ?? [],
+    institutional: raw?.institutional ?? {
+      holdings: [],
+      institutions: 0,
+      latestPeriod: null,
+      unresolvedHoldings: 0,
+      caveats: [],
+    },
     caveats: raw?.caveats ?? [],
   };
 }
@@ -175,6 +184,29 @@ export const getAssetResearch = cache(
     );
 
     return { ...envelope, data: normalizeAsset(upper, envelope.data) };
+  },
+);
+
+export const getPriceSeries = cache(
+  async (symbol: string, limit = 120): Promise<ResearchEnvelope<PriceSeries>> => {
+    const upper = symbol.trim().toUpperCase();
+    const envelope = await loadResearch<Partial<PriceSeries>>(
+      `/v1/intelligence/symbols/${encodeURIComponent(upper)}/prices?limit=${limit}`,
+      () => ({}),
+    );
+
+    return {
+      ...envelope,
+      data: {
+        symbol: envelope.data?.symbol ?? upper,
+        interval: envelope.data?.interval ?? "1d",
+        provider: envelope.data?.provider ?? null,
+        adjustment: envelope.data?.adjustment ?? null,
+        bars: envelope.data?.bars ?? [],
+        coverage: envelope.data?.coverage ?? null,
+        caveats: envelope.data?.caveats ?? [],
+      },
+    };
   },
 );
 

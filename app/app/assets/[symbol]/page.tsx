@@ -13,7 +13,9 @@ import {
   ProvenanceNote,
   StatTile,
   formatDate,
+  formatShares,
   formatUsd,
+  toNumber,
 } from "@/components/member/ui";
 import type { ResearchCoverageStatus } from "@/lib/api/research-contract";
 import { memberResearch } from "@/lib/member/research";
@@ -49,10 +51,11 @@ export default async function AssetPage({ params }: PageProps) {
 
   const session = await requireMember(`/app/assets/${symbol}`);
 
-  const [envelope, filings, sources, saved] = await Promise.all([
+  const [envelope, filings, sources, prices, saved] = await Promise.all([
     memberResearch.asset(symbol),
     memberResearch.insiders({ symbol, limit: 10 }),
     memberResearch.sources({ type: "symbol", id: symbol, symbol }),
+    memberResearch.prices(symbol, 120),
     isSaved(session.user.id, "asset", symbol),
   ]);
 
@@ -60,6 +63,9 @@ export default async function AssetPage({ params }: PageProps) {
   const insider = research.insider;
   const fusion = research.fusion;
   const coverage = research.coverage;
+  const institutional = research.institutional;
+  const priceSeries = prices.data;
+  const recentBars = priceSeries.bars.slice(-15).reverse();
   // "The engine could not be reached" and "the engine answered with nothing
   // stored" are different claims. Only the first is an outage.
   const unreachable = envelope.unreachable;
@@ -159,6 +165,43 @@ export default async function AssetPage({ params }: PageProps) {
       </Panel>
 
       <Panel
+        title="Identifier resolution"
+        action={
+          research.identifierMappings.length > 0 ? (
+            <Badge tone="emerald">verified</Badge>
+          ) : (
+            <Badge tone="warn">unresolved</Badge>
+          )
+        }
+      >
+        {research.identifierMappings.length === 0 ? (
+          <p className="text-sm leading-relaxed text-mk-muted text-pretty">
+            No verified CUSIP mapping covers {symbol}, so institutional filings cannot be
+            attributed to it. The filings are stored; they are not shown against this asset.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2.5">
+            {research.identifierMappings.map((mapping) => (
+              <li key={`${mapping.cusip}-${mapping.effectiveFrom}`}>
+                <p className="text-sm text-mk-fg">
+                  <span className="font-marketing-mono">{mapping.cusip}</span>
+                  <span className="text-mk-muted"> resolves to </span>
+                  <span className="font-marketing-mono">{mapping.symbol}</span>
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-mk-muted text-pretty">
+                  {mapping.issuerName || "Issuer not reported"} ·{" "}
+                  {mapping.securityDescription || "security type not reported"} · source{" "}
+                  {mapping.source} · confidence{" "}
+                  {toNumber(mapping.confidence)?.toFixed(0) ?? "—"}% · effective{" "}
+                  {formatDate(mapping.effectiveFrom)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
+      <Panel
         title="Composite research ranking"
         action={
           fusion.compositeScore === null ? (
@@ -222,6 +265,174 @@ export default async function AssetPage({ params }: PageProps) {
               <SignalRow key={signal.id} signal={signal} />
             ))}
           </ul>
+        )}
+      </Panel>
+
+      <Panel
+        title="Institutional holdings"
+        action={
+          institutional.holdings.length > 0 ? (
+            <Badge tone="accent">{institutional.institutions} institutions</Badge>
+          ) : (
+            <Badge tone="warn">None attributed</Badge>
+          )
+        }
+        bodyClassName="p-0"
+      >
+        {institutional.holdings.length === 0 ? (
+          <div className="p-4">
+            <EmptyState
+              title="No institutional holding attributed"
+              description={
+                institutional.caveats[0] ??
+                "No stored 13F reports a position in this security."
+              }
+            />
+          </div>
+        ) : (
+          <ul className="divide-y divide-mk-line">
+            {institutional.holdings.map((holding) => (
+              <li
+                key={`${holding.institutionCik}-${holding.periodOfReport}`}
+                className="px-4 py-3"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm text-mk-fg">{holding.institutionName}</p>
+                  <span className="font-marketing-mono text-xs tabular-nums text-mk-muted">
+                    {formatUsd(toNumber(holding.valueUsd))}
+                  </span>
+                </div>
+                <p className="mt-1 font-marketing-mono text-[11px] text-mk-dim">
+                  {formatShares(holding.shares)} shares · period{" "}
+                  {formatDate(holding.periodOfReport)} · public{" "}
+                  {formatDate(holding.publicAvailableAt)}
+                </p>
+                {holding.shareChange !== null ? (
+                  <p className="mt-1 text-xs leading-relaxed text-mk-muted text-pretty">
+                    {toNumber(holding.shareChange)! >= 0 ? "Added" : "Reduced"}{" "}
+                    {formatShares(Math.abs(toNumber(holding.shareChange) ?? 0))} shares
+                    {holding.shareChangePct !== null
+                      ? ` (${toNumber(holding.shareChangePct)! >= 0 ? "+" : ""}${toNumber(holding.shareChangePct)}%)`
+                      : ""}{" "}
+                    versus {formatDate(holding.priorPeriodOfReport)}
+                  </p>
+                ) : null}
+                {holding.sourceUrl ? (
+                  <a
+                    href={holding.sourceUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="mt-1 inline-block text-xs text-mk-accent underline-offset-4 hover:underline"
+                  >
+                    Original 13F filing
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {institutional.holdings.length > 0 && institutional.caveats.length > 0 ? (
+          <ul className="flex flex-col gap-1 border-t border-mk-line px-4 py-3">
+            {institutional.caveats.map((caveat) => (
+              <li key={caveat} className="text-xs leading-relaxed text-mk-muted text-pretty">
+                {caveat}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Panel>
+
+      <Panel
+        title="Daily price history"
+        action={
+          priceSeries.provider ? (
+            <Badge tone="neutral">
+              {priceSeries.provider}
+              {priceSeries.adjustment ? ` · ${priceSeries.adjustment}-adjusted` : " · raw"}
+            </Badge>
+          ) : (
+            <Badge tone="warn">No series</Badge>
+          )
+        }
+        bodyClassName="p-0"
+      >
+        {recentBars.length === 0 ? (
+          <div className="p-4">
+            <EmptyState
+              title="No daily bars stored"
+              description={
+                prices.warnings[0] ??
+                "No daily price series has been collected for this symbol, so no performance claim can be measured."
+              }
+            />
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 p-4 lg:grid-cols-4">
+              <StatTile
+                label="Bars"
+                value={priceSeries.coverage?.bars ?? priceSeries.bars.length}
+                hint={`${priceSeries.interval} interval`}
+              />
+              <StatTile
+                label="First bar"
+                value={formatDate(priceSeries.coverage?.firstBar)}
+                hint="Earliest stored session"
+              />
+              <StatTile
+                label="Last bar"
+                value={formatDate(priceSeries.coverage?.lastBar)}
+                hint="Latest stored session"
+              />
+              <StatTile
+                label="Missing"
+                value={priceSeries.coverage?.missingDays ?? 0}
+                hint="Expected sessions with no bar"
+              />
+            </div>
+            <table className="w-full border-t border-mk-line text-sm">
+              <caption className="sr-only">
+                The most recent stored daily bars for {symbol}
+              </caption>
+              <thead>
+                <tr className="border-b border-mk-line">
+                  <th scope="col" className="px-4 py-2 text-left font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
+                    Session
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
+                    Close
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-right font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
+                    Volume
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-mk-line">
+                {recentBars.map((bar) => (
+                  <tr key={bar.tradingDate}>
+                    <td className="px-4 py-2 font-marketing-mono text-xs text-mk-muted">
+                      {formatDate(bar.tradingDate)}
+                    </td>
+                    <td className="px-4 py-2 text-right font-marketing-mono text-xs tabular-nums text-mk-fg">
+                      {toNumber(bar.close)?.toFixed(2) ?? "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right font-marketing-mono text-xs tabular-nums text-mk-muted">
+                      {formatShares(bar.volume)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {priceSeries.caveats.length > 0 ? (
+              <ul className="flex flex-col gap-1 border-t border-mk-line px-4 py-3">
+                {priceSeries.caveats.map((caveat) => (
+                  <li key={caveat} className="text-xs leading-relaxed text-mk-muted text-pretty">
+                    {caveat}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
         )}
       </Panel>
 

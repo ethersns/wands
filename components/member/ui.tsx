@@ -165,6 +165,19 @@ export function formatUsd(value: number | null | undefined): string {
   return `$${value.toFixed(0)}`;
 }
 
+/** The engine serialises decimals as strings; display code needs a number. */
+export function toNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatShares(value: string | number | null | undefined): string {
+  const parsed = toNumber(value);
+  if (parsed === null) return "—";
+  return parsed.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
