@@ -19,7 +19,7 @@ export default async function OverviewPage() {
   const session = await requireMember();
   const userId = session.user.id;
 
-  const [profile, membership, watchlists, tracked, savedCount, unread, dashboard, insiders, signals] =
+  const [profile, membership, watchlists, tracked, savedCount, unread, dashboard] =
     await Promise.all([
       getProfile(userId),
       getMembership(userId),
@@ -28,29 +28,19 @@ export default async function OverviewPage() {
       countSaved(userId),
       unreadCount(userId),
       memberResearch.dashboard(),
-      memberResearch.insiders({ limit: 5, openMarketOnly: true }),
-      memberResearch.signals({ limit: 5 }),
     ]);
 
   const firstName = (profile?.displayName ?? session.user.name).split(" ")[0];
 
-  // The dashboard aggregate is the contract's preferred source. It is not served
-  // yet, so when it is unavailable the same page falls back to the feeds rather
-  // than showing an empty workspace.
-  const dashboardLive = dashboard.provenance !== "unavailable";
-  const counts = dashboardLive
-    ? dashboard.data.counts
-    : {
-        filings: insiders.data.total,
-        transactions: insiders.data.total,
-        signals: signals.data.total,
-        institutions: 0,
-        holdings: 0,
-        symbols: 0,
-      };
-  const topSignals = dashboardLive ? dashboard.data.topSignals : signals.data.items;
-  const recentPurchases = dashboardLive ? dashboard.data.recentPurchases : insiders.data.items;
-  const caveats = dashboardLive ? dashboard.data.caveats : [];
+  // The dashboard aggregate is the contract's source for counts, top signals and
+  // recent purchases. There is no feed fallback: the feeds are the operator
+  // console's surface, and substituting one would report a page of the feed
+  // under the dashboard's label.
+  const { counts, topSignals, recentPurchases, caveats } = dashboard.data;
+  // An outage and an empty collection are different states. Only an unreachable
+  // engine is reported as one; a reachable engine with zero rows is a gap.
+  const engineReachable = !dashboard.unreachable;
+  const engineReason = dashboard.warnings[0] ?? "The dashboard could not be read from the engine.";
 
   return (
     <div className="flex flex-col gap-6">
@@ -134,10 +124,14 @@ export default async function OverviewPage() {
         >
           {recentPurchases.length === 0 ? (
             <div className="p-4">
-              <EmptyState
-                title="No insider filings available"
-                description="Open-market insider filings will appear here once the research engine has published them."
-              />
+              {engineReachable ? (
+                <EmptyState
+                  title="No recent purchases found"
+                  description="No open-market insider purchase is stored. This is a collection state, not a statement that no insider bought."
+                />
+              ) : (
+                <EmptyState title="Research engine unreachable" description={engineReason} />
+              )}
             </div>
           ) : (
             <ul>
@@ -162,10 +156,14 @@ export default async function OverviewPage() {
         >
           {topSignals.length === 0 ? (
             <div className="p-4">
-              <EmptyState
-                title="No signals published"
-                description="Signals appear once the engine has enough filings to measure activity against a baseline."
-              />
+              {engineReachable ? (
+                <EmptyState
+                  title="Research signal unavailable"
+                  description="No signal has been generated. Signals are only produced when a configured threshold is met, so this is expected for most symbols."
+                />
+              ) : (
+                <EmptyState title="Research engine unreachable" description={engineReason} />
+              )}
             </div>
           ) : (
             <ul>
@@ -178,12 +176,10 @@ export default async function OverviewPage() {
       </div>
 
       <ProvenanceNote
-        provenance={dashboardLive ? dashboard.provenance : insiders.provenance}
-        generatedAt={dashboardLive ? dashboard.generatedAt : insiders.generatedAt}
-        warnings={[
-          ...(dashboardLive ? dashboard.warnings : [...insiders.warnings, ...signals.warnings]),
-          ...caveats,
-        ].slice(0, 3)}
+        provenance={dashboard.provenance}
+        generatedAt={dashboard.generatedAt}
+        warnings={[...dashboard.warnings, ...caveats].slice(0, 3)}
+        unreachable={dashboard.unreachable}
       />
     </div>
   );

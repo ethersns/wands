@@ -44,6 +44,7 @@ export default async function FilingDetailPage({ params }: PageProps) {
           provenance={envelope.provenance}
           generatedAt={envelope.generatedAt}
           warnings={envelope.warnings}
+          unreachable={envelope.unreachable}
         />
       </div>
     );
@@ -165,6 +166,7 @@ export default async function FilingDetailPage({ params }: PageProps) {
         provenance={envelope.provenance}
         generatedAt={envelope.generatedAt}
         warnings={envelope.warnings}
+        unreachable={envelope.unreachable}
       />
     </div>
   );

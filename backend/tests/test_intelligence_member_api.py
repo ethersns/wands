@@ -180,6 +180,22 @@ def test_a_credential_with_only_the_research_scope_may_read_research(client):
         assert client.get(path, headers=headers).status_code in {200, 404}, path
 
 
+def test_a_research_only_credential_cannot_reach_operator_surfaces(client):
+    headers = _key_with_scopes(["research:read"])
+
+    for path in ("/v1/orders", "/v1/portfolio", "/v1/connections", "/v1/settings"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 403, path
+        assert "scoped to research" in response.json()["error"]["message"]
+
+
+def test_an_operator_credential_still_reaches_operator_surfaces(client):
+    headers = _key_with_scopes(["orders:read", "portfolio:read"])
+
+    for path in ("/v1/orders", "/v1/portfolio"):
+        assert client.get(path, headers=headers).status_code == 200, path
+
+
 def test_a_viewer_api_key_may_read_research(client):
     key, _, _ = make_api_key("viewer")
     response = client.get(

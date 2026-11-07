@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MEMBER_FOOTER_NAV, MEMBER_NAV } from "@/components/member/member-shell";
 import { ProvenanceNote } from "@/components/member/ui";
+import { researchConfig } from "@/lib/api/client";
 import {
   getAssetResearch,
   getInsiderTransaction,
@@ -139,6 +140,71 @@ describe("unavailable research states", () => {
     expect(envelope.data.insider.purchaseValueUsd).toBeNull();
     expect(envelope.data.fusion.compositeScore).toBeNull();
     expect(envelope.warnings.length).toBeGreaterThan(0);
+    expect(envelope.unreachable).toBe(true);
+  });
+
+  it("does not call an empty collection an outage", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            symbol: "MSFT",
+            issuerName: "MICROSOFT CORP",
+            asOf: new Date().toISOString(),
+            freshness: "fresh",
+            insider: {
+              symbol: "MSFT",
+              issuerName: "MICROSOFT CORP",
+              windowDays: 30,
+              purchaseCount: 0,
+              saleCount: 3,
+              distinctPurchasers: 0,
+              distinctSellers: 1,
+              purchaseValueUsd: null,
+              unpricedPurchaseLines: 0,
+              latestFilingAt: null,
+              latestTransactionDate: null,
+              caveats: [],
+            },
+            signals: [],
+            fusion: {
+              symbol: "MSFT",
+              asOf: new Date().toISOString(),
+              components: [],
+              compositeScore: null,
+              coverage: 0,
+              explanation: "No research evidence is available for this symbol.",
+              dataQuality: "unavailable",
+              caveats: [],
+            },
+            sources: [],
+            coverage: {
+              status: "unavailable",
+              windowStart: null,
+              windowEnd: null,
+              symbolsCovered: 0,
+              symbolsRequested: 1,
+              gaps: [],
+              caveats: [],
+            },
+            caveats: [],
+          },
+          provenance: "unavailable",
+          generatedAt: new Date().toISOString(),
+          source: "wands-engine",
+          warnings: ["No research evidence is stored for MSFT."],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const envelope = await getAssetResearch("MSFT");
+
+    // The engine answered, so this is a collection gap, not an outage.
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.unreachable).toBe(false);
+    expect(envelope.data.insider.saleCount).toBe(3);
   });
 
   it("marks the dashboard unavailable with zero counts and no timestamps", async () => {
@@ -197,6 +263,53 @@ describe("unavailable research states", () => {
     expect(envelope.warnings.length).toBeGreaterThan(0);
   });
 
+  it("reads a filing by its identifier without scanning the feed", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "not_found", message: "No insider transaction with id x is stored." } }),
+        { status: 404 },
+      ),
+    );
+
+    const envelope = await getInsiderTransaction("11111111-1111-1111-1111-111111111111");
+
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings[0]).toMatch(/no stored filing/i);
+    // The engine answered, so this is a missing record rather than an outage.
+    expect(envelope.unreachable).toBe(false);
+    // One request, to the stable-id route. A feed scan would be a second call.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("/v1/intelligence/insiders/transactions/");
+  });
+
+  it("tells a missing filing apart from an unreachable engine", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
+
+    const envelope = await getInsiderTransaction("11111111-1111-1111-1111-111111111111");
+
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings[0]).toMatch(/unavailable/i);
+  });
+
+  it("rejects a malformed filing identifier without inventing a record", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { code: "bad_request", message: "not a transaction identifier" } }),
+        { status: 422 },
+      ),
+    );
+
+    const envelope = await getInsiderTransaction("not-a-uuid");
+
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings[0]).toMatch(/not a filing identifier/i);
+  });
+
   it("degrades to unavailable when the engine cannot be reached", async () => {
     vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection refused"));
@@ -230,5 +343,53 @@ describe("unavailable research states", () => {
 
     expect(screen.getByText("Live data")).toBeInTheDocument();
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
+  });
+});
+
+describe("research credential", () => {
+  it("prefers the research-scoped token over the operator token", () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.stubEnv("WANDS_ENGINE_TOKEN", "operator-token");
+    vi.stubEnv("WANDS_RESEARCH_TOKEN", "research-token");
+
+    const config = researchConfig();
+
+    expect(config.token).toBe("research-token");
+    expect(config.scoped).toBe(true);
+  });
+
+  it("reports an unscoped fallback when no research token is issued", () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.stubEnv("WANDS_ENGINE_TOKEN", "operator-token");
+    vi.stubEnv("WANDS_RESEARCH_TOKEN", "");
+
+    const config = researchConfig();
+
+    expect(config.token).toBe("operator-token");
+    expect(config.scoped).toBe(false);
+  });
+
+  it("sends the research credential on a member research read", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.stubEnv("WANDS_ENGINE_TOKEN", "operator-token");
+    vi.stubEnv("WANDS_RESEARCH_TOKEN", "research-token");
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {},
+          provenance: "live",
+          generatedAt: new Date().toISOString(),
+          source: "wands-engine",
+          warnings: [],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await getResearchDashboard();
+
+    const headers = fetchSpy.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer research-token");
   });
 });

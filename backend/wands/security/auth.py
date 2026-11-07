@@ -27,6 +27,12 @@ from wands.errors import Unauthorized
 from wands.security.rbac import Role, parse_role
 
 API_KEY_PREFIX = "wands"
+
+# The member research surface. A credential issued for the member workspace
+# carries this and nothing else, so it can read filings and signals without
+# reaching orders, risk, connections or the engine.
+RESEARCH_SCOPE = "research:read"
+
 ALL_SCOPES = frozenset(
     {
         "engine:read",
@@ -46,10 +52,7 @@ ALL_SCOPES = frozenset(
         "settings:read",
         "settings:write",
         "audit:read",
-        # The member research surface. A credential issued for the member
-        # workspace carries this and nothing else, so it can read filings and
-        # signals without reaching orders, risk, connections or the engine.
-        "research:read",
+        RESEARCH_SCOPE,
     }
 )
 

@@ -107,7 +107,12 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         )}
       </Panel>
 
-      <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+      <ProvenanceNote
+        provenance={feed.provenance}
+        generatedAt={feed.generatedAt}
+        warnings={feed.warnings}
+        unreachable={feed.unreachable}
+      />
     </div>
   );
 }

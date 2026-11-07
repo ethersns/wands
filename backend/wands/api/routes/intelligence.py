@@ -53,7 +53,7 @@ from wands.intelligence.schemas import (
 from wands.intelligence.service import INSIDER_CAVEATS, IntelligenceService
 from wands.schemas import dump, dump_many
 from wands.security.audit import record_for_principal
-from wands.security.auth import Principal
+from wands.security.auth import RESEARCH_SCOPE, Principal
 from wands.security.rbac import Role
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
@@ -62,7 +62,7 @@ router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 # issued for the member workspace carries ``research:read`` and nothing else, so
 # it can read filings and signals without reaching orders, risk, connections or
 # engine administration.
-RESEARCH_SCOPE = "research:read"
+
 
 
 def _service(session: Session, settings: Settings) -> IntelligenceService:

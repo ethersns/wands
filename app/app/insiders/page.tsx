@@ -93,7 +93,12 @@ export default async function InsidersPage({ searchParams }: { searchParams: Pro
         )}
       </Panel>
 
-      <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+      <ProvenanceNote
+        provenance={feed.provenance}
+        generatedAt={feed.generatedAt}
+        warnings={feed.warnings}
+        unreachable={feed.unreachable}
+      />
     </div>
   );
 }

@@ -44,6 +44,7 @@ export default async function SignalDetailPage({ params }: PageProps) {
           provenance={envelope.provenance}
           generatedAt={envelope.generatedAt}
           warnings={envelope.warnings}
+          unreachable={envelope.unreachable}
         />
       </div>
     );
@@ -174,6 +175,7 @@ export default async function SignalDetailPage({ params }: PageProps) {
         provenance={envelope.provenance}
         generatedAt={envelope.generatedAt}
         warnings={envelope.warnings}
+        unreachable={envelope.unreachable}
       />
     </div>
   );

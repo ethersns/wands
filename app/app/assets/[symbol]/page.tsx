@@ -60,7 +60,9 @@ export default async function AssetPage({ params }: PageProps) {
   const insider = research.insider;
   const fusion = research.fusion;
   const coverage = research.coverage;
-  const unavailable = envelope.provenance === "unavailable";
+  // "The engine could not be reached" and "the engine answered with nothing
+  // stored" are different claims. Only the first is an outage.
+  const unreachable = envelope.unreachable;
   const hasAnyData = insider.purchaseCount + insider.saleCount > 0 || research.signals.length > 0;
   const window =
     coverage.windowStart && coverage.windowEnd
@@ -93,7 +95,7 @@ export default async function AssetPage({ params }: PageProps) {
         }
       />
 
-      {unavailable ? (
+      {unreachable ? (
         <div className="rounded-xl border border-mk-warn/30 bg-mk-warn/10 px-4 py-3.5">
           <p className="text-sm font-medium text-mk-warn">Research engine unavailable</p>
           <p className="mt-1 text-sm leading-relaxed text-mk-warn text-pretty">
@@ -105,10 +107,10 @@ export default async function AssetPage({ params }: PageProps) {
         </div>
       ) : null}
 
-      {!unavailable && !hasAnyData ? (
+      {!unreachable && !hasAnyData ? (
         <EmptyState
-          title="No research published for this symbol yet"
-          description="The engine has not published insider activity or signals for this ticker. Nothing is shown rather than a placeholder, so an empty view always means no data."
+          title="No research evidence stored for this symbol"
+          description="The engine answered and has no insider activity or signal stored for this ticker. This is a collection state, not a statement that nothing happened."
         />
       ) : null}
 
@@ -226,10 +228,20 @@ export default async function AssetPage({ params }: PageProps) {
       <Panel title="Insider filings" bodyClassName="p-0">
         {filings.data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState
-              title="No insider filings"
-              description="No Form 4 filings have been published for this symbol."
-            />
+            {filings.unreachable ? (
+              <EmptyState
+                title="Research engine unreachable"
+                description={
+                  filings.warnings[0] ??
+                  "The filing feed could not be read from the engine, so this is not a statement that no filing exists."
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No insider filings"
+                description="No Form 4 filing is stored for this symbol. This is a collection state, not a statement that no insider filed."
+              />
+            )}
           </div>
         ) : (
           <ul>
@@ -277,6 +289,7 @@ export default async function AssetPage({ params }: PageProps) {
         provenance={envelope.provenance}
         generatedAt={envelope.generatedAt}
         warnings={[...envelope.warnings, ...research.caveats, ...insider.caveats].slice(0, 3)}
+        unreachable={envelope.unreachable}
       />
     </div>
   );
