@@ -20,7 +20,7 @@ export default async function InsidersPage({ searchParams }: { searchParams: Pro
   const openMarketOnly = params.openMarket === "true";
   const page = Math.max(1, Number(params.page ?? "1") || 1);
 
-  const feed = await memberResearch.insiderFeed({ symbol, openMarketOnly, page, limit: 25 });
+  const feed = await memberResearch.insiders({ symbol, openMarketOnly, page, limit: 25 });
 
   return (
     <div className="flex flex-col gap-6">

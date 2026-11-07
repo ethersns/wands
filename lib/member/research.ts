@@ -1,31 +1,36 @@
 import "server-only";
 
 import {
+  getAssetResearch,
   getInsiderFeed,
-  getInsiderSummary,
-  getInstitutionChanges,
-  getInstitutions,
-  getIntelStatus,
-  getSignals,
-  getSymbolResearch,
-} from "@/lib/api/endpoints";
+  getInstitutionFeed,
+  getPublicCoverage,
+  getResearchDashboard,
+  getResearchSources,
+  getSignalFeed,
+} from "@/lib/api/research";
 
 /**
- * The only engine surface customer code may reach.
+ * The only research surface member code may reach.
  *
- * This is an explicit allowlist of published research reads. Trading,
- * portfolio, risk, bot, connection, settings, backfill and job-control
+ * Every entry point here is a customer-safe read from `lib/api/research.ts`,
+ * which is the single implementation of the `AssetResearch` contract. There is
+ * no second definition of the research shapes and no demo fallback: an
+ * unreachable engine returns an `unavailable` envelope with an empty payload,
+ * and the page renders that state instead of a zero.
+ *
+ * Trading, portfolio, risk, bot, connection, settings, backfill and job-control
  * endpoints are intentionally absent, so a member page cannot import its way
- * into a private engine function even by mistake.
+ * into an operator function even by mistake.
  */
 export const memberResearch = {
-  status: getIntelStatus,
-  insiderFeed: getInsiderFeed,
-  insiderSummary: getInsiderSummary,
-  signals: getSignals,
-  institutions: getInstitutions,
-  institutionChanges: getInstitutionChanges,
-  symbol: getSymbolResearch,
+  dashboard: getResearchDashboard,
+  asset: getAssetResearch,
+  insiders: getInsiderFeed,
+  signals: getSignalFeed,
+  institutions: getInstitutionFeed,
+  sources: getResearchSources,
+  coverage: getPublicCoverage,
 } as const;
 
 export type MemberResearch = typeof memberResearch;

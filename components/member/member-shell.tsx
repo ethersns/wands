@@ -11,6 +11,7 @@ import {
   ListChecks,
   Menu,
   Radar,
+  Search,
   Settings,
   Sparkles,
   X,
@@ -20,8 +21,9 @@ import { Logo } from "@/components/marketing/logo";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "./sign-out-button";
 
-const NAV = [
+export const MEMBER_NAV = [
   { href: "/app", label: "Overview", icon: LayoutGrid },
+  { href: "/app/research", label: "Research", icon: Search },
   { href: "/app/watchlists", label: "Watchlists", icon: ListChecks },
   { href: "/app/insiders", label: "Insiders", icon: Radar },
   { href: "/app/signals", label: "Signals", icon: Sparkles },
@@ -29,7 +31,7 @@ const NAV = [
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];
 
-const FOOTER_NAV = [
+export const MEMBER_FOOTER_NAV = [
   { href: "/app/membership", label: "Membership", icon: CreditCard },
   { href: "/app/account", label: "Account", icon: Settings },
 ];
@@ -56,7 +58,7 @@ export function MemberShell({
 
   const nav = (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Workspace">
-      {NAV.map((item) => {
+      {MEMBER_NAV.map((item) => {
         const active = isActive(pathname, item.href);
         const Icon = item.icon;
         return (
@@ -90,7 +92,7 @@ export function MemberShell({
 
   const footer = (
     <div className="flex flex-col gap-1 border-t border-mk-line pt-3">
-      {FOOTER_NAV.map((item) => {
+      {MEMBER_FOOTER_NAV.map((item) => {
         const active = isActive(pathname, item.href);
         const Icon = item.icon;
         return (

@@ -19,20 +19,38 @@ export default async function OverviewPage() {
   const session = await requireMember();
   const userId = session.user.id;
 
-  const [profile, membership, watchlists, tracked, savedCount, unread, status, insiders, signals] = await Promise.all([
-    getProfile(userId),
-    getMembership(userId),
-    listWatchlists(userId),
-    listTrackedSymbols(userId),
-    countSaved(userId),
-    unreadCount(userId),
-    memberResearch.status(),
-    memberResearch.insiderFeed({ limit: 5, openMarketOnly: true }),
-    memberResearch.signals({ limit: 5 }),
-  ]);
+  const [profile, membership, watchlists, tracked, savedCount, unread, dashboard, insiders, signals] =
+    await Promise.all([
+      getProfile(userId),
+      getMembership(userId),
+      listWatchlists(userId),
+      listTrackedSymbols(userId),
+      countSaved(userId),
+      unreadCount(userId),
+      memberResearch.dashboard(),
+      memberResearch.insiders({ limit: 5, openMarketOnly: true }),
+      memberResearch.signals({ limit: 5 }),
+    ]);
 
   const firstName = (profile?.displayName ?? session.user.name).split(" ")[0];
-  const intel = status.data;
+
+  // The dashboard aggregate is the contract's preferred source. It is not served
+  // yet, so when it is unavailable the same page falls back to the feeds rather
+  // than showing an empty workspace.
+  const dashboardLive = dashboard.provenance !== "unavailable";
+  const counts = dashboardLive
+    ? dashboard.data.counts
+    : {
+        filings: insiders.data.total,
+        transactions: insiders.data.total,
+        signals: signals.data.total,
+        institutions: 0,
+        holdings: 0,
+        symbols: 0,
+      };
+  const topSignals = dashboardLive ? dashboard.data.topSignals : signals.data.items;
+  const recentPurchases = dashboardLive ? dashboard.data.recentPurchases : insiders.data.items;
+  const caveats = dashboardLive ? dashboard.data.caveats : [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -47,16 +65,27 @@ export default async function OverviewPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Tracked symbols" value={tracked.length} hint={`${watchlists.length} watchlist${watchlists.length === 1 ? "" : "s"}`} />
+        <StatTile
+          label="Tracked symbols"
+          value={tracked.length}
+          hint={`${watchlists.length} watchlist${watchlists.length === 1 ? "" : "s"}`}
+        />
         <StatTile label="Saved research" value={savedCount} hint={`${membership.label} plan`} />
         <StatTile label="Unread alerts" value={unread} hint="In-app notifications" />
-        <StatTile label="Filings indexed" value={intel.filings.toLocaleString()} hint={`${intel.transactions.toLocaleString()} transactions`} />
+        <StatTile
+          label="Filings indexed"
+          value={counts.filings.toLocaleString()}
+          hint={`${counts.transactions.toLocaleString()} transactions`}
+        />
       </div>
 
       <Panel
         title="Tracked symbols"
         action={
-          <Link href="/app/watchlists" className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline">
+          <Link
+            href="/app/watchlists"
+            className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline"
+          >
             Manage
           </Link>
         }
@@ -95,12 +124,15 @@ export default async function OverviewPage() {
           title="Recent insider activity"
           bodyClassName="p-0"
           action={
-            <Link href="/app/insiders" className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline">
+            <Link
+              href="/app/insiders"
+              className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline"
+            >
               All filings
             </Link>
           }
         >
-          {insiders.data.items.length === 0 ? (
+          {recentPurchases.length === 0 ? (
             <div className="p-4">
               <EmptyState
                 title="No insider filings available"
@@ -109,7 +141,7 @@ export default async function OverviewPage() {
             </div>
           ) : (
             <ul>
-              {insiders.data.items.map((transaction) => (
+              {recentPurchases.map((transaction) => (
                 <InsiderRow key={transaction.id} transaction={transaction} />
               ))}
             </ul>
@@ -120,12 +152,15 @@ export default async function OverviewPage() {
           title="Latest signals"
           bodyClassName="p-0"
           action={
-            <Link href="/app/signals" className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline">
+            <Link
+              href="/app/signals"
+              className="text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline"
+            >
               All signals
             </Link>
           }
         >
-          {signals.data.items.length === 0 ? (
+          {topSignals.length === 0 ? (
             <div className="p-4">
               <EmptyState
                 title="No signals published"
@@ -134,7 +169,7 @@ export default async function OverviewPage() {
             </div>
           ) : (
             <ul>
-              {signals.data.items.map((signal) => (
+              {topSignals.map((signal) => (
                 <SignalRow key={signal.id} signal={signal} />
               ))}
             </ul>
@@ -143,9 +178,12 @@ export default async function OverviewPage() {
       </div>
 
       <ProvenanceNote
-        provenance={status.provenance}
-        generatedAt={status.generatedAt}
-        warnings={[...status.warnings, ...intel.caveats].slice(0, 3)}
+        provenance={dashboardLive ? dashboard.provenance : insiders.provenance}
+        generatedAt={dashboardLive ? dashboard.generatedAt : insiders.generatedAt}
+        warnings={[
+          ...(dashboardLive ? dashboard.warnings : [...insiders.warnings, ...signals.warnings]),
+          ...caveats,
+        ].slice(0, 3)}
       />
     </div>
   );

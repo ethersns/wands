@@ -93,6 +93,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // A member session is a different credential and never authorises the
+  // operator tier. This is checked before the development affordance below, so
+  // a signed-in customer cannot reach trading functions even where an
+  // unconfigured gate leaves the console open for the operator.
+  if (hasMemberSessionCookie(request.cookies)) {
+    if (!isApiPath(pathname)) {
+      const signIn = new URL("/login", request.url);
+      signIn.searchParams.set("next", pathname);
+      return NextResponse.redirect(signIn);
+    }
+    return unauthorizedResponse();
+  }
+
   // An unconfigured gate cannot be signed into, so outside production it stays
   // open rather than locking the operator out of their own console. Production
   // fails closed.

@@ -3,7 +3,15 @@ import "server-only";
 import { cache } from "react";
 
 import { engineConfig, engineFetch } from "./client";
-import type { Envelope, FusionRanking, InsiderSymbolSummary } from "./contracts";
+import type {
+  Envelope,
+  FusionRanking,
+  InsiderFeed,
+  InsiderSymbolSummary,
+  InstitutionFeed,
+  ResearchSignalCategory,
+  SignalFeed,
+} from "./contracts";
 import type {
   AssetResearch,
   ResearchCoverageDisclosure,
@@ -179,5 +187,50 @@ export const getPublicCoverage = cache(() =>
   loadResearch<ResearchCoverageDisclosure>(
     "/v1/intelligence/coverage/public",
     () => emptyCoverage,
+  ),
+);
+
+/* ------------------------------------------------------------------ */
+/* Feeds                                                               */
+/* ------------------------------------------------------------------ */
+
+const emptyInsiderFeed: InsiderFeed = { items: [], total: 0, page: 1, limit: 50, hasMore: false };
+const emptySignalFeed: SignalFeed = { items: [], total: 0, page: 1, limit: 50, hasMore: false };
+const emptyInstitutionFeed: InstitutionFeed = { items: [], total: 0, page: 1, limit: 50, hasMore: false };
+
+export const getInsiderFeed = cache(
+  (options: { symbol?: string; openMarketOnly?: boolean; page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.symbol) params.set("symbol", options.symbol);
+    if (options.openMarketOnly) params.set("open_market_only", "true");
+    params.set("page", String(options.page ?? 1));
+    params.set("limit", String(options.limit ?? 50));
+
+    return loadResearch<InsiderFeed>(
+      `/v1/intelligence/insiders?${params.toString()}`,
+      () => emptyInsiderFeed,
+    );
+  },
+);
+
+export const getSignalFeed = cache(
+  (options: { category?: ResearchSignalCategory; symbol?: string; page?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.category) params.set("category", options.category);
+    if (options.symbol) params.set("symbol", options.symbol);
+    params.set("page", String(options.page ?? 1));
+    params.set("limit", String(options.limit ?? 50));
+
+    return loadResearch<SignalFeed>(
+      `/v1/intelligence/signals?${params.toString()}`,
+      () => emptySignalFeed,
+    );
+  },
+);
+
+export const getInstitutionFeed = cache((page = 1, limit = 50) =>
+  loadResearch<InstitutionFeed>(
+    `/v1/intelligence/institutions?page=${page}&limit=${limit}`,
+    () => emptyInstitutionFeed,
   ),
 );
