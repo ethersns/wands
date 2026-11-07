@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
+  CalendarX,
   FileText,
   Landmark,
+  LineChart,
   Radar,
   ShieldCheck,
   UserRound,
@@ -62,6 +64,7 @@ export default async function AssetResearchPage({
   const r = research.data;
   const insider = r.insider;
   const fusion = r.fusion;
+  const priceCoverage = r.priceCoverage;
 
   const insiderLines = insider.purchaseCount + insider.saleCount;
   const hasEvidence = r.signals.length > 0 || insiderLines > 0;
@@ -270,6 +273,75 @@ export default async function AssetResearchPage({
               ))}
             </ul>
           ) : null}
+        </SectionCard>
+
+        <SectionCard
+          title="Price history"
+          description="Daily bars stored for this symbol. Missing trading days are listed rather than filled, so the series is never smoother than the data."
+        >
+          {priceCoverage === null || priceCoverage.status === "unavailable" ? (
+            <p className="rounded-lg border border-dashed border-border px-3 py-2.5 text-[11px] leading-relaxed text-pretty text-muted-foreground">
+              {priceCoverage?.detail ??
+                "No daily price series is stored for this symbol, so no performance claim can be measured for it."}
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2.5">
+                <MetricTile
+                  label="Daily bars"
+                  value={formatNumber(priceCoverage.bars, { digits: 0 })}
+                  hint={priceCoverage.provider ?? "unknown source"}
+                  icon={LineChart}
+                  tone="muted"
+                />
+                <MetricTile
+                  label="Missing days"
+                  value={formatNumber(priceCoverage.missingDays, { digits: 0 })}
+                  hint={`of ${priceCoverage.expectedDays} trading days`}
+                  icon={CalendarX}
+                  tone={priceCoverage.missingDays > 0 ? "loss" : "muted"}
+                />
+              </div>
+
+              <dl className="mt-3 flex flex-col gap-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-[11px] text-muted-foreground">First bar</dt>
+                  <dd className="font-mono text-[11px] text-foreground">
+                    {priceCoverage.firstBar ? formatDate(priceCoverage.firstBar) : "—"}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-[11px] text-muted-foreground">Last bar</dt>
+                  <dd className="font-mono text-[11px] text-foreground">
+                    {priceCoverage.lastBar ? formatDate(priceCoverage.lastBar) : "—"}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-[11px] text-muted-foreground">Adjustment</dt>
+                  <dd className="font-mono text-[11px] text-foreground">
+                    {priceCoverage.adjustment ?? "raw prices"}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-[11px] text-muted-foreground">Retrieved</dt>
+                  <dd className="font-mono text-[11px] text-foreground">
+                    {priceCoverage.retrievedAt
+                      ? formatDate(priceCoverage.retrievedAt)
+                      : "—"}
+                  </dd>
+                </div>
+              </dl>
+
+              {priceCoverage.missingDates.length > 0 ? (
+                <p className="mt-3 border-t border-border pt-2.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  Missing: {priceCoverage.missingDates.slice(0, 6).join(", ")}
+                  {priceCoverage.missingDates.length > 6
+                    ? ` +${priceCoverage.missingDates.length - 6} more`
+                    : ""}
+                </p>
+              ) : null}
+            </>
+          )}
         </SectionCard>
       </div>
 

@@ -1,0 +1,83 @@
+# Wands engine against a managed PostgreSQL (Neon, RDS, Cloud SQL).
+#
+# This is the smallest reliable production deployment: one engine container and
+# one managed database. It reuses the same image, the same explicit migration
+# step and the same healthcheck as docker-compose.yml. The only difference is
+# that the database is not a container, so there is no volume to lose and no
+# backup job to forget.
+#
+#   cp .env.example .env      # point WANDS_DATABASE_URL at the managed instance
+#   docker compose -f docker-compose.managed-db.yml up -d
+#
+# WANDS_DATABASE_URL must use the psycopg driver and TLS:
+#   postgresql+psycopg://USER:PASSWORD@HOST/DBNAME?sslmode=require
+#
+# Migrations stay a discrete step: `migrate` runs once per `up` and the engine
+# waits for it to succeed, so a restart never applies a schema change on its own.
+
+name: wands-managed
+
+services:
+  migrate:
+    build: .
+    restart: "no"
+    env_file:
+      - .env
+    command: ["alembic", "upgrade", "head"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  engine:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      # Only the reverse proxy may set X-Forwarded-For. The engine records the
+      # client IP in the audit trail from that header.
+      WANDS_FORWARDED_ALLOW_IPS: ${WANDS_FORWARDED_ALLOW_IPS:-127.0.0.1}
+    ports:
+      # Loopback only. Put a TLS reverse proxy in front; never publish 8000.
+      - "127.0.0.1:8000:8000"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    stop_grace_period: 30s
+    # /readyz checks the database, not just the process. Against a managed
+    # instance that is the check that matters: the container can be up while the
+    # connection is not.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g

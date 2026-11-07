@@ -136,6 +136,7 @@ function normalizeAsset(
     fusion: raw?.fusion ?? emptyFusion(symbol),
     sources: raw?.sources ?? [],
     coverage: raw?.coverage ?? emptyCoverage,
+    priceCoverage: raw?.priceCoverage ?? null,
     caveats: raw?.caveats ?? [],
   };
 }

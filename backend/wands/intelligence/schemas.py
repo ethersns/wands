@@ -7,7 +7,7 @@ snake_case in Python, exactly like the rest of the engine.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -361,6 +361,30 @@ class ResearchCoverageDisclosureOut(CamelModel):
     caveats: list[str] = Field(default_factory=list)
 
 
+class PriceCoverageOut(CamelModel):
+    """What daily price history exists for a symbol, and what is missing.
+
+    ``missing_dates`` are trading days the provider did not return. They are
+    reported, never filled, so a reader can see the shape of the gap.
+    """
+
+    status: str
+    provider: str | None = None
+    interval: str = "1d"
+    bars: int = 0
+    first_bar: date | None = None
+    last_bar: date | None = None
+    window_start: date | None = None
+    window_end: date | None = None
+    expected_days: int = 0
+    stored_days: int = 0
+    missing_days: int = 0
+    missing_dates: list[str] = Field(default_factory=list)
+    adjustment: str | None = None
+    retrieved_at: datetime | None = None
+    detail: str | None = None
+
+
 class ResearchCountsOut(CamelModel):
     filings: int
     transactions: int
@@ -392,6 +416,7 @@ class AssetResearchOut(CamelModel):
     fusion: FusionOut
     sources: list[ResearchSourceLinkOut] = Field(default_factory=list)
     coverage: ResearchCoverageDisclosureOut
+    price_coverage: PriceCoverageOut | None = None
     caveats: list[str] = Field(default_factory=list)
 
 

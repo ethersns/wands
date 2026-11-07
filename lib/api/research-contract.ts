@@ -125,6 +125,31 @@ export interface ResearchCoverageDisclosure {
 /* ------------------------------------------------------------------ */
 
 /**
+ * What daily price history backs an asset page, and what is missing.
+ *
+ * `missingDates` are trading days the provider did not return. They are shown
+ * rather than filled, so a reader can see the shape of the gap instead of
+ * trusting a series that silently interpolated over it.
+ */
+export interface PriceCoverage {
+  status: "complete" | "partial" | "empty" | "error" | "unavailable";
+  provider: string | null;
+  interval: string;
+  bars: number;
+  firstBar: string | null;
+  lastBar: string | null;
+  windowStart: string | null;
+  windowEnd: string | null;
+  expectedDays: number;
+  storedDays: number;
+  missingDays: number;
+  missingDates: string[];
+  adjustment: string | null;
+  retrievedAt: string | null;
+  detail: string | null;
+}
+
+/**
  * Everything the member workspace shows for one asset. `sources` and `coverage`
  * are required: an asset page that cannot say where its evidence came from, or
  * how much of the window it covers, is not publishable.
@@ -139,6 +164,7 @@ export interface AssetResearch {
   fusion: FusionRanking;
   sources: ResearchSourceLink[];
   coverage: ResearchCoverageDisclosure;
+  priceCoverage: PriceCoverage | null;
   caveats: string[];
 }
 

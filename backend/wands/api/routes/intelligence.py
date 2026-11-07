@@ -24,7 +24,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from wands.api.deps import client_ip, request_id_of, require_role, require_scope
+from wands.api.deps import (
+    client_ip,
+    deny_research_only,
+    request_id_of,
+    require_role,
+    require_scope,
+)
 from wands.config import Settings, get_settings
 from wands.db.session import get_session
 from wands.envelope import envelope, unavailable
@@ -77,7 +83,7 @@ def _member(session: Session, settings: Settings) -> MemberResearchService:
 def status(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     payload = dump(_service(session, settings).status())
     if not payload["enabled"]:
@@ -99,7 +105,7 @@ def insiders(
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     feed: InsiderFeedOut = _service(session, settings).insiders(
         symbol=symbol,
@@ -126,7 +132,7 @@ def insider_symbol(
     as_of: datetime | None = None,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     summary: InsiderSymbolSummaryOut = _service(session, settings).insider_summary(
         symbol, window_days=window_days, as_of=as_of
@@ -147,7 +153,7 @@ def institutions(
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     feed: InstitutionFeedOut = _service(session, settings).institutions(
         page=page, limit=limit
@@ -168,7 +174,7 @@ def institution_changes(
     period: datetime | None = None,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     result: InstitutionChangesOut | None = _service(session, settings).institution_changes(
         cik, period=period
@@ -195,7 +201,7 @@ def signals(
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     feed: SignalFeedOut = _service(session, settings).signals(
         category=category, symbol=symbol, as_of=as_of, page=page, limit=limit
@@ -265,7 +271,7 @@ def _research(session: Session, settings: Settings) -> ResearchService:
 def jobs(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     feed: IntelJobFeedOut = _research(session, settings).jobs()
     payload = dump(feed)
@@ -282,7 +288,7 @@ def jobs(
 def coverage(
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     result: IntelCoverageOut = _research(session, settings).coverage()
     payload = dump(result)
@@ -300,7 +306,7 @@ def experiments(
     limit: int = Query(default=50, ge=1, le=200),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     feed: IntelExperimentFeedOut = _research(session, settings).experiments(limit=limit)
     payload = dump(feed)
@@ -318,7 +324,7 @@ def experiment(
     experiment_id: str,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     try:
         uuid.UUID(experiment_id)
@@ -344,7 +350,7 @@ def signal_validation(
     signal_id: str,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(deny_research_only()),
 ) -> dict:
     try:
         uuid.UUID(signal_id)

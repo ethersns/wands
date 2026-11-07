@@ -34,12 +34,14 @@ from wands.db.models import (
     IntelInstitutionRow,
     IntelSignalRow,
     MarketCandleRow,
+    MarketPriceCoverageRow,
 )
 from wands.intelligence.base import TransactionClass
 from wands.intelligence.freshness import STATUS_FRESH, FreshnessMonitor
 from wands.intelligence.schemas import (
     AssetResearchOut,
     InsiderTransactionOut,
+    PriceCoverageOut,
     ResearchCountsOut,
     ResearchCoverageDisclosureOut,
     ResearchCoverageGapOut,
@@ -266,6 +268,7 @@ class MemberResearchService:
             fusion=base.fusion,
             sources=sources,
             coverage=coverage,
+            price_coverage=self._price_coverage(canonical),
             caveats=caveats,
         )
 
@@ -586,6 +589,79 @@ class MemberResearchService:
         if explicit:
             return len(explicit)
         return len(self.settings.watchlist)
+
+    def _price_coverage(self, symbol: str) -> PriceCoverageOut:
+        """What daily bars exist for this symbol, and what the collector recorded.
+
+        The bar count and range come from the stored candles; the expected and
+        missing counts come from the coverage row the collector wrote. When no
+        collection has run, the status says so rather than implying full history.
+        """
+        bars = int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(MarketCandleRow)
+                .where(
+                    MarketCandleRow.symbol == symbol,
+                    MarketCandleRow.interval == "1d",
+                )
+            )
+            or 0
+        )
+        if not bars:
+            return PriceCoverageOut(
+                status="unavailable",
+                detail=(
+                    f"No daily bars are stored for {symbol}. No performance claim can be "
+                    "measured for it."
+                ),
+            )
+
+        first_bar, last_bar = self.session.execute(
+            select(
+                func.min(MarketCandleRow.open_time),
+                func.max(MarketCandleRow.open_time),
+            ).where(
+                MarketCandleRow.symbol == symbol,
+                MarketCandleRow.interval == "1d",
+            )
+        ).one()
+        latest = self.session.scalar(
+            select(MarketCandleRow)
+            .where(
+                MarketCandleRow.symbol == symbol,
+                MarketCandleRow.interval == "1d",
+            )
+            .order_by(MarketCandleRow.open_time.desc())
+            .limit(1)
+        )
+        coverage = self.session.scalar(
+            select(MarketPriceCoverageRow)
+            .where(
+                MarketPriceCoverageRow.symbol == symbol,
+                MarketPriceCoverageRow.interval == "1d",
+            )
+            .order_by(MarketPriceCoverageRow.retrieved_at.desc())
+            .limit(1)
+        )
+
+        return PriceCoverageOut(
+            status=coverage.status if coverage is not None else "partial",
+            provider=latest.provider if latest is not None else None,
+            interval="1d",
+            bars=bars,
+            first_bar=first_bar.date() if first_bar else None,
+            last_bar=last_bar.date() if last_bar else None,
+            window_start=coverage.window_start.date() if coverage is not None else None,
+            window_end=coverage.window_end.date() if coverage is not None else None,
+            expected_days=coverage.expected_days if coverage is not None else 0,
+            stored_days=coverage.stored_days if coverage is not None else bars,
+            missing_days=coverage.missing_days if coverage is not None else 0,
+            missing_dates=list(coverage.missing_dates or []) if coverage is not None else [],
+            adjustment=latest.adjustment if latest is not None else None,
+            retrieved_at=coverage.retrieved_at if coverage is not None else None,
+            detail=coverage.detail if coverage is not None else None,
+        )
 
     def _symbols_without_prices(self, symbols: list[str]) -> list[str]:
         if not symbols:

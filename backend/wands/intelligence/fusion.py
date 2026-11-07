@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from wands.config import Settings
 from wands.db.models import IntelSignalRow, MarketCandleRow
 from wands.intelligence.base import IntelQuality, SignalCategory
+from wands.intelligence.identifiers import IdentifierResolver
 from wands.intelligence.institutions import DISCLOSURE_CAVEAT, InstitutionalRadar
 from wands.intelligence.signals import saturate
 from wands.schemas import CandleInterval
@@ -97,8 +98,13 @@ class SignalFusion:
         cusip_by_symbol: dict[str, str] | None = None,
     ) -> list[FusionRanking]:
         moment = as_of or datetime.now(tz=UTC)
+        if cusip_by_symbol is None:
+            # Resolve from the stored identifier history rather than requiring a
+            # caller to supply a mapping. Only fusion-eligible mappings are used,
+            # so an unresolved CUSIP is reported as a gap, never guessed.
+            cusip_by_symbol = IdentifierResolver(self.session).cusip_map(symbols, moment)
         rankings = [
-            self._rank_symbol(symbol, moment, cusip_by_symbol or {})
+            self._rank_symbol(symbol, moment, cusip_by_symbol)
             for symbol in symbols
         ]
         # Symbols with no evidence at all sort last rather than being dropped:

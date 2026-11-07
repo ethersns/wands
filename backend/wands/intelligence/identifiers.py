@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -556,6 +557,20 @@ class IdentifierResolver:
             mapping=chosen,
             candidates=covering,
         )
+
+    def cusip_map(self, symbols: Sequence[str], as_of: datetime) -> dict[str, str]:
+        """Symbol -> CUSIP for the symbols whose mapping is fusion-eligible.
+
+        Only a mapping that may enter a ticker-level calculation is returned. An
+        unresolved or conflicting CUSIP is left out so the caller reports the
+        omission instead of scoring a guess.
+        """
+        result: dict[str, str] = {}
+        for symbol in symbols:
+            resolution = self.resolve_symbol(symbol, as_of)
+            if resolution.usable_for_fusion and resolution.mapping is not None:
+                result[str(symbol).strip().upper()] = resolution.mapping.cusip
+        return result
 
     def history(self, cusip: str) -> list[IdentifierMapping]:
         base = normalize_cusip(cusip)
