@@ -326,7 +326,77 @@ class IntelBackfillOut(CamelModel):
     progress: list[IntelBackfillStreamOut] = Field(default_factory=list)
 
 
+# --- member research (customer-safe projection) ---------------------------
+#
+# These mirror ``lib/api/research-contract.ts``. They carry no collection
+# machinery: no job, lease, backfill cursor, retry counter or identifier
+# internals. A member reads evidence and how much of the window it covers.
+
+
+class ResearchSourceLinkOut(CamelModel):
+    id: str
+    kind: str
+    label: str
+    url: str
+    accession_number: str | None = None
+    form_type: str | None = None
+    public_available_at: datetime | None = None
+    supports: str
+    retrieved_at: datetime
+
+
+class ResearchCoverageGapOut(CamelModel):
+    key: str
+    label: str
+    detail: str
+
+
+class ResearchCoverageDisclosureOut(CamelModel):
+    status: str
+    window_start: datetime | None = None
+    window_end: datetime | None = None
+    symbols_covered: int
+    symbols_requested: int
+    gaps: list[ResearchCoverageGapOut] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+
+
+class ResearchCountsOut(CamelModel):
+    filings: int
+    transactions: int
+    signals: int
+    institutions: int
+    holdings: int
+    symbols: int
+
+
+class ResearchDashboardOut(CamelModel):
+    as_of: datetime
+    freshness: str
+    counts: ResearchCountsOut
+    latest_filing_at: datetime | None = None
+    latest_signal_at: datetime | None = None
+    top_signals: list[SignalOut] = Field(default_factory=list)
+    recent_purchases: list[InsiderTransactionOut] = Field(default_factory=list)
+    coverage: ResearchCoverageDisclosureOut
+    caveats: list[str] = Field(default_factory=list)
+
+
+class AssetResearchOut(CamelModel):
+    symbol: str
+    issuer_name: str | None = None
+    as_of: datetime
+    freshness: str
+    insider: InsiderSymbolSummaryOut
+    signals: list[SignalOut] = Field(default_factory=list)
+    fusion: FusionOut
+    sources: list[ResearchSourceLinkOut] = Field(default_factory=list)
+    coverage: ResearchCoverageDisclosureOut
+    caveats: list[str] = Field(default_factory=list)
+
+
 __all__ = [
+    "AssetResearchOut",
     "FusionComponentOut",
     "FusionOut",
     "InsiderFeedOut",
@@ -347,6 +417,11 @@ __all__ = [
     "IntelSourceStatusOut",
     "IntelStatusOut",
     "IntelValidationOut",
+    "ResearchCountsOut",
+    "ResearchCoverageDisclosureOut",
+    "ResearchCoverageGapOut",
+    "ResearchDashboardOut",
+    "ResearchSourceLinkOut",
     "SignalFeedOut",
     "SignalOut",
     "SymbolSummaryOut",

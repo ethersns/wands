@@ -46,6 +46,10 @@ ALL_SCOPES = frozenset(
         "settings:read",
         "settings:write",
         "audit:read",
+        # The member research surface. A credential issued for the member
+        # workspace carries this and nothing else, so it can read filings and
+        # signals without reaching orders, risk, connections or the engine.
+        "research:read",
     }
 )
 
