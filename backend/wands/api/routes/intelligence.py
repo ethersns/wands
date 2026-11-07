@@ -19,17 +19,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from wands.api.deps import client_ip, request_id_of, require_role
+from wands.api.deps import client_ip, request_id_of, require_role, require_scope
 from wands.config import Settings, get_settings
 from wands.db.session import get_session
 from wands.envelope import envelope, unavailable
 from wands.errors import BadRequest, NotFound
+from wands.intelligence.member import MemberResearchService
 from wands.intelligence.research import ResearchService
 from wands.intelligence.schemas import (
+    AssetResearchOut,
     InsiderFeedOut,
     InsiderSymbolSummaryOut,
     InstitutionChangesOut,
@@ -41,21 +44,33 @@ from wands.intelligence.schemas import (
     IntelExperimentOut,
     IntelJobFeedOut,
     IntelValidationOut,
+    ResearchCoverageDisclosureOut,
+    ResearchDashboardOut,
+    ResearchSourceLinkOut,
     SignalFeedOut,
     SignalOut,
-    SymbolSummaryOut,
 )
 from wands.intelligence.service import INSIDER_CAVEATS, IntelligenceService
-from wands.schemas import dump
+from wands.schemas import dump, dump_many
 from wands.security.audit import record_for_principal
 from wands.security.auth import Principal
 from wands.security.rbac import Role
 
 router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
+# The member research surface is gated on a scope, not on a role. A credential
+# issued for the member workspace carries ``research:read`` and nothing else, so
+# it can read filings and signals without reaching orders, risk, connections or
+# engine administration.
+RESEARCH_SCOPE = "research:read"
+
 
 def _service(session: Session, settings: Settings) -> IntelligenceService:
     return IntelligenceService(session, settings)
+
+
+def _member(session: Session, settings: Settings) -> MemberResearchService:
+    return MemberResearchService(session, settings)
 
 
 @router.get("/status")
@@ -200,7 +215,7 @@ def signal(
     signal_id: str,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
     try:
         uuid.UUID(signal_id)
@@ -219,11 +234,15 @@ def symbol_summary(
     as_of: datetime | None = None,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    principal: Principal = Depends(require_role(Role.VIEWER)),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
 ) -> dict:
-    summary: SymbolSummaryOut = _service(session, settings).symbol_summary(
-        symbol, as_of=as_of
-    )
+    """The member asset page: evidence, its sources, and how much it covers.
+
+    ``sources`` and ``coverage`` are required by the member contract. An asset
+    page that cannot say where its evidence came from, or how much of the window
+    it covers, is not publishable.
+    """
+    summary: AssetResearchOut = _member(session, settings).asset(symbol, as_of=as_of)
     payload = dump(summary)
     has_evidence = bool(summary.signals) or summary.insider.purchase_count > 0
     if not has_evidence:
@@ -438,3 +457,92 @@ def resume_job(
     )
     session.commit()
     return envelope({"job": name, "paused": False})
+
+
+# --- member research (customer-safe) --------------------------------------
+#
+# Read-only, scope-gated, and assembled from stored rows. None of these can
+# reach the order path, the portfolio, the risk engine or a connection
+# credential, and none of them report collection machinery.
+
+
+@router.get("/dashboard")
+def dashboard(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    result: ResearchDashboardOut = _member(session, settings).dashboard()
+    payload = dump(result)
+    if result.counts.filings == 0 and result.counts.signals == 0:
+        return unavailable(
+            payload,
+            "Nothing has been collected yet, so the dashboard is empty. This is a "
+            "collection state, not a statement that no insider filed.",
+        )
+    return envelope(payload, warnings=list(result.caveats))
+
+
+@router.get("/sources")
+def sources(
+    subject_type: Literal[
+        "symbol", "insider_transaction", "institution", "signal"
+    ] = Query(...),
+    subject_id: str = Query(min_length=1, max_length=128),
+    symbol: str | None = None,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    items: list[ResearchSourceLinkOut] = _member(session, settings).sources(
+        subject_type=subject_type, subject_id=subject_id, symbol=symbol
+    )
+    payload = dump_many(items)
+    if not items:
+        return unavailable(
+            payload,
+            "No resolvable SEC source is stored for this subject. A claim without a "
+            "source link is not shown.",
+        )
+    return envelope(payload)
+
+
+@router.get("/coverage/public")
+def public_coverage(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    result: ResearchCoverageDisclosureOut = _member(session, settings).public_coverage()
+    payload = dump(result)
+    if result.status == "unavailable":
+        return unavailable(
+            payload,
+            "Nothing has been collected yet, so coverage is empty. This is a collection "
+            "state, not a statement that no filings exist.",
+        )
+    return envelope(payload, warnings=list(result.caveats))
+
+
+@router.get("/insiders/transactions/{transaction_id}")
+def insider_transaction(
+    transaction_id: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    """One transaction by its stable id, independent of feed pagination.
+
+    A member who saved a filing must be able to reopen it after it has aged out
+    of the published feed, so this reads the row directly rather than scanning a
+    page of the feed.
+    """
+    try:
+        uuid.UUID(transaction_id)
+    except ValueError as exc:
+        raise BadRequest(f"{transaction_id!r} is not a transaction identifier.") from exc
+
+    result = _member(session, settings).insider_transaction(transaction_id)
+    if result is None:
+        raise NotFound(f"No insider transaction with id {transaction_id} is stored.")
+    return envelope(dump(result))
