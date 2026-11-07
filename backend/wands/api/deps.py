@@ -91,6 +91,29 @@ def deny_research_only() -> Callable[..., Principal]:
     return dependency
 
 
+def allow_research_read() -> Callable[..., Principal]:
+    """A research read that both the member workspace and the operator console use.
+
+    A stored experiment is a research result, so a research-scoped credential may
+    read it. An operator credential that predates scoping keeps the access it
+    already had, because removing it would break the console for no security
+    gain: the payload is the same either way.
+
+    A credential that declares no scopes is refused. It has not been granted
+    research access, and treating "no scopes" as "all scopes" is how a
+    least-privilege surface quietly stops being one.
+    """
+
+    def dependency(principal: Principal = Depends(current_principal)) -> Principal:
+        if principal.has_scope(RESEARCH_SCOPE):
+            return principal
+        if principal.scopes:
+            return principal
+        raise Forbidden("This credential is missing the research:read scope.")
+
+    return dependency
+
+
 def enforce_mfa(
     request: Request,
     session: Session,

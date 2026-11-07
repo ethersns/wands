@@ -16,6 +16,8 @@ import type {
 import type {
   AssetResearch,
   PriceSeries,
+  QuantExperiment,
+  QuantExperimentFeed,
   ResearchCoverageDisclosure,
   ResearchDashboard,
   ResearchEnvelope,
@@ -65,6 +67,12 @@ async function loadResearch<T>(
 
   if (result.ok) {
     return { ...result.envelope, unreachable: false };
+  }
+
+  if (result.error.code === "research_unconfigured") {
+    return unavailableEnvelope(empty(), [
+      "The member research credential is not configured. WANDS_RESEARCH_TOKEN must be issued before research data can be read; the operator credential is never used for member requests.",
+    ]);
   }
 
   return unavailableEnvelope(empty(), [
@@ -369,6 +377,79 @@ export const getInsiderTransaction = cache(
     }
 
     return unavailableEnvelope<InsiderTransaction | null>(null, [
+      `Research data unavailable (${result.error.code}): ${result.error.message}`,
+    ]);
+  },
+);
+
+/* ------------------------------------------------------------------ */
+/* Quant Lab                                                           */
+/* ------------------------------------------------------------------ */
+
+const emptyExperimentFeed: QuantExperimentFeed = { items: [], total: 0, caveats: [] };
+
+/**
+ * Recorded research experiments.
+ *
+ * An experiment is written by an operator run, never by this read. An empty feed
+ * therefore means no study has been executed yet, which is a different statement
+ * from "a study ran and found nothing" — the latter is an experiment row whose
+ * `status` is `insufficient_data`.
+ */
+export const getExperiments = cache((limit = 50) =>
+  loadResearch<QuantExperimentFeed>(
+    `/v1/intelligence/experiments?limit=${limit}`,
+    () => emptyExperimentFeed,
+  ),
+);
+
+/**
+ * One experiment by its stable identifier.
+ *
+ * The three outcomes stay distinct, because a member reopening a saved study
+ * needs to know which one happened:
+ * - `404` — the engine has no experiment with this identifier.
+ * - `422` — the identifier is not an experiment id at all.
+ * - anything else — the engine could not be reached or refused the credential.
+ */
+export const getExperiment = cache(
+  async (id: string): Promise<ResearchEnvelope<QuantExperiment | null>> => {
+    const { configured } = researchConfig();
+
+    if (!configured) {
+      return unavailableEnvelope<QuantExperiment | null>(null, [
+        "WANDS_ENGINE_URL is not configured. No research data is available.",
+      ]);
+    }
+
+    const result = await researchFetch<QuantExperiment>(
+      `/v1/intelligence/experiments/${encodeURIComponent(id)}`,
+      {},
+    );
+
+    if (result.ok) {
+      return { ...result.envelope, unreachable: false };
+    }
+
+    if (result.error.status === 404) {
+      return emptyEnvelope<QuantExperiment | null>(null, [
+        "The engine has no stored experiment with this identifier.",
+      ]);
+    }
+
+    if (result.error.status === 422) {
+      return emptyEnvelope<QuantExperiment | null>(null, [
+        "This is not an experiment identifier, so the engine has no record to return.",
+      ]);
+    }
+
+    if (result.error.code === "research_unconfigured") {
+      return unavailableEnvelope<QuantExperiment | null>(null, [
+        "The member research credential is not configured. WANDS_RESEARCH_TOKEN must be issued before research data can be read; the operator credential is never used for member requests.",
+      ]);
+    }
+
+    return unavailableEnvelope<QuantExperiment | null>(null, [
       `Research data unavailable (${result.error.code}): ${result.error.message}`,
     ]);
   },

@@ -7,6 +7,7 @@ import {
   Bell,
   Bookmark,
   CreditCard,
+  FlaskConical,
   LayoutGrid,
   ListChecks,
   Menu,
@@ -27,6 +28,7 @@ export const MEMBER_NAV = [
   { href: "/app/watchlists", label: "Watchlists", icon: ListChecks },
   { href: "/app/insiders", label: "Insiders", icon: Radar },
   { href: "/app/signals", label: "Signals", icon: Sparkles },
+  { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];
