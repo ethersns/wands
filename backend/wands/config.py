@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     alpaca_data_feed: str = "iex"
     alpaca_data_delayed: bool = False
 
+    # Optional. OpenFIGI resolves CUSIPs without a key at 25 requests a minute;
+    # a key raises the ceiling for a larger identifier pilot. It is not a
+    # licensed CUSIP master file either way.
+    openfigi_api_key: SecretStr | None = None
+
     # --- portfolio --------------------------------------------------------
     paper_default_starting_cash: Decimal = Decimal("100000")
     paper_default_currency: str = "USD"

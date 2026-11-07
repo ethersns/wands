@@ -150,6 +150,78 @@ export interface PriceCoverage {
 }
 
 /**
+ * A verified claim that a reported CUSIP is this security. The mapping is what
+ * lets a 13F holding be attributed to a ticker at all, so it is shown rather
+ * than assumed.
+ */
+export interface AssetIdentifierMapping {
+  cusip: string;
+  symbol: string;
+  issuerName: string;
+  securityDescription: string;
+  shareClass: string;
+  source: string;
+  verificationStatus: "verified" | "provisional" | "conflict" | "unresolved";
+  confidence: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  notes: string;
+}
+
+/**
+ * One institution's reported position, as filed. `periodOfReport` is the
+ * quarter end and `publicAvailableAt` is when the filing became readable; they
+ * are never interchangeable.
+ */
+export interface AssetHolding {
+  institutionCik: string;
+  institutionName: string;
+  cusip: string;
+  classTitle: string;
+  shares: number | null;
+  valueUsd: number | null;
+  periodOfReport: string;
+  publicAvailableAt: string;
+  shareChange: number | null;
+  shareChangePct: number | null;
+  priorPeriodOfReport: string | null;
+  sourceUrl: string;
+  mappingStatus: string;
+  mappingSource: string;
+}
+
+export interface AssetInstitutional {
+  holdings: AssetHolding[];
+  institutions: number;
+  latestPeriod: string | null;
+  unresolvedHoldings: number;
+  caveats: string[];
+}
+
+/** One stored daily bar. `adjustment` says whether the close is split-adjusted. */
+export interface PriceBar {
+  tradingDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  provider: string;
+  adjustment: string | null;
+  quality: string;
+}
+
+export interface PriceSeries {
+  symbol: string;
+  interval: string;
+  provider: string | null;
+  adjustment: string | null;
+  bars: PriceBar[];
+  coverage: PriceCoverage | null;
+  caveats: string[];
+}
+
+/**
  * Everything the member workspace shows for one asset. `sources` and `coverage`
  * are required: an asset page that cannot say where its evidence came from, or
  * how much of the window it covers, is not publishable.
@@ -165,6 +237,8 @@ export interface AssetResearch {
   sources: ResearchSourceLink[];
   coverage: ResearchCoverageDisclosure;
   priceCoverage: PriceCoverage | null;
+  identifierMappings: AssetIdentifierMapping[];
+  institutional: AssetInstitutional;
   caveats: string[];
 }
 

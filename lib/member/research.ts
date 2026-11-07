@@ -5,6 +5,7 @@ import {
   getInsiderFeed,
   getInsiderTransaction,
   getInstitutionFeed,
+  getPriceSeries,
   getPublicCoverage,
   getResearchDashboard,
   getResearchSources,
@@ -28,6 +29,7 @@ import {
 export const memberResearch = {
   dashboard: getResearchDashboard,
   asset: getAssetResearch,
+  prices: getPriceSeries,
   insiders: getInsiderFeed,
   insiderTransaction: getInsiderTransaction,
   signals: getSignalFeed,

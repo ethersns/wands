@@ -50,6 +50,7 @@ from wands.intelligence.schemas import (
     IntelExperimentOut,
     IntelJobFeedOut,
     IntelValidationOut,
+    PriceSeriesOut,
     ResearchCoverageDisclosureOut,
     ResearchDashboardOut,
     ResearchSourceLinkOut,
@@ -258,6 +259,32 @@ def symbol_summary(
             "because nothing has been collected for this symbol.",
         )
     return envelope(payload, warnings=list(summary.caveats))
+
+
+@router.get("/symbols/{symbol}/prices")
+def symbol_prices(
+    symbol: str,
+    limit: int = Query(120, ge=1, le=500),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    """Recent daily bars for the member asset page.
+
+    The series carries its provider and adjustment label, so a reader can tell a
+    split-adjusted close from a raw one without inferring it.
+    """
+    series: PriceSeriesOut = _member(session, settings).price_series(
+        symbol, limit=limit
+    )
+    payload = dump(series)
+    if not series.bars:
+        return unavailable(
+            payload,
+            f"No daily bars are stored for {series.symbol}. The series is empty "
+            "because nothing has been collected, not because the market was closed.",
+        )
+    return envelope(payload, warnings=list(series.caveats))
 
 
 # --- research (intelligence 1.1) ------------------------------------------

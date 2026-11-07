@@ -8,6 +8,7 @@ arbitrary URLs at an attacker's pace. It runs from the scheduler or from here.
     python -m wands.intelligence.cli signals --symbols AAPL
     python -m wands.intelligence.cli institutions --ciks 0001067983
     python -m wands.intelligence.cli prices --symbols AAPL MSFT
+    python -m wands.intelligence.cli identifiers --limit 50
     python -m wands.intelligence.cli status
 """
 
@@ -196,6 +197,60 @@ def _coverage(_: argparse.Namespace) -> int:
     return 0
 
 
+def _holding_cusips(session, *, limit: int) -> list[str]:
+    """The CUSIPs the collected 13F holdings actually report, most-held first.
+
+    Resolving what was reported is the point: a mapping for a CUSIP no filing
+    mentions would raise the coverage number without making a single holding
+    usable.
+    """
+    from sqlalchemy import func, select
+
+    from wands.db.models import IntelInstitutionalHoldingRow
+
+    rows = session.execute(
+        select(IntelInstitutionalHoldingRow.cusip, func.count().label("lines"))
+        .where(IntelInstitutionalHoldingRow.cusip != "")
+        .group_by(IntelInstitutionalHoldingRow.cusip)
+        .order_by(func.count().desc())
+        .limit(limit)
+    ).all()
+    return [row.cusip for row in rows]
+
+
+def _identifiers(args: argparse.Namespace) -> int:
+    from wands.intelligence.identifiers import IdentifierResolver, OpenFigiSource
+
+    settings = get_settings()
+    with session_scope() as session:
+        resolver = IdentifierResolver(session)
+        cusips = _split(args.cusips) or _holding_cusips(session, limit=args.limit)
+        if not cusips:
+            print(json.dumps({"error": "No CUSIPs to resolve."}, indent=2))
+            return 1
+        source = OpenFigiSource(
+            cusips,
+            api_key=(
+                settings.openfigi_api_key.get_secret_value()
+                if settings.openfigi_api_key is not None
+                else None
+            ),
+        )
+        summary = resolver.ingest(source.fetch(), source=source.name)
+        print(
+            json.dumps(
+                {
+                    "requested": len(cusips),
+                    "ingest": summary.as_dict(),
+                    "coverage": resolver.coverage(),
+                },
+                indent=2,
+                default=str,
+            )
+        )
+    return 0
+
+
 def _prices(args: argparse.Namespace) -> int:
     from datetime import date, timedelta
 
@@ -280,6 +335,17 @@ def main(argv: list[str] | None = None) -> int:
         "--days", type=int, default=365, help="Lookback when --start is omitted"
     )
     prices.set_defaults(handler=_prices)
+
+    identifiers = sub.add_parser(
+        "identifiers", help="Resolve reported CUSIPs to securities via OpenFIGI"
+    )
+    identifiers.add_argument(
+        "--cusips", nargs="*", help="CUSIPs; defaults to the most-held reported ones"
+    )
+    identifiers.add_argument(
+        "--limit", type=int, default=50, help="How many reported CUSIPs to resolve"
+    )
+    identifiers.set_defaults(handler=_identifiers)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

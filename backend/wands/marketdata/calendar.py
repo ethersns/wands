@@ -26,6 +26,38 @@ NEW_YORK = ZoneInfo("America/New_York")
 
 US_MARKET_HOLIDAYS: frozenset[date] = frozenset(
     {
+        # 2022
+        date(2022, 1, 17),
+        date(2022, 2, 21),
+        date(2022, 4, 15),
+        date(2022, 5, 30),
+        date(2022, 6, 20),  # Juneteenth observed; the 19th was a Sunday
+        date(2022, 7, 4),
+        date(2022, 9, 5),
+        date(2022, 11, 24),
+        date(2022, 12, 26),  # Christmas observed; the 25th was a Sunday
+        # 2023
+        date(2023, 1, 2),  # New Year observed; the 1st was a Sunday
+        date(2023, 1, 16),
+        date(2023, 2, 20),
+        date(2023, 4, 7),
+        date(2023, 5, 29),
+        date(2023, 6, 19),
+        date(2023, 7, 4),
+        date(2023, 9, 4),
+        date(2023, 11, 23),
+        date(2023, 12, 25),
+        # 2024
+        date(2024, 1, 1),
+        date(2024, 1, 15),
+        date(2024, 2, 19),
+        date(2024, 3, 29),
+        date(2024, 5, 27),
+        date(2024, 6, 19),
+        date(2024, 7, 4),
+        date(2024, 9, 2),
+        date(2024, 11, 28),
+        date(2024, 12, 25),
         # 2025
         date(2025, 1, 1),
         date(2025, 1, 9),  # national day of mourning
@@ -66,6 +98,12 @@ US_MARKET_HOLIDAYS: frozenset[date] = frozenset(
 # Half days: the regular session closes at 13:00 New York time.
 US_EARLY_CLOSES: frozenset[date] = frozenset(
     {
+        date(2022, 11, 25),
+        date(2023, 7, 3),
+        date(2023, 11, 24),
+        date(2024, 7, 3),
+        date(2024, 11, 29),
+        date(2024, 12, 24),
         date(2025, 7, 3),
         date(2025, 11, 28),
         date(2025, 12, 24),

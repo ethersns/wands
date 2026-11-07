@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -38,10 +39,16 @@ from wands.db.models import (
 )
 from wands.intelligence.base import TransactionClass
 from wands.intelligence.freshness import STATUS_FRESH, FreshnessMonitor
+from wands.intelligence.identifiers import IdentifierResolver
 from wands.intelligence.schemas import (
+    AssetHoldingOut,
+    AssetIdentifierOut,
+    AssetInstitutionalOut,
     AssetResearchOut,
     InsiderTransactionOut,
+    PriceBarOut,
     PriceCoverageOut,
+    PriceSeriesOut,
     ResearchCountsOut,
     ResearchCoverageDisclosureOut,
     ResearchCoverageGapOut,
@@ -240,8 +247,15 @@ class MemberResearchService:
             if link is not None
         ]
 
+        identifiers = self._identifiers(canonical, moment)
+        institutional = self._institutional(canonical, moment)
+
         coverage = self._asset_coverage(
-            canonical, filings=filings, signal_count=len(base.signals)
+            canonical,
+            filings=filings,
+            signal_count=len(base.signals),
+            identifiers=identifiers,
+            institutional=institutional,
         )
 
         caveats = list(base.caveats)
@@ -269,6 +283,132 @@ class MemberResearchService:
             sources=sources,
             coverage=coverage,
             price_coverage=self._price_coverage(canonical),
+            identifier_mappings=identifiers,
+            institutional=institutional,
+            caveats=caveats,
+        )
+
+    def _identifiers(self, symbol: str, moment: datetime) -> list[AssetIdentifierOut]:
+        """The CUSIP claims that let a filing be attributed to this symbol."""
+        resolver = IdentifierResolver(self.session)
+        resolution = resolver.resolve_symbol(symbol, moment)
+        if resolution.mapping is None:
+            return []
+        return [
+            AssetIdentifierOut(
+                cusip=mapping.cusip,
+                symbol=mapping.symbol,
+                issuer_name=mapping.issuer_name,
+                security_description=mapping.security_description,
+                share_class=mapping.share_class,
+                source=mapping.source,
+                verification_status=mapping.verification_status.value,
+                confidence=mapping.confidence,
+                effective_from=mapping.effective_from,
+                effective_to=mapping.effective_to,
+                notes=mapping.notes,
+            )
+            for mapping in resolver.history(resolution.mapping.cusip)
+        ]
+
+    def _institutional(self, symbol: str, moment: datetime) -> AssetInstitutionalOut:
+        """Institutional positions in this asset, attributed through identifiers.
+
+        A 13F is a quarterly snapshot published up to 45 days after the quarter
+        ends, so a position is only shown once its filing was actually public at
+        ``moment``. A holding whose CUSIP has no verified mapping is counted as
+        unattributed rather than assigned to this symbol.
+        """
+        resolver = IdentifierResolver(self.session)
+        resolution = resolver.resolve_symbol(symbol, moment)
+        if not resolution.usable_for_fusion or resolution.mapping is None:
+            return AssetInstitutionalOut(
+                caveats=[
+                    f"No verified CUSIP mapping covers {symbol} on this date, so no "
+                    "institutional holding can be attributed to it. The filings are "
+                    "stored; they are not shown against this asset."
+                ]
+            )
+
+        base = resolution.mapping.cusip
+        rows = self.session.execute(
+            select(IntelInstitutionalHoldingRow, IntelInstitutionRow)
+            .join(
+                IntelInstitutionRow,
+                IntelInstitutionRow.id == IntelInstitutionalHoldingRow.institution_id,
+            )
+            .where(
+                IntelInstitutionalHoldingRow.cusip.like(f"{base}%"),
+                IntelInstitutionalHoldingRow.accepted_at <= moment,
+            )
+        ).all()
+
+        by_institution: dict[
+            uuid.UUID, list[tuple[IntelInstitutionalHoldingRow, IntelInstitutionRow]]
+        ] = {}
+        for holding, institution in rows:
+            by_institution.setdefault(holding.institution_id, []).append(
+                (holding, institution)
+            )
+
+        holdings: list[AssetHoldingOut] = []
+        for entries in by_institution.values():
+            entries.sort(key=lambda item: item[0].period_of_report, reverse=True)
+            current, institution = entries[0]
+            prior = next(
+                (
+                    item[0]
+                    for item in entries[1:]
+                    if item[0].period_of_report < current.period_of_report
+                ),
+                None,
+            )
+            share_change = None
+            share_change_pct = None
+            if (
+                prior is not None
+                and current.shares is not None
+                and prior.shares is not None
+            ):
+                share_change = current.shares - prior.shares
+                if prior.shares:
+                    share_change_pct = (share_change / prior.shares * 100).quantize(
+                        Decimal("0.01")
+                    )
+            holdings.append(
+                AssetHoldingOut(
+                    institution_cik=institution.cik,
+                    institution_name=institution.name,
+                    cusip=current.cusip,
+                    class_title=current.class_title,
+                    shares=current.shares,
+                    value_usd=current.value_usd,
+                    period_of_report=current.period_of_report,
+                    public_available_at=current.accepted_at,
+                    share_change=share_change,
+                    share_change_pct=share_change_pct,
+                    prior_period_of_report=prior.period_of_report if prior else None,
+                    source_url=current.source_url,
+                    mapping_status=resolution.status.value,
+                    mapping_source=resolution.mapping.source,
+                )
+            )
+
+        holdings.sort(key=lambda item: item.value_usd or Decimal("0"), reverse=True)
+        caveats = [
+            "A 13F is a quarterly snapshot filed up to 45 days after the quarter ends. "
+            "It is not a real-time record of a trade, and a position shown here may "
+            "already have changed."
+        ]
+        if not holdings:
+            caveats.insert(
+                0,
+                f"The CUSIP for {symbol} is verified, but no stored 13F reports it yet.",
+            )
+        return AssetInstitutionalOut(
+            holdings=holdings,
+            institutions=len(by_institution),
+            latest_period=max((item.period_of_report for item in holdings), default=None),
             caveats=caveats,
         )
 
@@ -278,6 +418,8 @@ class MemberResearchService:
         *,
         filings: list[IntelFilingRow],
         signal_count: int,
+        identifiers: list[AssetIdentifierOut],
+        institutional: AssetInstitutionalOut,
     ) -> ResearchCoverageDisclosureOut:
         gaps: list[ResearchCoverageGapOut] = []
         if not filings:
@@ -307,8 +449,25 @@ class MemberResearchService:
                     "measured for it.",
                 )
             )
+        if not identifiers:
+            gaps.append(
+                _gap(
+                    "no_identifier_mapping",
+                    "No verified CUSIP mapping",
+                    f"No verified CUSIP mapping covers {symbol}, so institutional filings "
+                    "cannot be attributed to it.",
+                )
+            )
+        if not institutional.holdings:
+            gaps.append(
+                _gap(
+                    "no_institutional_holdings",
+                    "No institutional holding",
+                    f"No stored 13F reports a position in {symbol}.",
+                )
+            )
 
-        covered = 1 if (filings or signal_count) else 0
+        covered = 1 if (filings or signal_count or institutional.holdings) else 0
         if covered == 0:
             status = "unavailable"
         elif signal_count == 0:
@@ -589,6 +748,63 @@ class MemberResearchService:
         if explicit:
             return len(explicit)
         return len(self.settings.watchlist)
+
+    def price_series(self, symbol: str, *, limit: int = 120) -> PriceSeriesOut:
+        """The most recent stored daily bars for a symbol.
+
+        The series carries its provider and adjustment label, because a
+        split-adjusted close and a raw close are different numbers for the same
+        day and a reader must not have to infer which they have. Missing
+        sessions are reported from the coverage row, never filled.
+        """
+        canonical = symbol.strip().upper()
+        rows = list(
+            reversed(
+                self.session.scalars(
+                    select(MarketCandleRow)
+                    .where(
+                        MarketCandleRow.symbol == canonical,
+                        MarketCandleRow.interval == "1d",
+                    )
+                    .order_by(MarketCandleRow.open_time.desc())
+                    .limit(limit)
+                ).all()
+            )
+        )
+        coverage = self._price_coverage(canonical)
+        caveats: list[str] = []
+        if not rows:
+            caveats.append(
+                f"No daily bars are stored for {canonical}, so no price history can "
+                "be shown."
+            )
+        elif coverage.missing_days:
+            caveats.append(
+                f"{coverage.missing_days} expected session(s) in the collected window "
+                "have no stored bar. They are reported, never filled."
+            )
+        return PriceSeriesOut(
+            symbol=canonical,
+            interval="1d",
+            provider=rows[0].provider if rows else None,
+            adjustment=rows[0].adjustment if rows else None,
+            bars=[
+                PriceBarOut(
+                    trading_date=row.open_time,
+                    open=row.open,
+                    high=row.high,
+                    low=row.low,
+                    close=row.close,
+                    volume=row.volume,
+                    provider=row.provider,
+                    adjustment=row.adjustment,
+                    quality=row.quality,
+                )
+                for row in rows
+            ],
+            coverage=coverage,
+            caveats=caveats,
+        )
 
     def _price_coverage(self, symbol: str) -> PriceCoverageOut:
         """What daily bars exist for this symbol, and what the collector recorded.
