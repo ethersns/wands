@@ -162,8 +162,7 @@ export interface AssetIdentifierMapping {
   shareClass: string;
   source: string;
   verificationStatus: "verified" | "provisional" | "conflict" | "unresolved";
-  /** Decimal serialised as a string by the engine. */
-  confidence: string;
+  confidence: number;
   effectiveFrom: string;
   effectiveTo: string | null;
   notes: string;
@@ -179,13 +178,12 @@ export interface AssetHolding {
   institutionName: string;
   cusip: string;
   classTitle: string;
-  /** Decimals serialised as strings by the engine. */
-  shares: string | null;
-  valueUsd: string | null;
+  shares: number | null;
+  valueUsd: number | null;
   periodOfReport: string;
   publicAvailableAt: string;
-  shareChange: string | null;
-  shareChangePct: string | null;
+  shareChange: number | null;
+  shareChangePct: number | null;
   priorPeriodOfReport: string | null;
   sourceUrl: string;
   mappingStatus: string;
@@ -203,11 +201,11 @@ export interface AssetInstitutional {
 /** One stored daily bar. `adjustment` says whether the close is split-adjusted. */
 export interface PriceBar {
   tradingDate: string;
-  open: string;
-  high: string;
-  low: string;
-  close: string;
-  volume: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
   provider: string;
   adjustment: string | null;
   quality: string;

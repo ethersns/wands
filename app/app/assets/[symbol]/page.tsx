@@ -17,7 +17,10 @@ import {
   formatUsd,
   toNumber,
 } from "@/components/member/ui";
-import type { ResearchCoverageStatus } from "@/lib/api/research-contract";
+import type {
+  AssetHolding,
+  ResearchCoverageStatus,
+} from "@/lib/api/research-contract";
 import { memberResearch } from "@/lib/member/research";
 import { isSaved } from "@/lib/member/saved";
 import { requireMember } from "@/lib/member/session";
@@ -309,12 +312,8 @@ export default async function AssetPage({ params }: PageProps) {
                 </p>
                 {holding.shareChange !== null ? (
                   <p className="mt-1 text-xs leading-relaxed text-mk-muted text-pretty">
-                    {toNumber(holding.shareChange)! >= 0 ? "Added" : "Reduced"}{" "}
-                    {formatShares(Math.abs(toNumber(holding.shareChange) ?? 0))} shares
-                    {holding.shareChangePct !== null
-                      ? ` (${toNumber(holding.shareChangePct)! >= 0 ? "+" : ""}${toNumber(holding.shareChangePct)}%)`
-                      : ""}{" "}
-                    versus {formatDate(holding.priorPeriodOfReport)}
+                    {describeShareChange(holding)} versus{" "}
+                    {formatDate(holding.priorPeriodOfReport)}
                   </p>
                 ) : null}
                 {holding.sourceUrl ? (
@@ -504,4 +503,16 @@ export default async function AssetPage({ params }: PageProps) {
       />
     </div>
   );
+}
+
+/** A quarter-on-quarter change, worded so a flat position is not read as a buy. */
+function describeShareChange(holding: AssetHolding): string {
+  const change = toNumber(holding.shareChange) ?? 0;
+  if (change === 0) return "Unchanged";
+
+  const pct = toNumber(holding.shareChangePct);
+  const direction = change > 0 ? "Added" : "Reduced";
+  const magnitude = formatShares(Math.abs(change));
+  const suffix = pct === null ? "" : ` (${pct > 0 ? "+" : ""}${pct}%)`;
+  return `${direction} ${magnitude} shares${suffix}`;
 }
