@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/intelligence", label: "Overview" },
+  { href: "/intelligence/symbols", label: "Asset Research" },
   { href: "/intelligence/insiders", label: "Insider Radar" },
   { href: "/intelligence/institutions", label: "Institutional Radar" },
   { href: "/intelligence/performance", label: "Performance" },
