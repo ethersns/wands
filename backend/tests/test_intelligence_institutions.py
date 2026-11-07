@@ -276,3 +276,75 @@ def test_institutional_signals_are_not_duplicated(session):
 
 def test_no_holdings_produces_no_signal(session):
     assert _radar(session).signal_drafts(CIK) == []
+
+
+class _RawResponse:
+    def __init__(self, content: bytes, status_code: int = 200) -> None:
+        self.status_code = status_code
+        self.content = content
+
+
+class _FilingHttp:
+    """Serves a filing index plus the documents it lists, matched by suffix."""
+
+    def __init__(self, documents: dict[str, bytes]) -> None:
+        self.documents = documents
+        self.requested: list[str] = []
+
+    def get(self, url: str, **kwargs):
+        self.requested.append(url)
+        for suffix, body in self.documents.items():
+            if url.endswith(suffix):
+                return _RawResponse(body)
+        return _RawResponse(b"", status_code=404)
+
+
+def _filing_index(*names: str) -> bytes:
+    import json
+
+    return json.dumps(
+        {"directory": {"item": [{"name": name, "type": "text.gif"} for name in names]}}
+    ).encode()
+
+
+def test_the_information_table_is_found_by_root_element_not_filename():
+    """Real 13F filings name the table freely, so the name cannot identify it.
+
+    Berkshire's table is ``46994.xml`` and the index reports every item as
+    ``text.gif``. Matching on the filename found nothing on real filings, which
+    surfaced as "no information table XML" for every one of them.
+    """
+    from wands.intelligence.edgar import EdgarClient
+
+    cover = (
+        b'<?xml version="1.0"?><edgarSubmission '
+        b'xmlns="http://www.sec.gov/edgar/thirteenffiler"><headerData/></edgarSubmission>'
+    )
+    http = _FilingHttp(
+        {
+            "index.json": _filing_index(
+                "0001067983-25-000001-index.html", "primary_doc.xml", "46994.xml"
+            ),
+            "primary_doc.xml": cover,
+            "46994.xml": information_table_xml([{"value": 1000}]),
+        }
+    )
+    client = EdgarClient(user_agent="wands-test/1.0 (test)", client=http)
+
+    filename, body = client.information_table(CIK, "0001067983-25-000001")
+
+    assert filename == "46994.xml"
+    assert b"<informationTable" in body
+
+
+def test_a_filing_without_an_information_table_is_reported_not_guessed():
+    import pytest
+
+    from wands.intelligence.base import SourceDataError
+    from wands.intelligence.edgar import EdgarClient
+
+    http = _FilingHttp({"index.json": _filing_index("primary_doc.xml")})
+    client = EdgarClient(user_agent="wands-test/1.0 (test)", client=http)
+
+    with pytest.raises(SourceDataError):
+        client.information_table(CIK, "0001067983-25-000002")

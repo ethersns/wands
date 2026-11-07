@@ -21,10 +21,15 @@ available earlier than it really was.
 
 from __future__ import annotations
 
+import io
 import re
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from xml.etree import ElementTree
+
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import iterparse as safe_iterparse
 
 from wands.intelligence.base import (
     FilingRef,
@@ -104,8 +109,29 @@ def acceptance_time(filing_date: str, acceptance: str) -> datetime | None:
     return day + timedelta(days=1)
 
 
+def _root_localname(body: bytes) -> str:
+    """Return an XML document's root element name, without its namespace.
+
+    Only the first start event is read, so a multi-megabyte information table
+    is identified without being parsed in full. A body that is not XML yields
+    an empty name rather than raising, because discovery treats "not the table"
+    and "not parseable" the same way.
+    """
+    try:
+        for _, element in safe_iterparse(io.BytesIO(body), events=("start",)):
+            tag = element.tag
+            return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+    except (ElementTree.ParseError, DefusedXmlException):
+        return ""
+    return ""
+
+
 class EdgarClient:
     name = "sec_edgar"
+
+    # A filing holds a handful of XML documents at most. The cap keeps a
+    # malformed index from turning discovery into an unbounded crawl.
+    _MAX_XML_PROBES = 6
 
     def __init__(
         self,
@@ -395,10 +421,19 @@ class EdgarClient:
         )
 
     def information_table(self, cik: str, accession: str) -> tuple[str, bytes]:
-        """Locate and fetch the 13F information table inside a filing."""
+        """Locate and fetch the 13F information table inside a filing.
+
+        The table is identified by its root element, not its filename. Filers
+        name the file freely (``46994.xml`` is common), and the index ``type``
+        field is an icon hint rather than a document type, so a name-based
+        match silently finds nothing on most real filings. Names that look like
+        an information table are still tried first to keep the usual case to a
+        single request.
+        """
         index = self.filing_index(cik, accession)
         items = (index.get("directory") or {}).get("item") or []
-        candidates: list[str] = []
+        named: list[str] = []
+        others: list[str] = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -408,13 +443,16 @@ class EdgarClient:
             if not lowered.endswith(".xml"):
                 continue
             if "infotable" in lowered or "INFORMATION TABLE" in kind:
-                candidates.append(name)
-        if not candidates:
-            raise SourceDataError(
-                f"13F filing {accession} contains no information table XML."
-            )
-        filename = candidates[0]
-        return filename, self.document(cik, accession, filename)
+                named.append(name)
+            elif lowered != "primary_doc.xml":
+                others.append(name)
+        for filename in (named + others)[: self._MAX_XML_PROBES]:
+            body = self.document(cik, accession, filename)
+            if _root_localname(body) == "informationTable":
+                return filename, body
+        raise SourceDataError(
+            f"13F filing {accession} contains no information table XML."
+        )
 
     # -- transport ---------------------------------------------------------
 
