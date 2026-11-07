@@ -16,7 +16,7 @@ from wands.config import Settings, get_settings
 from wands.db.models import User
 from wands.db.session import get_session
 from wands.errors import Forbidden, MfaRequired, Unauthorized
-from wands.security.auth import Principal, authenticate_token
+from wands.security.auth import RESEARCH_SCOPE, Principal, authenticate_token
 from wands.security.rbac import Role, at_least
 from wands.security.secrets import SecretBox
 from wands.security.totp import verify as verify_totp
@@ -66,6 +66,26 @@ def require_scope(scope: str) -> Callable[..., Principal]:
     def dependency(principal: Principal = Depends(current_principal)) -> Principal:
         if not principal.has_scope(scope):
             raise Forbidden(f"This credential is missing the {scope} scope.")
+        return principal
+
+    return dependency
+
+
+def deny_research_only() -> Callable[..., Principal]:
+    """Keep a research-scoped credential off the operator surfaces.
+
+    A credential issued for the member research workspace carries
+    ``research:read`` and nothing else. Role checks alone would still let it read
+    orders, portfolio, risk, connections and settings, so the operator routers
+    reject a credential whose only scope is research. A credential that declares
+    no scopes predates scoping and keeps its role-based access.
+    """
+
+    def dependency(principal: Principal = Depends(current_principal)) -> Principal:
+        if principal.scopes and not (principal.scopes - {RESEARCH_SCOPE}):
+            raise Forbidden(
+                "This credential is scoped to research and cannot reach this surface."
+            )
         return principal
 
     return dependency
