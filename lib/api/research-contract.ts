@@ -307,9 +307,17 @@ export interface QuantStudySummary {
   winRate?: number | null;
   profitFactor?: number | null;
   totalCosts?: number | null;
+  averageCostPerTrade?: number | null;
+  costDrag?: number | null;
   meanStrategyReturn?: number | null;
   meanBenchmarkReturn?: number | null;
   meanExcessReturn?: number | null;
+  meanMatchedBenchmarkReturn?: number | null;
+  meanExcessVsMatched?: number | null;
+  medianStrategyReturn?: number | null;
+  medianBenchmarkReturn?: number | null;
+  meanExposure?: number | null;
+  symbolsMeasured?: number;
   smallSample?: boolean;
   tradeReturnInterval?: {
     lower: number | null;
@@ -386,6 +394,20 @@ export interface QuantStudyResult {
   benchmark?: string;
   costBps?: number;
   summary?: QuantStudySummary;
+  /** Plain-language statement of what each summary figure actually measures. */
+  definitions?: Record<string, string>;
+  /** Family-wise correction across the rules that were searched together. */
+  multipleTesting?: {
+    tests: number;
+    alpha: number;
+    bonferroniAlpha: number;
+    rejected: number;
+    survivors: boolean[];
+    note: string;
+    survives?: boolean;
+    rawPValue?: number;
+    family?: string;
+  };
   series?: QuantStudySeries[];
   categories?: QuantCategory[];
   concentration?: {

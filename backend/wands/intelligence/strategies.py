@@ -281,6 +281,11 @@ class StrategyResult:
     # open. Plotted beside the strategy so the comparison is visible rather than
     # asserted in a footnote.
     benchmark_curve: list[float] = field(default_factory=list)
+    # Buy-and-hold restricted to the bars this rule was actually invested. A
+    # timing rule that is in the market 16% of the time cannot be judged against
+    # a benchmark that is in the market 100% of the time, so this curve holds the
+    # same instrument over the same windows and sits in cash elsewhere.
+    matched_curve: list[float] = field(default_factory=list)
     curve_dates: list[datetime] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     coverage: dict[str, Any] = field(default_factory=dict)
@@ -301,6 +306,7 @@ class StrategyResult:
             "trades": [trade.as_dict() for trade in self.trades],
             "equityCurve": self.equity_curve,
             "benchmarkCurve": self.benchmark_curve,
+            "matchedCurve": self.matched_curve,
             "curveDates": [moment.isoformat() for moment in self.curve_dates],
         }
 
@@ -458,6 +464,7 @@ def simulate(
     trades: list[StrategyTrade] = []
     total_costs = 0.0
     bars_in_market = 0
+    held: list[bool] = []
 
     for index, bar in enumerate(bars):
         # Fill the order decided at the previous close, at this bar's open.
@@ -497,6 +504,7 @@ def simulate(
 
         if shares > 0.0:
             bars_in_market += 1
+        held.append(shares > 0.0)
         curve.append(cash + shares * bar.close)
         dates.append(bar.at)
 
@@ -539,6 +547,7 @@ def simulate(
     result.benchmark_curve = (
         [bar.close / first_open for bar in bars] if first_open > 0 else []
     )
+    result.matched_curve = _matched_curve(bars, held)
     result.metrics = _metrics(
         bars=bars,
         curve=curve,
@@ -546,6 +555,7 @@ def simulate(
         total_costs=total_costs,
         bars_in_market=bars_in_market,
         parameters=parameters,
+        matched_curve=result.matched_curve,
     )
     result.coverage = _coverage(bars, bars_in_market)
     result.flags = _flags(result, bars, warmup)
@@ -581,6 +591,25 @@ def _close_trade(
     )
 
 
+def _matched_curve(bars: Sequence[Bar], held: Sequence[bool]) -> list[float]:
+    """Buy-and-hold of the same instrument, only on the bars the rule held it.
+
+    Marked close to close, so an entry bar contributes the move from the prior
+    close rather than from the fill price. That keeps the curve a pure statement
+    about *which bars* the rule chose, with the fill mechanics left to the
+    strategy's own equity curve.
+    """
+    if not bars:
+        return []
+    curve = [1.0]
+    for index in range(1, len(bars)):
+        previous = bars[index - 1].close
+        current = bars[index].close
+        step = (current / previous) if held[index] and previous > 0 else 1.0
+        curve.append(curve[-1] * step)
+    return curve
+
+
 def _metrics(
     *,
     bars: Sequence[Bar],
@@ -589,6 +618,7 @@ def _metrics(
     total_costs: float,
     bars_in_market: int,
     parameters: StrategyParameters,
+    matched_curve: Sequence[float] = (),
 ) -> dict[str, Any]:
     """Performance measures, each reported only when its prerequisites exist."""
     daily_returns = [
@@ -615,6 +645,12 @@ def _metrics(
         (last_close - first_open) / first_open if first_open > 0 else None
     )
 
+    # The same instrument held only over the bars this rule was invested. This is
+    # the comparison that isolates bar selection from time in market.
+    matched_return = (
+        (matched_curve[-1] - 1.0) if matched_curve and matched_curve[0] > 0 else None
+    )
+
     stats = quant.describe(trade_returns)
     interval = quant.mean_confidence_interval(trade_returns)
     test = quant.significance(trade_returns)
@@ -627,12 +663,23 @@ def _metrics(
             if total_return is not None and benchmark_return is not None
             else None
         ),
+        "matchedBenchmarkReturn": matched_return,
+        "excessVsMatched": (
+            total_return - matched_return
+            if total_return is not None and matched_return is not None
+            else None
+        ),
         "tradeCount": len(trades),
         "averageTradeReturn": stats.mean,
         "medianTradeReturn": stats.median,
         "winRate": stats.hit_rate,
         "profitFactor": stats.profit_factor,
+        # Sum of per-trade cost fractions. It is not a portfolio cost and must not
+        # be read as one: 75 trades each paying 0.3% of their own notional is not
+        # a 22% loss on the account. Portfolio-level cost drag is measured in the
+        # study by re-running the same rule at zero cost.
         "totalCosts": total_costs,
+        "averageCostPerTrade": (total_costs / len(trades)) if trades else None,
         "maxDrawdown": drawdown.max_drawdown,
         "drawdownPeakIndex": drawdown.peak_index,
         "drawdownTroughIndex": drawdown.trough_index,

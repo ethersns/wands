@@ -15,7 +15,8 @@ import type { QuantCategory } from "@/lib/api/research-contract";
 import {
   formatCount,
   formatPercent,
-  formatRatio,
+  formatPValue,
+  formatShare,
   periodLabel,
   statusLabel,
   statusTone,
@@ -25,6 +26,28 @@ import { memberResearch } from "@/lib/member/research";
 import { requireMember } from "@/lib/member/session";
 
 export const metadata: Metadata = { title: "Experiment" };
+
+function Metric({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+}) {
+  return (
+    <div>
+      <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+        {label}
+      </dt>
+      <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">{value}</dd>
+      {note ? (
+        <p className="mt-0.5 text-[11px] leading-relaxed text-mk-dim text-pretty">{note}</p>
+      ) : null}
+    </div>
+  );
+}
 
 function CategoryRow({ category }: { category: QuantCategory }) {
   const horizon = category.horizons?.find((item) => item.horizonDays === 20) ?? category.horizons?.[0];
@@ -43,7 +66,7 @@ function CategoryRow({ category }: { category: QuantCategory }) {
         {formatPercent(mean)}
       </td>
       <td className="py-2.5 pr-3 font-marketing-mono text-sm tabular-nums text-mk-muted">
-        {pValue === null ? "—" : formatRatio(pValue, 3)}
+        {formatPValue(pValue)}
       </td>
       <td className="py-2.5">
         <Badge tone={statusTone(category.status)}>{statusLabel(category.status)}</Badge>
@@ -125,16 +148,43 @@ export default async function ExperimentPage({
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile
-              label="Mean excess vs hold"
-              value={formatPercent(summary.meanExcessReturn)}
-              hint="Rule minus buy and hold"
+              label="Excess vs matched hold"
+              value={formatPercent(summary.meanExcessVsMatched)}
+              hint="Same bars invested, cash elsewhere"
             />
-            <StatTile label="Mean trade" value={formatPercent(summary.meanTradeReturn)} hint="Net of costs" />
-            <StatTile label="Win rate" value={formatPercent(summary.winRate)} />
+            <StatTile
+              label="Portfolio return"
+              value={formatPercent(summary.meanStrategyReturn)}
+              hint="Equal weight, no rebalancing"
+            />
+            <StatTile
+              label="Matched hold"
+              value={formatPercent(summary.meanMatchedBenchmarkReturn)}
+              hint="Same bars, no costs"
+            />
+            <StatTile
+              label="Full hold"
+              value={formatPercent(summary.meanBenchmarkReturn)}
+              hint="Invested the whole period"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile
+              label="Mean trade"
+              value={formatPercent(summary.meanTradeReturn)}
+              hint="Per round trip, net of costs"
+            />
+            <StatTile label="Win rate" value={formatShare(summary.winRate)} />
             <StatTile
               label="Trades"
               value={formatCount(summary.tradeCount)}
-              hint={`${formatPercent(summary.totalCosts)} costs`}
+              hint={`${formatCount(summary.symbolsMeasured)} symbols`}
+            />
+            <StatTile
+              label="Exposure"
+              value={formatShare(summary.meanExposure)}
+              hint="Share of bars holding a position"
             />
           </div>
 
@@ -142,49 +192,105 @@ export default async function ExperimentPage({
             <QuantSeriesExplorer series={series} />
           </Panel>
 
-          <Panel title="Pooled statistics">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-              <div>
-                <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
-                  Mean rule return
-                </dt>
-                <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">
-                  {formatPercent(summary.meanStrategyReturn)}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
-                  Mean hold return
-                </dt>
-                <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">
-                  {formatPercent(summary.meanBenchmarkReturn)}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
-                  95% interval
-                </dt>
-                <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">
-                  {summary.tradeReturnInterval
+          <Panel title="Portfolio statistics">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+              <Metric
+                label="Portfolio return"
+                value={formatPercent(summary.meanStrategyReturn)}
+                note="Mean of the per-symbol returns, not a sum"
+              />
+              <Metric
+                label="Median symbol"
+                value={formatPercent(summary.medianStrategyReturn)}
+                note="One symbol can decide the mean"
+              />
+              <Metric
+                label="Matched hold"
+                value={formatPercent(summary.meanMatchedBenchmarkReturn)}
+                note="Same invested bars, no costs"
+              />
+              <Metric
+                label="Full hold"
+                value={formatPercent(summary.meanBenchmarkReturn)}
+                note="100% of the period"
+              />
+              <Metric
+                label="Excess vs matched"
+                value={formatPercent(summary.meanExcessVsMatched)}
+                note="Did the timing add value"
+              />
+              <Metric
+                label="Excess vs full hold"
+                value={formatPercent(summary.meanExcessReturn)}
+                note="Mostly a measure of exposure"
+              />
+              <Metric
+                label="Cost drag"
+                value={formatPercent(summary.costDrag)}
+                note="Zero-cost run minus this run"
+              />
+              <Metric
+                label="Cost per trade"
+                value={formatPercent(summary.averageCostPerTrade, 2)}
+                note="Of that trade's own notional"
+              />
+              <Metric
+                label="95% interval"
+                value={
+                  summary.tradeReturnInterval
                     ? `${formatPercent(summary.tradeReturnInterval.lower)} to ${formatPercent(
                         summary.tradeReturnInterval.upper,
                       )}`
-                    : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
-                  p-value
-                </dt>
-                <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">
-                  {summary.tradeReturnSignificance?.pValue === null ||
-                  summary.tradeReturnSignificance?.pValue === undefined
-                    ? "—"
-                    : formatRatio(summary.tradeReturnSignificance.pValue, 3)}
-                </dd>
-              </div>
+                    : "—"
+                }
+                note="Per trade, not per portfolio"
+              />
+              <Metric
+                label="p-value"
+                value={formatPValue(summary.tradeReturnSignificance?.pValue)}
+                note="Mean trade return against zero"
+              />
+              <Metric
+                label="Family correction"
+                value={
+                  result?.multipleTesting
+                    ? result.multipleTesting.survives
+                      ? "Survives"
+                      : "Does not survive"
+                    : "—"
+                }
+                note={
+                  result?.multipleTesting
+                    ? `${result.multipleTesting.tests} rules searched, Bonferroni ${formatPValue(
+                        result.multipleTesting.bonferroniAlpha,
+                      )}`
+                    : "No correction recorded"
+                }
+              />
+              <Metric
+                label="Small sample"
+                value={summary.smallSample ? "Yes" : "No"}
+                note="Under 30 trades is descriptive only"
+              />
             </dl>
           </Panel>
+
+          {result?.definitions ? (
+            <Panel title="What each figure measures">
+              <dl className="flex flex-col gap-3">
+                {Object.entries(result.definitions).map(([key, text]) => (
+                  <div key={key}>
+                    <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+                      {key}
+                    </dt>
+                    <dd className="mt-0.5 text-sm leading-relaxed text-mk-muted text-pretty">
+                      {text}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </Panel>
+          ) : null}
         </>
       ) : null}
 
