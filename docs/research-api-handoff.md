@@ -53,6 +53,7 @@ assumption that they hold, and a violation shows up as a wrong claim on screen.
 | `asset` | GET | `/v1/intelligence/symbols/{symbol}/summary` | **extend** |
 | `insiders` | GET | `/v1/intelligence/insiders` | existing |
 | `insiderSummary` | GET | `/v1/intelligence/insiders/{symbol}` | existing |
+| `insiderTransaction` | GET | `/v1/intelligence/insiders/transactions/{id}` | **new** |
 | `institutions` | GET | `/v1/intelligence/institutions` | existing |
 | `institutionChanges` | GET | `/v1/intelligence/institutions/{cik}/changes` | existing |
 | `signals` | GET | `/v1/intelligence/signals` | existing |
@@ -145,6 +146,23 @@ This is the customer projection of `IntelCoverage`. It must **not** include
 `identifiers`, `backfill`, `priceCoverage` or `jobs`. `insufficient` is distinct
 from `partial`: partial means some of the window is covered, insufficient means
 what is stored cannot support the claim being made. Both are shown to the member.
+
+### 2.5 `GET /v1/intelligence/insiders/transactions/{id}` — new
+
+Response: `InsiderTransaction`.
+
+A filing is addressed by its own stable id, not by its position in a feed. The
+member workspace links to a filing from a saved record, a signal's evidence and
+an asset page, and those links must keep working after the filing has aged out
+of the published window.
+
+- An unknown id is a `404`. The page distinguishes "the engine has no such
+  filing" from "the engine is unreachable" using `provenance`, so the two must
+  not collapse into the same response.
+- Until this route is served, the workspace falls back to scanning the published
+  feed and says so in `warnings`. That fallback is a stopgap: a filing older than
+  the feed window cannot be opened by id, which is the defect this endpoint
+  removes.
 
 ---
 

@@ -8,7 +8,9 @@ import type {
   FusionRanking,
   InsiderFeed,
   InsiderSymbolSummary,
+  InsiderTransaction,
   InstitutionFeed,
+  ResearchSignal,
   ResearchSignalCategory,
   SignalFeed,
 } from "./contracts";
@@ -190,6 +192,46 @@ export const getPublicCoverage = cache(() =>
   ),
 );
 
+/**
+ * One signal by its stable identifier.
+ *
+ * The engine answers `404` for an identifier it has no record of, which is a
+ * different claim from "the engine is unreachable". Both resolve to a `null`
+ * payload so the page renders no figures, but the warning says which one
+ * happened, because a member reopening a saved signal needs to know whether the
+ * record is gone or the engine is down.
+ */
+export const getSignal = cache(
+  async (id: string): Promise<Envelope<ResearchSignal | null>> => {
+    const { configured } = engineConfig();
+
+    if (!configured) {
+      return unavailableEnvelope<ResearchSignal | null>(null, [
+        "WANDS_ENGINE_URL is not configured. No research data is available.",
+      ]);
+    }
+
+    const result = await engineFetch<ResearchSignal>(
+      `/v1/intelligence/signals/${encodeURIComponent(id)}`,
+      {},
+    );
+
+    if (result.ok) {
+      return result.envelope;
+    }
+
+    if (result.error.status === 404) {
+      return unavailableEnvelope<ResearchSignal | null>(null, [
+        "The engine has no stored signal with this identifier.",
+      ]);
+    }
+
+    return unavailableEnvelope<ResearchSignal | null>(null, [
+      `Research data unavailable (${result.error.code}): ${result.error.message}`,
+    ]);
+  },
+);
+
 /* ------------------------------------------------------------------ */
 /* Feeds                                                               */
 /* ------------------------------------------------------------------ */
@@ -233,4 +275,45 @@ export const getInstitutionFeed = cache((page = 1, limit = 50) =>
     `/v1/intelligence/institutions?page=${page}&limit=${limit}`,
     () => emptyInstitutionFeed,
   ),
+);
+
+/**
+ * One insider transaction by its stable identifier.
+ *
+ * `insiderTransaction` is declared `new` in the contract, so the engine may not
+ * serve it yet. Until it does, a request falls through to the published feed so
+ * a recent filing still opens. The fallback is stated in the warning rather than
+ * hidden, because "not in the published feed" and "not stored" are different
+ * claims and only the engine can tell them apart.
+ */
+export const getInsiderTransaction = cache(
+  async (id: string): Promise<Envelope<InsiderTransaction | null>> => {
+    const { configured } = engineConfig();
+
+    if (!configured) {
+      return unavailableEnvelope<InsiderTransaction | null>(null, [
+        "WANDS_ENGINE_URL is not configured. No research data is available.",
+      ]);
+    }
+
+    const result = await engineFetch<InsiderTransaction>(
+      `/v1/intelligence/insiders/transactions/${encodeURIComponent(id)}`,
+      {},
+    );
+
+    if (result.ok) {
+      return result.envelope;
+    }
+
+    const feed = await getInsiderFeed({ limit: 200 });
+    const found = feed.data.items.find((item) => item.id === id) ?? null;
+
+    if (found) {
+      return { ...feed, data: found };
+    }
+
+    return unavailableEnvelope<InsiderTransaction | null>(null, [
+      "The engine did not return this filing by its identifier, and it is not in the published feed.",
+    ]);
+  },
 );

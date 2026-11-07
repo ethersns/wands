@@ -194,6 +194,13 @@ export const RESEARCH_ENDPOINTS = {
     status: "existing",
     omit: [],
   },
+  insiderTransaction: {
+    method: "GET",
+    path: "/v1/intelligence/insiders/transactions/{id}",
+    query: [],
+    status: "new",
+    omit: ["rawDocument", "parserWarnings"],
+  },
   institutions: {
     method: "GET",
     path: "/v1/intelligence/institutions",
@@ -238,6 +245,7 @@ export interface ResearchResponseMap {
   asset: AssetResearch;
   insiders: InsiderFeed;
   insiderSummary: InsiderSymbolSummary;
+  insiderTransaction: InsiderTransaction;
   institutions: InstitutionFeed;
   institutionChanges: InstitutionChanges;
   signals: SignalFeed;

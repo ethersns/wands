@@ -44,6 +44,8 @@ function toSaved(row: SavedRow): SavedItem {
 
 const SELECT_COLUMNS = `id, kind, ref_id, symbol, title, summary, note, payload, created_at`;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function listSaved(userId: string, kind?: SavedKind): Promise<SavedItem[]> {
   const rows = kind
     ? await query<SavedRow>(
@@ -56,6 +58,23 @@ export async function listSaved(userId: string, kind?: SavedKind): Promise<Saved
       );
 
   return rows.map(toSaved);
+}
+
+/**
+ * One saved record by its own stable id, scoped to the member who saved it.
+ *
+ * `member_saved_item.id` is a uuid, so a malformed id is answered as "not
+ * found" here rather than reaching Postgres and failing the whole page.
+ */
+export async function getSavedItem(userId: string, id: string): Promise<SavedItem | null> {
+  if (!UUID_PATTERN.test(id)) return null;
+
+  const rows = await query<SavedRow>(
+    `select ${SELECT_COLUMNS} from member_saved_item where id = $2 and user_id = $1`,
+    [userId, id],
+  );
+
+  return rows[0] ? toSaved(rows[0]) : null;
 }
 
 export async function countSaved(userId: string): Promise<number> {

@@ -128,6 +128,9 @@ export function ProvenanceNote({
 }) {
   const live = provenance !== "unavailable";
   const stamp = new Date(generatedAt);
+  // Callers concatenate warnings from several envelopes, so the same reason can
+  // arrive twice. Dedupe before keying the list on the message itself.
+  const unique = [...new Set(warnings)];
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-mk-line bg-mk-deep/40 px-3 py-2.5">
@@ -137,9 +140,9 @@ export function ProvenanceNote({
           {Number.isNaN(stamp.getTime()) ? "unknown time" : stamp.toISOString().replace("T", " ").slice(0, 16)} UTC
         </span>
       </div>
-      {warnings.length > 0 ? (
+      {unique.length > 0 ? (
         <ul className="flex flex-col gap-1">
-          {warnings.slice(0, 3).map((warning) => (
+          {unique.slice(0, 3).map((warning) => (
             <li key={warning} className="text-xs leading-relaxed text-mk-muted">
               {warning}
             </li>
