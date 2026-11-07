@@ -7,6 +7,7 @@ arbitrary URLs at an attacker's pace. It runs from the scheduler or from here.
     python -m wands.intelligence.cli ingest --ciks 0000320193
     python -m wands.intelligence.cli signals --symbols AAPL
     python -m wands.intelligence.cli institutions --ciks 0001067983
+    python -m wands.intelligence.cli prices --symbols AAPL MSFT
     python -m wands.intelligence.cli status
 """
 
@@ -195,6 +196,38 @@ def _coverage(_: argparse.Namespace) -> int:
     return 0
 
 
+def _prices(args: argparse.Namespace) -> int:
+    from datetime import date, timedelta
+
+    from wands.marketdata.history import (
+        RESEARCH_UNIVERSE,
+        HistoricalBarCollector,
+        coverage_report,
+    )
+
+    settings = get_settings()
+    end = date.fromisoformat(args.end) if args.end else datetime.now(tz=UTC).date()
+    start = (
+        date.fromisoformat(args.start) if args.start else end - timedelta(days=args.days)
+    )
+    symbols = _split(args.symbols) or list(RESEARCH_UNIVERSE)
+    with session_scope() as session:
+        collector = HistoricalBarCollector(session, settings)
+        results = collector.collect(symbols, start=start, end=end)
+        session.flush()
+        print(
+            json.dumps(
+                {
+                    "window": {"start": start.isoformat(), "end": end.isoformat()},
+                    "results": [item.as_dict() for item in results],
+                    "coverage": coverage_report(session, symbols),
+                },
+                indent=2,
+            )
+        )
+    return 0 if all(item.status in {"complete", "partial"} for item in results) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wands-intelligence")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -236,6 +269,17 @@ def main(argv: list[str] | None = None) -> int:
 
     coverage = sub.add_parser("coverage", help="Report collection and identifier coverage")
     coverage.set_defaults(handler=_coverage)
+
+    prices = sub.add_parser("prices", help="Collect historical daily OHLCV bars")
+    prices.add_argument(
+        "--symbols", nargs="*", help="Symbols; defaults to the research universe"
+    )
+    prices.add_argument("--start", help="ISO start date")
+    prices.add_argument("--end", help="ISO end date; defaults to today")
+    prices.add_argument(
+        "--days", type=int, default=365, help="Lookback when --start is omitted"
+    )
+    prices.set_defaults(handler=_prices)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

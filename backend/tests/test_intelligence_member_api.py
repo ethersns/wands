@@ -50,7 +50,6 @@ OPERATOR_ONLY_KEYS = {
     "lastError",
     "consecutiveFailures",
     "identifiers",
-    "priceCoverage",
     "storageKey",
     "fetchAttempts",
     "lastFetchError",
@@ -180,13 +179,55 @@ def test_a_credential_with_only_the_research_scope_may_read_research(client):
         assert client.get(path, headers=headers).status_code in {200, 404}, path
 
 
+OPERATOR_PATHS = (
+    # Trading, portfolio, risk, broker connections and credentials.
+    "/v1/orders",
+    "/v1/portfolio",
+    "/v1/connections",
+    "/v1/settings",
+    "/v1/risk",
+    "/v1/engine/status",
+    "/v1/engine/audit",
+    # Intelligence administration: collection jobs, operator coverage,
+    # experiment management and the administrative status projection.
+    "/v1/intelligence/status",
+    "/v1/intelligence/jobs",
+    "/v1/intelligence/coverage",
+    "/v1/intelligence/experiments",
+)
+
+
 def test_a_research_only_credential_cannot_reach_operator_surfaces(client):
     headers = _key_with_scopes(["research:read"])
 
-    for path in ("/v1/orders", "/v1/portfolio", "/v1/connections", "/v1/settings"):
+    for path in OPERATOR_PATHS:
         response = client.get(path, headers=headers)
         assert response.status_code == 403, path
-        assert "scoped to research" in response.json()["error"]["message"]
+        assert "scoped to research" in response.json()["error"]["message"], path
+
+
+def test_a_research_only_credential_may_read_the_research_feeds(client):
+    headers = _key_with_scopes(["research:read"])
+
+    for path in (
+        "/v1/intelligence/insiders",
+        "/v1/intelligence/institutions",
+        "/v1/intelligence/signals",
+        "/v1/intelligence/insiders/AAPL",
+    ):
+        assert client.get(path, headers=headers).status_code == 200, path
+
+
+def test_an_operator_credential_still_reaches_intelligence_administration(client):
+    headers = _key_with_scopes(["orders:read", "portfolio:read"])
+
+    for path in (
+        "/v1/intelligence/status",
+        "/v1/intelligence/jobs",
+        "/v1/intelligence/coverage",
+        "/v1/intelligence/experiments",
+    ):
+        assert client.get(path, headers=headers).status_code == 200, path
 
 
 def test_an_operator_credential_still_reaches_operator_surfaces(client):
@@ -443,6 +484,10 @@ def test_asset_summary_carries_sources_and_coverage(client, session):
     assert data["coverage"]["symbolsRequested"] == 1
     assert data["coverage"]["symbolsCovered"] == 1
     assert data["coverage"]["windowStart"] == "2024-02-01T18:00:00Z"
+    # Price coverage is a member-facing disclosure: it says what history backs
+    # the analysis. With no bars stored it must read as unavailable, not empty.
+    assert data["priceCoverage"]["status"] == "unavailable"
+    assert data["priceCoverage"]["bars"] == 0
     assert _keys(body) & OPERATOR_ONLY_KEYS == set()
 
 

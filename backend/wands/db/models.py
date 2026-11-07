@@ -428,10 +428,54 @@ class MarketCandleRow(Base):
     volume: Mapped[Decimal] = mapped_column(MONEY, nullable=False, default=0)
     # ``live`` | ``delayed`` | ``historical`` | ``simulated`` | ``unavailable``
     quality: Mapped[str] = mapped_column(String(16), nullable=False, default="historical")
+    # How the provider adjusted the bar: ``split`` for a split-adjusted series,
+    # NULL when the venue published raw prices. A split-adjusted close and a raw
+    # close are different numbers for the same day, so a backtest must not mix
+    # them and the label has to travel with the row.
+    adjustment: Mapped[str | None] = mapped_column(String(32), nullable=True)
     provider_timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
     ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class MarketPriceCoverageRow(Base):
+    """What a historical collection run actually obtained for one symbol.
+
+    Coverage is stored rather than inferred so a gap is a recorded fact with a
+    retrieval timestamp, not a guess made at read time. ``missing_dates`` holds
+    the trading days the provider did not return; they are never filled.
+    """
+
+    __tablename__ = "market_price_coverage"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "symbol",
+            "interval",
+            "window_start",
+            "window_end",
+            name="uq_market_price_coverage_window",
+        ),
+        Index("ix_market_price_coverage_symbol", "symbol", "interval"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    interval: Mapped[str] = mapped_column(String(8), nullable=False, default="1d")
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expected_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stored_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    missing_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    missing_dates: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # ``complete`` | ``partial`` | ``empty`` | ``error``
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="empty")
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
 
