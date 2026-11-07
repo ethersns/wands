@@ -1,18 +1,10 @@
 import Link from "next/link";
 
-import type { ResearchSignal, ResearchSignalCategory } from "@/lib/api/contracts";
+import type { ResearchSignal } from "@/lib/api/contracts";
+import { SIGNAL_LABEL } from "@/lib/member/labels";
+import { signalHref } from "@/lib/member/links";
 import { Badge, formatDate } from "./ui";
 import { SaveButton } from "./save-button";
-
-const SIGNAL_LABEL: Record<ResearchSignalCategory, string> = {
-  INSIDER_PURCHASE_CLUSTER: "Insider purchase cluster",
-  INSIDER_PURCHASE_VALUE: "Insider purchase value",
-  INSIDER_ACTIVITY_CHANGE: "Insider activity change",
-  INSIDER_SELLING_CLUSTER: "Insider selling cluster",
-  INSTITUTIONAL_POSITION_CHANGE: "Institutional position change",
-  MARKET_TREND: "Market trend",
-  VOLUME_ANOMALY: "Volume anomaly",
-};
 
 export function SignalRow({ signal }: { signal: ResearchSignal }) {
   return (
@@ -41,6 +33,12 @@ export function SignalRow({ signal }: { signal: ResearchSignal }) {
         {signal.confidenceNotes ? (
           <p className="mt-1 text-xs leading-relaxed text-mk-muted text-pretty">{signal.confidenceNotes}</p>
         ) : null}
+        <Link
+          href={signalHref(signal.id)}
+          className="mt-1.5 inline-block text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline"
+        >
+          Open signal
+        </Link>
       </div>
       <SaveButton
         kind="signal"

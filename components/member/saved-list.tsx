@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 
 import type { SavedItem, SavedKind } from "@/lib/member/saved";
 import { fetcher, sendJson } from "@/lib/member/fetcher";
+import { savedHref } from "@/lib/member/links";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "./ui";
 
@@ -149,7 +150,12 @@ function SavedCard({
               {new Date(item.createdAt).toISOString().slice(0, 10)}
             </span>
           </div>
-          <p className="mt-1.5 text-sm font-medium text-mk-fg text-pretty">{item.title}</p>
+          <Link
+            href={savedHref(item)}
+            className="mt-1.5 block text-sm font-medium text-mk-fg text-pretty underline-offset-4 hover:text-mk-accent hover:underline"
+          >
+            {item.title}
+          </Link>
           {item.summary ? (
             <p className="mt-1 text-sm leading-relaxed text-mk-muted text-pretty">{item.summary}</p>
           ) : null}

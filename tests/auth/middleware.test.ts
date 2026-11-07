@@ -270,6 +270,25 @@ describe("member pages", () => {
     }
   });
 
+  it("never lets a member session into the operator console, even with the gate unconfigured", async () => {
+    // The development affordance keeps an unconfigured console open for the
+    // operator. A customer session must not inherit that: trading functions are
+    // operator-only in every environment.
+    delete process.env.WANDS_OPERATOR_PASSWORD;
+    delete process.env.WANDS_SESSION_SECRET;
+    vi.stubEnv("NODE_ENV", "development");
+
+    for (const name of MEMBER_SESSION_COOKIES) {
+      const page = await middleware(request("/portfolio", `${name}=present`));
+      expect(page.status, name).toBe(307);
+      expect(new URL(page.headers.get("location") ?? "").pathname, name).toBe("/login");
+
+      const api = await middleware(request("/api/wands/engine/status", `${name}=present`));
+      expect(api.status, name).toBe(401);
+      expect(passedThrough(api), name).toBe(false);
+    }
+  });
+
   it("keeps member APIs reachable so the route handler can authorise them", async () => {
     const response = await middleware(request("/api/member/watchlists"));
     expect(passedThrough(response)).toBe(true);

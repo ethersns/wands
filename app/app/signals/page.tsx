@@ -4,21 +4,17 @@ import { Pagination } from "@/components/member/pagination";
 import { SignalRow } from "@/components/member/signal-row";
 import { EmptyState, PageHeader, Panel, ProvenanceNote } from "@/components/member/ui";
 import type { ResearchSignalCategory } from "@/lib/api/contracts";
+import { SIGNAL_LABEL } from "@/lib/member/labels";
 import { memberResearch } from "@/lib/member/research";
 import { requireMember } from "@/lib/member/session";
 import { SYMBOL_PATTERN } from "@/lib/member/validation";
 
 export const metadata: Metadata = { title: "Signals" };
 
-const CATEGORIES: Array<{ value: ResearchSignalCategory; label: string }> = [
-  { value: "INSIDER_PURCHASE_CLUSTER", label: "Insider purchase cluster" },
-  { value: "INSIDER_PURCHASE_VALUE", label: "Insider purchase value" },
-  { value: "INSIDER_ACTIVITY_CHANGE", label: "Insider activity change" },
-  { value: "INSIDER_SELLING_CLUSTER", label: "Insider selling cluster" },
-  { value: "INSTITUTIONAL_POSITION_CHANGE", label: "Institutional position change" },
-  { value: "MARKET_TREND", label: "Market trend" },
-  { value: "VOLUME_ANOMALY", label: "Volume anomaly" },
-];
+const CATEGORIES = (Object.keys(SIGNAL_LABEL) as ResearchSignalCategory[]).map((value) => ({
+  value,
+  label: SIGNAL_LABEL[value],
+}));
 
 type SearchParams = { symbol?: string; category?: string; page?: string };
 

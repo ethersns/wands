@@ -1,19 +1,10 @@
 import Link from "next/link";
 
 import type { InsiderTransaction, InsiderTransactionClass } from "@/lib/api/contracts";
+import { TRANSACTION_CLASS_LABEL } from "@/lib/member/labels";
+import { filingHref } from "@/lib/member/links";
 import { Badge, formatDate, formatUsd } from "./ui";
 import { SaveButton } from "./save-button";
-
-const CLASS_LABEL: Record<InsiderTransactionClass, string> = {
-  open_market_purchase: "Open-market buy",
-  open_market_sale: "Open-market sale",
-  award_grant: "Award / grant",
-  tax_withholding: "Tax withholding",
-  gift: "Gift",
-  derivative_exercise: "Derivative exercise",
-  disposition_to_issuer: "Disposition to issuer",
-  other: "Other",
-};
 
 function tone(classification: InsiderTransactionClass) {
   if (classification === "open_market_purchase") return "emerald" as const;
@@ -22,6 +13,8 @@ function tone(classification: InsiderTransactionClass) {
 }
 
 export function InsiderRow({ transaction }: { transaction: InsiderTransaction }) {
+  const label = TRANSACTION_CLASS_LABEL[transaction.classification];
+
   return (
     <li className="flex flex-col gap-2 border-b border-mk-line px-4 py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 flex-1">
@@ -32,7 +25,7 @@ export function InsiderRow({ transaction }: { transaction: InsiderTransaction })
           >
             {transaction.symbol}
           </Link>
-          <Badge tone={tone(transaction.classification)}>{CLASS_LABEL[transaction.classification]}</Badge>
+          <Badge tone={tone(transaction.classification)}>{label}</Badge>
           {transaction.isAmendment ? <Badge>Amendment</Badge> : null}
           {transaction.dataQuality === "incomplete" ? <Badge tone="warn">Incomplete</Badge> : null}
         </div>
@@ -49,12 +42,18 @@ export function InsiderRow({ transaction }: { transaction: InsiderTransaction })
           {" · filed "}
           {formatDate(transaction.acceptedAt)}
         </p>
+        <Link
+          href={filingHref(transaction.id)}
+          className="mt-1.5 inline-block text-xs text-mk-muted underline-offset-4 hover:text-mk-fg hover:underline"
+        >
+          Open filing
+        </Link>
       </div>
       <SaveButton
         kind="insider"
         refId={transaction.id}
         symbol={transaction.symbol}
-        title={`${transaction.symbol} — ${CLASS_LABEL[transaction.classification]} by ${transaction.reportingPersonName}`}
+        title={`${transaction.symbol} — ${label} by ${transaction.reportingPersonName}`}
         summary={`${transaction.shares ?? "?"} shares at ${transaction.pricePerShare ?? "unreported"} on ${formatDate(transaction.transactionDate)}`}
         payload={{ accessionNumber: transaction.accessionNumber, sourceUrl: transaction.sourceUrl }}
         className="shrink-0"
