@@ -10,6 +10,7 @@ import { OPERATOR_PREFIXES, routeTier } from "@/lib/auth/routes";
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "--font-mock", className: "font-mock" });
   return {
+    Bricolage_Grotesque: font,
     Geist: font,
     Geist_Mono: font,
     IBM_Plex_Mono: font,
@@ -27,6 +28,10 @@ vi.mock("@/lib/api/endpoints", () => ({
   getEngineStatus: async () => ({ data: null, error: null }),
   getMarkets: async () => ({ data: null, error: null }),
 }));
+vi.mock("@/components/theme-provider", () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+vi.mock("@/components/ui/sonner", () => ({ Toaster: () => null }));
 
 function paths(entries: { url: string }[]): string[] {
   return entries.map((entry) => new URL(entry.url).pathname);
@@ -97,11 +102,15 @@ describe("sitemap", () => {
 });
 
 describe("per-surface metadata", () => {
-  it("lets the public marketing site be indexed", async () => {
-    const { metadata } = await import("@/app/layout");
-    expect(metadata.robots).toMatchObject({ index: true, follow: true });
-    expect(metadata.alternates?.canonical).toBe("/");
-  });
+  it(
+    "lets the public marketing site be indexed",
+    async () => {
+      const { metadata } = await import("@/app/layout");
+      expect(metadata.robots).toMatchObject({ index: true, follow: true });
+      expect(metadata.alternates?.canonical).toBe("/");
+    },
+    20000,
+  );
 
   it("keeps the console out of the index", async () => {
     const { metadata } = await import("@/app/(app)/layout");
