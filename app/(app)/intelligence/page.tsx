@@ -22,6 +22,7 @@ import { MetricTile } from "@/components/intelligence/metric-tile";
 import { Pagination } from "@/components/intelligence/pagination";
 import { SignalExplorer } from "@/components/intelligence/signal-explorer";
 import { SourceFreshnessTable } from "@/components/intelligence/source-freshness";
+import { SymbolSearch } from "@/components/intelligence/symbol-search";
 import { UnavailablePanel } from "@/components/intelligence/unavailable-panel";
 import { ProvenanceLabel } from "@/components/intelligence/provenance-label";
 import { FilingSourceLink } from "@/components/intelligence/filing-link";
@@ -372,6 +373,7 @@ export default async function IntelligenceOverviewPage({
         <SectionCard
           title="Research coverage"
           description="Symbols with at least one stored signal or transaction."
+          action={<SymbolSearch />}
         >
           {s.symbolsCovered.length === 0 ? (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -383,7 +385,7 @@ export default async function IntelligenceOverviewPage({
               {s.symbolsCovered.slice(0, 60).map((ticker) => (
                 <Link
                   key={ticker}
-                  href={`/intelligence?symbol=${encodeURIComponent(ticker)}`}
+                  href={`/intelligence/symbols/${encodeURIComponent(ticker)}`}
                   className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
                   {ticker}
