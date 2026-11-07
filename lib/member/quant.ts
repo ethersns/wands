@@ -18,6 +18,48 @@ export function formatRatio(value: number | null | undefined, digits = 2): strin
   return value.toFixed(digits);
 }
 
+/** A share of something, with no sign: exposure, win rate, coverage. */
+export function formatShare(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+/**
+ * A difference between two returns, in percentage points.
+ *
+ * Subtracting one return from another gives points, not a return: a rule that
+ * made +49.4% against a +162.8% hold is 113.4 points behind, not down 113.4%.
+ */
+export function formatPoints(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)} pp`;
+}
+
+/** `meanExcessVsMatched` -> `Mean excess vs matched`. */
+export function humanizeKey(key: string): string {
+  const spaced = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .trim()
+    .toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/**
+ * A p-value at the precision the test can actually support.
+ *
+ * `0.000` claims the probability is zero, which no finite sample can establish.
+ * Below the reporting floor the honest form is a bound, and above it two
+ * significant figures is as much as a t test on this many observations earns.
+ */
+export function formatPValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  if (value < 0) return "—";
+  if (value < 0.0001) return "< 0.0001";
+  if (value > 1) return "—";
+  return value.toPrecision(2);
+}
+
 export function formatCount(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return new Intl.NumberFormat("en-US").format(value);
@@ -66,10 +108,12 @@ export function studyLabel(study: string | undefined): string {
 /**
  * The one number that best describes an experiment, chosen per study.
  *
- * A strategy is judged on its excess over holding the same instrument, not on
- * its raw return: a rule that made 50% while the stock made 160% lost. The
- * holdings study has no single headline, so it reports the event count and says
- * what kind of event it is.
+ * A strategy is judged on its excess over holding the same instrument over the
+ * same bars, not on its raw return: a rule that made 50% while the stock made
+ * 160% lost. It is also not judged against a benchmark that was invested for
+ * the whole period while the rule sat in cash, so the headline uses the
+ * exposure-matched comparison. The holdings study has no single headline, so it
+ * reports the event count and says what kind of event it is.
  */
 export function headline(experiment: QuantExperiment): {
   label: string;
@@ -79,12 +123,16 @@ export function headline(experiment: QuantExperiment): {
   const result = experiment.metrics;
 
   if (result?.study === "strategy_baseline" && result.summary) {
+    const summary = result.summary;
     return {
-      label: "Mean excess vs hold",
-      value: formatPercent(result.summary.meanExcessReturn),
-      hint: `${formatCount(result.summary.tradeCount)} trades, ${formatPercent(
-        result.summary.meanStrategyReturn,
-      )} vs ${formatPercent(result.summary.meanBenchmarkReturn)} held`,
+      label: "Excess vs matched hold",
+      value: formatPercent(summary.meanExcessVsMatched),
+      hint: `${formatCount(summary.tradeCount)} trades, ${formatPercent(
+        summary.meanStrategyReturn,
+      )} vs ${formatPercent(summary.meanMatchedBenchmarkReturn)} on the same ${formatShare(
+        summary.meanExposure,
+        0,
+      )} of bars`,
     };
   }
 

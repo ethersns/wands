@@ -5,7 +5,14 @@ import * as React from "react";
 import { QuantEquityChart } from "@/components/member/quant-equity-chart";
 import { Badge } from "@/components/member/ui";
 import type { QuantStudySeries } from "@/lib/api/research-contract";
-import { formatPercent, formatRatio, statusLabel, statusTone } from "@/lib/member/quant";
+import {
+  formatPercent,
+  formatPoints,
+  formatRatio,
+  formatShare,
+  statusLabel,
+  statusTone,
+} from "@/lib/member/quant";
 import { cn } from "@/lib/utils";
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -82,11 +89,11 @@ export function QuantSeriesExplorer({ series }: { series: QuantStudySeries[] }) 
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-mk-line pt-4 sm:grid-cols-4">
         <Metric label="Rule return" value={formatPercent(metrics.totalReturn)} />
         <Metric label="Hold return" value={formatPercent(metrics.benchmarkReturn)} />
-        <Metric label="Excess" value={formatPercent(metrics.excessReturn)} />
+        <Metric label="Excess (pp)" value={formatPoints(metrics.excessReturn)} />
         <Metric label="Trades" value={String(metrics.tradeCount ?? 0)} />
-        <Metric label="Win rate" value={formatPercent(metrics.winRate)} />
+        <Metric label="Win rate" value={formatShare(metrics.winRate)} />
         <Metric label="Max drawdown" value={formatPercent(metrics.maxDrawdown)} />
-        <Metric label="Exposure" value={formatPercent(metrics.exposure)} />
+        <Metric label="Exposure" value={formatShare(metrics.exposure)} />
         <Metric
           label="Sharpe"
           value={

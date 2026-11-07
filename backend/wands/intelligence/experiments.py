@@ -347,13 +347,30 @@ class ExperimentRunner:
         )
 
     def list(self, *, limit: int = 50) -> list[IntelExperimentRow]:
-        return list(
-            self.session.scalars(
-                select(IntelExperimentRow)
-                .order_by(IntelExperimentRow.created_at.desc())
-                .limit(limit)
-            ).all()
-        )
+        """Recorded experiments, newest first, one row per study.
+
+        Re-running a study under a new signal version records a new row, because
+        the definition of what it measures changed. The feed shows the current
+        definition only: an older row is rendered with fields it never recorded,
+        which reads as a broken result rather than a superseded one. The older
+        row stays addressable by id, so the history is not lost.
+        """
+        rows = self.session.scalars(
+            select(IntelExperimentRow)
+            .order_by(IntelExperimentRow.created_at.desc())
+            .limit(max(limit * 4, limit))
+        ).all()
+
+        latest: dict[tuple, IntelExperimentRow] = {}
+        for row in rows:
+            key = (
+                row.name,
+                row.period_start,
+                row.period_end,
+                row.information_cutoff,
+            )
+            latest.setdefault(key, row)
+        return list(latest.values())[:limit]
 
     def outcomes(self, experiment_id: str) -> list[IntelSignalOutcomeRow]:
         return list(

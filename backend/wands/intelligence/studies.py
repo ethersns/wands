@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -58,6 +58,13 @@ logger = get_logger(__name__)
 STUDY_INSIDER = "insider_purchase_event_study"
 STUDY_INSTITUTIONAL = "institutional_holdings_study"
 STUDY_STRATEGY = "strategy_baseline"
+
+# Bumped when the *definition of a reported metric* changes, not when the data
+# changes. The 1.0 strategy results averaged per-symbol returns and compared them
+# against a full-period buy-and-hold, which is not a like-for-like comparison.
+# Recording the corrected figures under a new signal version keeps the old result
+# in the ledger with its own hash instead of silently overwriting it.
+STRATEGY_SIGNAL_VERSION = "1.1"
 
 # The five instruments the pilot covers. Expanding this before the pilot is
 # validated would multiply the data-quality questions without answering any.
@@ -110,8 +117,27 @@ STRATEGY_LIMITATIONS = (
     "turnover.",
     "The benchmark is buy-and-hold of the same instrument over the same bars. "
     "Beating it is the minimum claim a timing rule has to make.",
+    "A timing rule is in the market only part of the time, so its total return is "
+    "not directly comparable to a buy-and-hold return earned over the whole "
+    "period. The exposure-matched benchmark holds the same instrument over the "
+    "same invested bars and is the like-for-like comparison.",
+    "The symbol set is five large-cap companies that are still listed and still "
+    "large today. Their buy-and-hold returns contain the outcome of having "
+    "survived, which no rule could have known in advance, so the benchmark is "
+    "biased upward and any excess return biased downward. This is survivorship "
+    "and selection bias, and it is not corrected here.",
+    "Five symbols is a concentrated sample. One symbol can decide the portfolio "
+    "mean, so the median is reported beside it.",
     "Prices are split-adjusted closes and opens. Dividends are not reinvested, so "
-    "this is not a total-return comparison.",
+    "this is not a total-return comparison, and the buy-and-hold benchmark is "
+    "understated by the dividends it did not receive.",
+    "Corporate actions beyond splits are not reconstructed. A merger, spin-off or "
+    "delisting inside the period would distort both the rule and the benchmark.",
+    "The evaluation period is the same period the rules were written against. "
+    "There is no held-out out-of-sample window, so these are in-sample results.",
+    "Three rules were evaluated on the same data. A per-rule p-value is not "
+    "corrected for that search unless a multiple-testing adjustment is reported "
+    "alongside it.",
     "Hypothetical research result. Not realised account P&L, and not an "
     "instruction to trade.",
 )
@@ -129,6 +155,65 @@ def _as_utc(moment: datetime) -> datetime:
     if moment.tzinfo is None:
         return moment.replace(tzinfo=UTC)
     return moment.astimezone(UTC)
+
+
+def _column(completed: Sequence[dict[str, Any]], key: str) -> list[float]:
+    return [
+        float(item["metrics"][key])
+        for item in completed
+        if (item.get("metrics") or {}).get(key) is not None
+    ]
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return (sum(values) / len(values)) if values else None
+
+
+def _median(values: Sequence[float]) -> float | None:
+    return quant.describe(values).median if values else None
+
+
+def portfolio_figures(completed: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Portfolio-level figures from per-symbol strategy results.
+
+    Equal capital in each measured symbol, held without rebalancing, so the
+    portfolio return is the *mean* of the per-symbol compounded returns. It is
+    never a sum: adding five percentage returns together produces a number no
+    account could have earned, and comparing that sum against a mean is the
+    error this function exists to prevent.
+
+    The median is reported beside the mean because five symbols is few enough
+    for one of them to decide the average.
+    """
+    strategy_returns = _column(completed, "totalReturn")
+    benchmark_returns = _column(completed, "benchmarkReturn")
+    matched_returns = _column(completed, "matchedBenchmarkReturn")
+    cost_drags = _column(completed, "costDrag")
+    exposures = _column(completed, "exposure")
+
+    portfolio_return = _mean(strategy_returns)
+    portfolio_benchmark = _mean(benchmark_returns)
+    portfolio_matched = _mean(matched_returns)
+
+    return {
+        "meanStrategyReturn": portfolio_return,
+        "meanBenchmarkReturn": portfolio_benchmark,
+        "meanExcessReturn": (
+            portfolio_return - portfolio_benchmark
+            if portfolio_return is not None and portfolio_benchmark is not None
+            else None
+        ),
+        "meanMatchedBenchmarkReturn": portfolio_matched,
+        "meanExcessVsMatched": (
+            portfolio_return - portfolio_matched
+            if portfolio_return is not None and portfolio_matched is not None
+            else None
+        ),
+        "medianStrategyReturn": _median(strategy_returns),
+        "medianBenchmarkReturn": _median(benchmark_returns),
+        "meanExposure": _mean(exposures),
+        "costDrag": _mean(cost_drags),
+    }
 
 
 @dataclass
@@ -669,15 +754,33 @@ class QuantLab:
             bars_used += len(bars)
             total_costs += float(result.metrics.get("totalCosts") or 0.0)
             pooled.extend(result.net_returns)
+
+            # The same rule with zero commission, so the cost of trading is
+            # measured as a portfolio return difference rather than inferred from
+            # a sum of per-trade fractions.
+            gross = strategies.simulate(
+                bars, replace(parameters, cost_bps=0.0), symbol=symbol
+            )
+            metrics = dict(result.metrics)
+            gross_return = gross.metrics.get("totalReturn")
+            net_return = metrics.get("totalReturn")
+            metrics["grossReturn"] = gross_return
+            metrics["costDrag"] = (
+                gross_return - net_return
+                if gross_return is not None and net_return is not None
+                else None
+            )
+
             per_symbol.append(
                 {
                     "symbol": symbol,
                     "status": result.status,
-                    "metrics": result.metrics,
+                    "metrics": metrics,
                     "coverage": result.coverage,
                     "flags": list(result.flags),
                     "equityCurve": result.equity_curve,
                     "benchmarkCurve": result.benchmark_curve,
+                    "matchedCurve": result.matched_curve,
                     "curveDates": [moment.isoformat() for moment in result.curve_dates],
                     "trades": [trade.as_dict() for trade in result.trades],
                 }
@@ -703,6 +806,12 @@ class QuantLab:
         completed = [item for item in per_symbol if item["status"] == strategies.STATUS_COMPLETE]
         status = STATUS_COMPLETE if completed else STATUS_INSUFFICIENT
 
+        figures = portfolio_figures(completed)
+        portfolio_return = figures["meanStrategyReturn"]
+        portfolio_benchmark = figures["meanBenchmarkReturn"]
+        portfolio_matched = figures["meanMatchedBenchmarkReturn"]
+        mean_exposure = figures["meanExposure"]
+
         flags: list[str] = []
         if not completed:
             flags.append(
@@ -713,27 +822,20 @@ class QuantLab:
                 f"{len(pooled)} trades across {len(completed)} symbols is a small "
                 "sample. The mean is reported but is not evidence of an edge."
             )
-
-        # Pooled buy-and-hold across the same symbols, so the comparison is
-        # against holding rather than against cash.
-        benchmark_returns = [
-            item["metrics"]["benchmarkReturn"]
-            for item in completed
-            if item.get("metrics", {}).get("benchmarkReturn") is not None
-        ]
-        mean_benchmark = (
-            sum(benchmark_returns) / len(benchmark_returns) if benchmark_returns else None
-        )
-        mean_strategy = (
-            sum(
-                item["metrics"]["totalReturn"]
-                for item in completed
-                if item["metrics"].get("totalReturn") is not None
+        if mean_exposure is not None and mean_exposure < 0.5:
+            flags.append(
+                f"The rule was invested on {mean_exposure:.1%} of bars. Its total "
+                "return is not comparable to a buy-and-hold return earned over 100% "
+                "of the same period, so the exposure-matched benchmark is the "
+                "comparison that matters here."
             )
-            / len(completed)
-            if completed
-            else None
-        )
+        if pooled and len(pooled) >= quant.SMALL_SAMPLE:
+            flags.append(
+                "The t test treats each round trip as an independent observation. "
+                "Trades in the same symbol overlap in time and the five symbols are "
+                "correlated, so the true standard error is wider than the reported "
+                "one and the p-value is optimistic."
+            )
 
         payload = {
             "study": STUDY_STRATEGY,
@@ -751,16 +853,50 @@ class QuantLab:
                 "winRate": stats.hit_rate,
                 "profitFactor": stats.profit_factor,
                 "totalCosts": total_costs,
-                "meanStrategyReturn": mean_strategy,
-                "meanBenchmarkReturn": mean_benchmark,
-                "meanExcessReturn": (
-                    mean_strategy - mean_benchmark
-                    if mean_strategy is not None and mean_benchmark is not None
-                    else None
-                ),
+                "averageCostPerTrade": (total_costs / len(pooled)) if pooled else None,
+                **figures,
+                "symbolsMeasured": len(completed),
                 "tradeReturnInterval": interval.as_dict(),
                 "tradeReturnSignificance": test.as_dict(),
                 "smallSample": stats.small_sample,
+            },
+            "definitions": {
+                "meanStrategyReturn": (
+                    "Portfolio return: equal capital in each measured symbol, held "
+                    "without rebalancing, so it is the mean of the per-symbol "
+                    "compounded returns. A mean, never a sum."
+                ),
+                "meanBenchmarkReturn": (
+                    "Buy-and-hold of the same symbols over the same bars, equal "
+                    "capital, no rebalancing. Mean of the per-symbol buy-and-hold "
+                    "returns."
+                ),
+                "meanMatchedBenchmarkReturn": (
+                    "Buy-and-hold of the same symbols restricted to the bars the "
+                    "rule was invested, cash elsewhere. Same exposure as the rule, "
+                    "so it isolates bar selection from time in market."
+                ),
+                "meanExcessVsMatched": (
+                    "Portfolio return minus the exposure-matched benchmark. This is "
+                    "the comparison that answers whether the timing rule added value."
+                ),
+                "meanExcessReturn": (
+                    "Portfolio return minus full buy-and-hold. A rule that is in the "
+                    "market part of the time is expected to trail a rising market "
+                    "here; that gap is exposure, not skill."
+                ),
+                "meanTradeReturn": (
+                    "Mean net return of one round trip, pooled across symbols. A "
+                    "per-trade figure, not a portfolio figure."
+                ),
+                "costDrag": (
+                    "Portfolio return at zero commission minus portfolio return with "
+                    "commission. The cost of trading expressed as a return difference."
+                ),
+                "totalCosts": (
+                    "Sum of per-trade cost fractions across every trade. Not a "
+                    "portfolio cost and not comparable to a return."
+                ),
             },
             "series": per_symbol,
             "coverage": {
@@ -863,33 +999,74 @@ class QuantLab:
             ),
             ("Mean reversion", {"kind": strategies.MEAN_REVERSION}),
         )
+        strategy_outcomes: list[StudyOutcome] = []
         for name, raw in rules:
             parameters = strategies.StrategyParameters(**raw)
-            outcomes.append(
-                self.run_strategy_study(
-                    ExperimentDefinition(
-                        name=name,
-                        period_start=period_start,
-                        period_end=period_end,
-                        information_cutoff=cutoff,
-                        categories=(STUDY_STRATEGY,),
-                        horizons=(),
-                        benchmark="BUY_AND_HOLD",
-                        parameters={
-                            "symbols": list(PILOT_SYMBOLS),
-                            "strategy": parameters.as_dict(),
-                        },
-                        execution_assumptions={
-                            "entry": "next_session_open",
-                            "exit": "next_session_open_after_signal",
-                            "sizing": "fraction_of_equity",
-                        },
-                        cost_assumptions={"roundTripBps": parameters.cost_bps},
-                    )
+            outcome = self.run_strategy_study(
+                ExperimentDefinition(
+                    name=name,
+                    signal_version=STRATEGY_SIGNAL_VERSION,
+                    period_start=period_start,
+                    period_end=period_end,
+                    information_cutoff=cutoff,
+                    categories=(STUDY_STRATEGY,),
+                    horizons=(),
+                    benchmark="BUY_AND_HOLD",
+                    parameters={
+                        "symbols": list(PILOT_SYMBOLS),
+                        "strategy": parameters.as_dict(),
+                    },
+                    execution_assumptions={
+                        "entry": "next_session_open",
+                        "exit": "next_session_open_after_signal",
+                        "sizing": "fraction_of_equity",
+                    },
+                    cost_assumptions={"roundTripBps": parameters.cost_bps},
                 )
             )
+            strategy_outcomes.append(outcome)
+            outcomes.append(outcome)
 
+        self._apply_multiple_testing(strategy_outcomes)
         return outcomes
+
+    def _apply_multiple_testing(self, outcomes: Sequence[StudyOutcome]) -> None:
+        """Correct the family of rule p-values for having searched three rules.
+
+        Three rules were run against the same five symbols over the same period.
+        A raw p-value from any one of them ignores that search, so the family is
+        corrected here and the correction is written back onto each stored result.
+        """
+        p_values: list[float] = []
+        targets: list[StudyOutcome] = []
+        for outcome in outcomes:
+            summary = outcome.payload.get("summary") or {}
+            significance = summary.get("tradeReturnSignificance") or {}
+            p_value = significance.get("pValue")
+            if p_value is None:
+                continue
+            p_values.append(float(p_value))
+            targets.append(outcome)
+
+        if not p_values:
+            return
+
+        report = quant.multiple_testing_report(p_values).as_dict()
+        for index, outcome in enumerate(targets):
+            block = {
+                **report,
+                "survives": bool(report["survivors"][index]),
+                "rawPValue": p_values[index],
+                "family": "the three baseline rules run over the same symbols and period",
+            }
+            row = outcome.experiment
+            # Build the replacement from the stored value before touching the
+            # payload. The payload and the row share one dict, so mutating the
+            # payload first would make the reassignment look unchanged and the
+            # correction would never reach the database.
+            updated = {**row.metrics, "multipleTesting": block}
+            row.metrics = updated
+            outcome.payload = updated
 
     # -- storage -----------------------------------------------------------
 
