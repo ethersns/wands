@@ -17,19 +17,19 @@ export function filingHref(id: string): string {
   return `/app/insiders/${encodeURIComponent(id)}`;
 }
 
+export function savedItemHref(id: string): string {
+  return `/app/saved/${encodeURIComponent(id)}`;
+}
+
 /**
- * Where a saved item reopens. A saved asset reopens its research page; a saved
- * signal or filing reopens its detail view, which falls back to the asset page
- * when the engine no longer serves that record.
+ * Where a saved item reopens: its own saved record, addressed by the stable id
+ * the member's library assigned it.
+ *
+ * A saved record is not the live record. The engine's feeds are windowed, so a
+ * filing saved months ago may no longer appear in them, and a saved signal may
+ * have been superseded. Reopening the saved record always works, and that page
+ * links out to the live record when the engine still serves it.
  */
-export function savedHref(item: Pick<SavedItem, "kind" | "refId" | "symbol">): string {
-  switch (item.kind) {
-    case "asset":
-      return assetHref(item.symbol ?? item.refId);
-    case "signal":
-      return signalHref(item.refId);
-    case "insider":
-    case "filing":
-      return filingHref(item.refId);
-  }
+export function savedHref(item: Pick<SavedItem, "id">): string {
+  return savedItemHref(item.id);
 }

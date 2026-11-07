@@ -7,6 +7,7 @@ import {
   getPublicCoverage,
   getResearchDashboard,
   getResearchSources,
+  getSignal,
   getSignalFeed,
 } from "@/lib/api/research";
 
@@ -28,6 +29,7 @@ export const memberResearch = {
   asset: getAssetResearch,
   insiders: getInsiderFeed,
   signals: getSignalFeed,
+  signal: getSignal,
   institutions: getInstitutionFeed,
   sources: getResearchSources,
   coverage: getPublicCoverage,

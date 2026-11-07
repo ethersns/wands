@@ -9,6 +9,7 @@ import type {
   InsiderFeed,
   InsiderSymbolSummary,
   InstitutionFeed,
+  ResearchSignal,
   ResearchSignalCategory,
   SignalFeed,
 } from "./contracts";
@@ -188,6 +189,46 @@ export const getPublicCoverage = cache(() =>
     "/v1/intelligence/coverage/public",
     () => emptyCoverage,
   ),
+);
+
+/**
+ * One signal by its stable identifier.
+ *
+ * The engine answers `404` for an identifier it has no record of, which is a
+ * different claim from "the engine is unreachable". Both resolve to a `null`
+ * payload so the page renders no figures, but the warning says which one
+ * happened, because a member reopening a saved signal needs to know whether the
+ * record is gone or the engine is down.
+ */
+export const getSignal = cache(
+  async (id: string): Promise<Envelope<ResearchSignal | null>> => {
+    const { configured } = engineConfig();
+
+    if (!configured) {
+      return unavailableEnvelope<ResearchSignal | null>(null, [
+        "WANDS_ENGINE_URL is not configured. No research data is available.",
+      ]);
+    }
+
+    const result = await engineFetch<ResearchSignal>(
+      `/v1/intelligence/signals/${encodeURIComponent(id)}`,
+      {},
+    );
+
+    if (result.ok) {
+      return result.envelope;
+    }
+
+    if (result.error.status === 404) {
+      return unavailableEnvelope<ResearchSignal | null>(null, [
+        "The engine has no stored signal with this identifier.",
+      ]);
+    }
+
+    return unavailableEnvelope<ResearchSignal | null>(null, [
+      `Research data unavailable (${result.error.code}): ${result.error.message}`,
+    ]);
+  },
 );
 
 /* ------------------------------------------------------------------ */

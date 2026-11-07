@@ -17,8 +17,8 @@ export default async function SignalDetailPage({ params }: PageProps) {
   const { id } = await params;
   const session = await requireMember(`/app/signals/${id}`);
 
-  const feed = await memberResearch.signals({ limit: 100 });
-  const signal = feed.data.items.find((item) => item.id === id) ?? null;
+  const envelope = await memberResearch.signal(id);
+  const signal = envelope.data;
 
   if (!signal) {
     return (
@@ -26,7 +26,7 @@ export default async function SignalDetailPage({ params }: PageProps) {
         <PageHeader
           eyebrow="Signal"
           title="This signal is not available"
-          description="Signals are read from the engine's published feed. This one is not in it, so nothing is shown rather than a reconstructed record."
+          description="Signals are read from the engine by their identifier. The engine returned no record for this one, so nothing is shown rather than a reconstructed record."
         />
         <EmptyState
           title="Signal unavailable"
@@ -40,7 +40,11 @@ export default async function SignalDetailPage({ params }: PageProps) {
             </Link>
           }
         />
-        <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+        <ProvenanceNote
+          provenance={envelope.provenance}
+          generatedAt={envelope.generatedAt}
+          warnings={envelope.warnings}
+        />
       </div>
     );
   }
@@ -166,7 +170,11 @@ export default async function SignalDetailPage({ params }: PageProps) {
         )}
       </Panel>
 
-      <ProvenanceNote provenance={feed.provenance} generatedAt={feed.generatedAt} warnings={feed.warnings} />
+      <ProvenanceNote
+        provenance={envelope.provenance}
+        generatedAt={envelope.generatedAt}
+        warnings={envelope.warnings}
+      />
     </div>
   );
 }

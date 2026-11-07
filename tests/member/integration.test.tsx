@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MEMBER_FOOTER_NAV, MEMBER_NAV } from "@/components/member/member-shell";
 import { ProvenanceNote } from "@/components/member/ui";
-import { getAssetResearch, getResearchDashboard, getSignalFeed } from "@/lib/api/research";
+import { getAssetResearch, getResearchDashboard, getSignal, getSignalFeed } from "@/lib/api/research";
 import { routeTier } from "@/lib/auth/routes";
-import { assetHref, filingHref, savedHref, signalHref } from "@/lib/member/links";
+import { assetHref, filingHref, savedHref, savedItemHref, signalHref } from "@/lib/member/links";
 import { memberResearch } from "@/lib/member/research";
 
 const ALL_NAV = [...MEMBER_NAV, ...MEMBER_FOOTER_NAV];
@@ -58,6 +58,7 @@ describe("member research permissions", () => {
       "dashboard",
       "insiders",
       "institutions",
+      "signal",
       "signals",
       "sources",
     ]);
@@ -98,25 +99,21 @@ describe("research linking", () => {
     expect(filingHref("tx-1")).toBe("/app/insiders/tx-1");
   });
 
-  it("reopens a saved asset on its research page", () => {
-    expect(savedHref({ kind: "asset", refId: "AAPL", symbol: "AAPL" })).toBe("/app/assets/AAPL");
+  it("reopens a saved record on its own saved page by stable id", () => {
+    expect(savedHref({ id: "saved-1" })).toBe("/app/saved/saved-1");
+    expect(savedItemHref("saved-2")).toBe("/app/saved/saved-2");
   });
 
-  it("reopens a saved signal on its detail view", () => {
-    expect(savedHref({ kind: "signal", refId: "sig-1", symbol: "AAPL" })).toBe("/app/signals/sig-1");
-  });
-
-  it("reopens a saved filing on its detail view", () => {
-    expect(savedHref({ kind: "insider", refId: "tx-1", symbol: "AAPL" })).toBe("/app/insiders/tx-1");
-    expect(savedHref({ kind: "filing", refId: "tx-2", symbol: "AAPL" })).toBe("/app/insiders/tx-2");
+  it("keeps the live record reachable from a saved record", () => {
+    expect(assetHref("AAPL")).toBe("/app/assets/AAPL");
+    expect(signalHref("sig-1")).toBe("/app/signals/sig-1");
+    expect(filingHref("tx-1")).toBe("/app/insiders/tx-1");
   });
 
   it("keeps every saved link inside the member workspace", () => {
-    for (const kind of ["asset", "signal", "insider", "filing"] as const) {
-      const href = savedHref({ kind, refId: "x", symbol: "AAPL" });
-      expect(href.startsWith("/app/"), `${kind} -> ${href}`).toBe(true);
-      expect(routeTier(href), `${kind} -> ${href}`).toBe("customer");
-    }
+    const href = savedHref({ id: "saved-1" });
+    expect(href.startsWith("/app/")).toBe(true);
+    expect(routeTier(href)).toBe("customer");
   });
 });
 
@@ -158,6 +155,29 @@ describe("unavailable research states", () => {
     expect(envelope.provenance).toBe("unavailable");
     expect(envelope.data.items).toEqual([]);
     expect(envelope.data.total).toBe(0);
+  });
+
+  it("returns no single signal record rather than a fabricated one", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "");
+
+    const envelope = await getSignal("11111111-1111-1111-1111-111111111111");
+
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("tells a missing signal apart from an unreachable engine", async () => {
+    vi.stubEnv("WANDS_ENGINE_URL", "https://engine.invalid");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "No signal with id x is stored." }), { status: 404 }),
+    );
+
+    const envelope = await getSignal("11111111-1111-1111-1111-111111111111");
+
+    expect(envelope.provenance).toBe("unavailable");
+    expect(envelope.data).toBeNull();
+    expect(envelope.warnings[0]).toMatch(/no stored signal/i);
   });
 
   it("degrades to unavailable when the engine cannot be reached", async () => {
