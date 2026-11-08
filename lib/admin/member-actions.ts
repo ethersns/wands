@@ -176,7 +176,7 @@ export async function suspendMember(input: {
     return result;
   } catch (cause) {
     console.log(
-      "[v0] suspend member failed:",
+      "[wands] suspend member failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { ok: false, code: "failed", message: "The suspension could not be completed." };
@@ -261,7 +261,7 @@ export async function reactivateMember(input: {
     return result;
   } catch (cause) {
     console.log(
-      "[v0] reactivate member failed:",
+      "[wands] reactivate member failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { ok: false, code: "failed", message: "The reactivation could not be completed." };
@@ -444,7 +444,7 @@ export async function deleteMember(input: {
     return result;
   } catch (cause) {
     console.log(
-      "[v0] delete member failed:",
+      "[wands] delete member failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { ok: false, code: "failed", message: "The account could not be deleted." };
@@ -503,7 +503,7 @@ export async function deleteWaitlistEntry(input: {
     return result;
   } catch (cause) {
     console.log(
-      "[v0] delete waitlist entry failed:",
+      "[wands] delete waitlist entry failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { ok: false, code: "failed", message: "The entry could not be removed." };

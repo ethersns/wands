@@ -137,7 +137,7 @@ export async function getTraffic(range: DateRange): Promise<TrafficSummary> {
     };
   } catch (cause) {
     console.log(
-      "[v0] admin traffic query failed:",
+      "[wands] admin traffic query failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return emptyTraffic(range);

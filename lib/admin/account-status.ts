@@ -76,7 +76,7 @@ export async function getAccountStatus(userId: string): Promise<AccountStatusRec
     return toRecord(rows[0]);
   } catch (cause) {
     console.log(
-      "[v0] account status read failed:",
+      "[wands] account status read failed:",
       cause instanceof Error ? cause.message : cause,
     );
     // Fail closed on a read error would lock every member out of the product

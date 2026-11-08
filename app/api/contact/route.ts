@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     );
   } catch (cause) {
     console.log(
-      "[v0] contact message failed:",
+      "[wands] contact message failed:",
       cause instanceof Error ? cause.message : cause,
     );
 

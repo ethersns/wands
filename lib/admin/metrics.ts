@@ -336,7 +336,7 @@ export async function getOverview(range: DateRange): Promise<Overview> {
     };
   } catch (cause) {
     console.log(
-      "[v0] admin overview query failed:",
+      "[wands] admin overview query failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return emptyOverview(range);

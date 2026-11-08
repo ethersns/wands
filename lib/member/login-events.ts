@@ -48,7 +48,7 @@ export async function recordSignIn(userId: string): Promise<void> {
     );
   } catch (cause) {
     console.log(
-      "[v0] login event write failed:",
+      "[wands] login event write failed:",
       cause instanceof Error ? cause.message : cause,
     );
   }

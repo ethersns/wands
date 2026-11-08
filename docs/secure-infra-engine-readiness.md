@@ -3,6 +3,19 @@
 Status: prepared, not deployed. Nothing in this change set was applied to
 production, no production secret was read or rotated, and no engine was started.
 
+> **Current state lives in `docs/feature-inventory.md`.** This document is the
+> record of one change set and is not updated as the code moves. Two of its
+> findings have since been resolved:
+>
+> - Section 11 item 6 (debug logging in production paths) is fixed. The leftover
+>   `[v0]` prefix on the failure logs in `lib/admin/`, `lib/member/`,
+>   `lib/billing/` and `lib/analytics/` is now `[wands]`.
+> - Section 11 item 3 says the UI runs on demonstration fixtures. That is true of
+>   the **operator** terminal (`lib/api/endpoints.ts` -> `lib/api/demo.ts`). The
+>   **member** research surface has no demo fallback: `lib/api/research.ts`
+>   degrades to `provenance: "unavailable"` with an empty payload and a stated
+>   reason.
+
 ## 1. Starting commit
 
 | | |

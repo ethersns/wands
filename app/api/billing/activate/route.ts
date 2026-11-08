@@ -114,7 +114,7 @@ async function createAccount(input: {
     return { ok: true, userId, setCookies };
   } catch (cause) {
     console.log(
-      "[v0] activation account creation failed:",
+      "[wands] activation account creation failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return {
