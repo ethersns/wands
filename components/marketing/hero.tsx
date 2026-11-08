@@ -57,10 +57,10 @@ export function Hero() {
 
             <div className="mt-8 flex flex-col gap-2.5 sm:flex-row sm:items-center">
               <Link
-                href="/#access"
+                href="/pricing"
                 className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-mk-accent px-6 font-marketing-mono text-[11px] font-medium tracking-[0.14em] text-mk-accent-ink uppercase transition-colors hover:bg-mk-accent/90"
               >
-                Get Early Access
+                Get access
                 <ArrowUpRight
                   className="size-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
                   aria-hidden

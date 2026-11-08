@@ -78,9 +78,10 @@ export default function AboutPage() {
               better evidence for it.
             </p>
             <p>
-              The product is in private beta. Access is granted in small cohorts
-              so that every account is supported properly, and features ship
-              continuously rather than in annual releases.
+              Access is a paid membership, billed monthly, with no free tier and
+              no free trial. Accounts are created only after Stripe confirms a
+              subscription, and features ship continuously rather than in annual
+              releases.
             </p>
           </div>
         </div>

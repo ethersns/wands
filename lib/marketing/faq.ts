@@ -35,14 +35,14 @@ export const faqItems: FaqItem[] = [
       "Yes. The terminal covers equities and crypto in one portfolio view. Filing-based intelligence applies to equities; market data, strategy validation and risk controls apply to both.",
   },
   {
-    question: "What happens during the private beta?",
+    question: "How does access work?",
     answer:
-      "Access is granted in small cohorts so we can support every account properly. Beta accounts are free, features ship continuously, and anything that is not ready is labelled as beta or planned rather than quietly shipped.",
+      "Wands is a paid membership. You pay through Stripe, we email a single-use activation link to the address you paid with, and you set your password to open the workspace. There is no free tier and no free trial.",
   },
   {
-    question: "How do I get an invite?",
+    question: "What does it cost?",
     answer:
-      "Join the waitlist with your email. We review the list weekly and send invites in order, with priority for people who tell us what they actually trade.",
+      "One membership, billed monthly. The exact amount, currency and billing interval are shown on the pricing page and again at checkout before you pay — the figure is read from the live Stripe price, not a marketing placeholder.",
   },
   {
     question: "Can I delete my data?",

@@ -35,7 +35,7 @@ export function SiteFooter() {
               </Link>
             )}
             <p className="font-marketing-mono text-[9.5px] leading-relaxed tracking-[0.1em] text-mk-dim uppercase">
-              Private beta · Waitlist open
+              Paid membership · Billed monthly
             </p>
           </div>
 
