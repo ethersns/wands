@@ -38,7 +38,7 @@ from wands.opportunity import (
     holding_deadline,
 )
 from wands.opportunity.watchlist import entry_for
-from wands.schemas import CandleInterval, CamelModel, MarketType
+from wands.schemas import CamelModel, CandleInterval, MarketType
 from wands.security.auth import Principal
 from wands.security.rbac import Role
 from wands.state import get_policy
@@ -174,7 +174,7 @@ def get_budget(principal: Principal = _admin) -> dict[str, Any]:
     )
 
 
-@router.get("/scan")
+@router.post("/scan")
 def scan(
     interval: CandleInterval = Query(default=CandleInterval.M5),
     session: Session = Depends(get_session),
@@ -182,6 +182,12 @@ def scan(
     principal: Principal = _admin,
 ) -> dict[str, Any]:
     """Run the rule over the watchlist and store what qualified.
+
+    This writes a candidate row per qualifying symbol, so it is a POST. It used
+    to be a GET, which let a prefetch, a crawler or a link preview trigger a
+    scan and persist candidates without anyone asking for one. A GET now answers
+    405; the only in-repo caller is the desk's scan action, which was moved in
+    the same change.
 
     An empty result is a real answer. The envelope carries the reason each
     symbol was skipped so a quiet scan can be told apart from a broken one.

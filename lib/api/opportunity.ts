@@ -105,11 +105,15 @@ export type OpportunityDecisionKind = "candidate_watched" | "candidate_rejected"
 /**
  * A scan reads candles for every watchlist symbol, so it is given a longer
  * budget than a single read. It is also the only call here that writes: the
- * engine stores each candidate it qualifies, which is why the page no longer
- * runs it on render.
+ * engine stores each candidate it qualifies, which is why the page never runs
+ * it on render and why it is a POST. A GET that writes can be replayed by a
+ * prefetch, a crawler or a link preview, so the method now matches the effect.
  */
 export function getOpportunityScan(): Promise<ApiResult<OpportunityScan>> {
-  return engineFetch<OpportunityScan>("/v1/opportunity/scan", { timeoutMs: 20_000 });
+  return engineFetch<OpportunityScan>("/v1/opportunity/scan", {
+    method: "POST",
+    timeoutMs: 20_000,
+  });
 }
 
 export function getOpportunityBudget(): Promise<ApiResult<OpportunityBudget>> {
