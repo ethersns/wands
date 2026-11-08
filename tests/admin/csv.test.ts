@@ -14,6 +14,7 @@ function row(overrides: Partial<WaitlistRow> = {}): WaitlistRow {
     status: "new",
     created_at: "2026-11-01T10:00:00Z",
     updated_at: "2026-11-01T10:00:00Z",
+    member_id: null,
     ...overrides,
   };
 }
@@ -67,8 +68,17 @@ describe("toCsv", () => {
     const csv = toCsv([row({ email: "a,b@example.com" })]);
     const dataLine = csv.split("\r\n")[1];
     expect(dataLine).toContain('"a,b@example.com"');
-    // Seven columns, so six separators outside the quoted fields.
-    expect(dataLine.split('","')).toHaveLength(7);
+    // Eight columns, so seven separators outside the quoted fields.
+    expect(dataLine.split('","')).toHaveLength(8);
+  });
+
+  it("records whether the address also belongs to a registered account", () => {
+    const csv = toCsv([row({ member_id: "usr_123" }), row({ id: "2", member_id: null })]);
+    const lines = csv.split("\r\n");
+
+    expect(lines[0]).toContain('"registered_member"');
+    expect(lines[1].endsWith('"yes"')).toBe(true);
+    expect(lines[2].endsWith('"no"')).toBe(true);
   });
 
   it("neutralises a formula in an email field", () => {

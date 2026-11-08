@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { recordAdminAction } from "@/lib/admin/audit";
 import { authorizeOperatorRequest } from "@/lib/admin/guard";
-import { exportWaitlist, toCsv } from "@/lib/admin/waitlist";
+import { exportWaitlist, toCsv, type WaitlistFilters } from "@/lib/admin/waitlist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +31,12 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const filters = {
+  const converted = url.searchParams.get("converted");
+
+  const filters: WaitlistFilters = {
     search: url.searchParams.get("search")?.trim() || undefined,
     source: url.searchParams.get("source") || undefined,
+    converted: converted === "yes" || converted === "no" ? converted : undefined,
     from: url.searchParams.get("from") || undefined,
     to: url.searchParams.get("to") || undefined,
   };
@@ -50,6 +53,7 @@ export async function GET(request: Request) {
       filters: {
         search: filters.search ? "present" : null,
         source: filters.source ?? null,
+        converted: filters.converted ?? null,
         from: filters.from ?? null,
         to: filters.to ?? null,
       },
