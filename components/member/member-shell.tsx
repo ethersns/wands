@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Target,
   X,
 } from "lucide-react";
 
@@ -29,6 +30,7 @@ export const MEMBER_NAV = [
   { href: "/app/insiders", label: "Insiders", icon: Radar },
   { href: "/app/signals", label: "Signals", icon: Sparkles },
   { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
+  { href: "/app/opportunity", label: "Opportunity Desk", icon: Target },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];

@@ -1363,3 +1363,155 @@ class PerfEvaluationJobRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, default=utcnow, nullable=False
     )
+
+
+# --------------------------------------------------------------------------
+# Opportunity Desk
+#
+# Private research records. A candidate row is what the rule saw; a decision row
+# is what the founder did about it; a paper test row is the assumptions frozen
+# at the moment the test was recorded.
+#
+# Nothing in this section is read by the execution path. There is no order
+# table here, no fill table and no link to the paper broker, because the desk
+# cannot place anything. A row here is a note about a hypothesis.
+# --------------------------------------------------------------------------
+
+# A return of 0.1435 is 14.35%, and three decimals would lose the difference
+# between two runs, so returns get the same precision the Performance Lab uses.
+OPP_RETURN = Numeric(20, 10)
+
+
+class OppCandidateRow(Base):
+    """A candidate exactly as the rule produced it.
+
+    The row is written once and not updated. If the rule changes, the strategy
+    version changes with it, so a stored candidate always names the definition
+    that produced it.
+    """
+
+    __tablename__ = "opp_candidates"
+    __table_args__ = (
+        Index("ix_opp_candidates_symbol_observed", "symbol", "observed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    strategy_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    strategy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+    reference_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    invalidation_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    target_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    range_high: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    volume_ratio: Mapped[Decimal] = mapped_column(Numeric(12, 6), nullable=False)
+    breakout_margin: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+
+    why_qualified: Mapped[str] = mapped_column(Text, nullable=False)
+    entry_condition: Mapped[str] = mapped_column(Text, nullable=False)
+    invalidation_condition: Mapped[str] = mapped_column(Text, nullable=False)
+    exit_condition: Mapped[str] = mapped_column(Text, nullable=False)
+    max_holding_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Sizing is nullable because a candidate can qualify and still not fit the
+    # research budget. The rejection reason is stored rather than the row being
+    # dropped, so an infeasible candidate stays visible.
+    quantity: Mapped[Decimal | None] = mapped_column(MONEY)
+    notional: Mapped[Decimal | None] = mapped_column(MONEY)
+    risk_at_stop: Mapped[Decimal | None] = mapped_column(MONEY)
+    binding_constraint: Mapped[str] = mapped_column(String(48), nullable=False)
+    rejected_reason: Mapped[str | None] = mapped_column(Text)
+
+    fee_bps: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    slippage_bps: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+
+    data_fresh: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    data_age_seconds: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    data_warnings: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    rank_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class OppDecisionRow(Base):
+    """A manual decision about a candidate.
+
+    Watching and rejecting are both recorded. Keeping the rejections is the
+    point: a journal that only holds the candidates that were acted on cannot
+    show whether the rule was any good.
+    """
+
+    __tablename__ = "opp_decisions"
+    __table_args__ = (
+        Index("ix_opp_decisions_candidate", "candidate_id", "decided_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opp_candidates.id", ondelete="CASCADE"), nullable=False
+    )
+    # ``candidate_watched`` | ``candidate_rejected``
+    decision: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class OppPaperTestRow(Base):
+    """A recorded test and, once evaluated, what the price path did.
+
+    The assumption columns are written once. The outcome columns are filled by
+    evaluation and are the only part that changes, so the assumptions a result
+    was measured against cannot drift after the fact.
+    """
+
+    __tablename__ = "opp_paper_tests"
+    __table_args__ = (
+        Index("ix_opp_paper_tests_status", "status", "deadline"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    candidate_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("opp_candidates.id", ondelete="CASCADE"), nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    strategy_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    strategy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    reference_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    invalidation_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    target_price: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    fee_bps: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    slippage_bps: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    deadline: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+    # ``test_active`` | ``test_completed`` | ``test_invalidated`` |
+    # ``test_expired`` | ``insufficient_data``
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="test_active")
+    exit_reason: Mapped[str | None] = mapped_column(Text)
+    entry_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    exit_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    exit_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    holding_seconds: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    gross_return: Mapped[Decimal | None] = mapped_column(MONEY)
+    fees: Mapped[Decimal | None] = mapped_column(MONEY)
+    slippage: Mapped[Decimal | None] = mapped_column(MONEY)
+    net_return: Mapped[Decimal | None] = mapped_column(MONEY)
+    drawdown: Mapped[Decimal | None] = mapped_column(OPP_RETURN)
+    notes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
