@@ -42,7 +42,7 @@ USER wands
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+    CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/healthz" || exit 1
 
 # --forwarded-allow-ips defaults to loopback, not '*'. The engine records the
 # client IP in the audit trail from X-Forwarded-For, so trusting that header
@@ -52,4 +52,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
 #
 # One worker on purpose: the in-process job scheduler and market-data worker
 # start in the lifespan, so a second worker would run a second scheduler.
-CMD ["sh", "-c", "exec uvicorn wands.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=${WANDS_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
+# PORT is honoured because managed hosts (Railway, Render, Fly) inject it and
+# route only to the port they assigned. 8000 stays the default so the
+# docker-compose setup is unchanged.
+CMD ["sh", "-c", "exec uvicorn wands.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=${WANDS_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
