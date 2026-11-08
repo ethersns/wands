@@ -24,6 +24,7 @@ const MIGRATIONS = [
   "0002_admin_control_centre.sql",
   "0003_member_administration.sql",
   "0004_billing_reference_retention.sql",
+  "0005_paid_membership.sql",
 ] as const;
 
 const connectionString = process.env.DATABASE_URL;

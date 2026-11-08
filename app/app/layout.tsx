@@ -6,15 +6,23 @@ import { isFounderUserId } from "@/lib/auth/founder";
 import { ensureMembership } from "@/lib/member/membership";
 import { unreadCount } from "@/lib/member/notifications";
 import { ensureProfile } from "@/lib/member/profile";
-import { requireMember } from "@/lib/member/session";
+import { requireMemberAccess } from "@/lib/member/session";
 
 export const metadata: Metadata = {
   title: "Workspace",
   robots: { index: false, follow: false },
 };
 
+/**
+ * The workspace shell.
+ *
+ * `requireMemberAccess` is the paid gate: a session alone is not enough to
+ * render anything under `/app`. The billing surface is exempt so a lapsed
+ * member can reach the page that fixes it, and the middleware tells this layout
+ * which request it is rendering.
+ */
 export default async function MemberLayout({ children }: { children: React.ReactNode }) {
-  const session = await requireMember();
+  const { session } = await requireMemberAccess();
 
   const [profile, membership, unread] = await Promise.all([
     ensureProfile(session.user.id, session.user.name),

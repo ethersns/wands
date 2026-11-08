@@ -1,5 +1,6 @@
 import "server-only";
 
+import { compUserIds } from "@/lib/billing/entitlement";
 import { isDatabaseConfigured, query } from "@/lib/db";
 
 /**
@@ -22,6 +23,8 @@ export interface BillingRow {
   display_name: string | null;
   plan: string;
   status: string;
+  entitlement_source: string;
+  cancel_at_period_end: boolean;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   current_period_end: string | null;
@@ -30,6 +33,13 @@ export interface BillingRow {
   subscription_status: string | null;
   subscription_plan: string | null;
   subscription_period_end: string | null;
+}
+
+/** Recurring revenue for one currency, in minor units. */
+export interface MrrLine {
+  currency: string;
+  amountMinor: number;
+  subscriptions: number;
 }
 
 export interface BillingSummary {
@@ -41,12 +51,24 @@ export interface BillingSummary {
    * subscription, and counting that as revenue would overstate the business.
    */
   paying: number;
-  /** Non-free plan with no Stripe subscription behind it. */
+  /** Accounts holding an explicit owner grant rather than a subscription. */
   comped: number;
   trialing: number;
   pastDue: number;
   canceled: number;
+  /** Accounts with no entitlement at all. */
   free: number;
+  /** Checkouts started but not yet paid. */
+  pendingPayment: number;
+  /** Paid, but the customer has not activated their account yet. */
+  pendingActivation: number;
+  /**
+   * Recurring revenue computed from the mirrored subscription rows.
+   *
+   * A manually assigned plan is not revenue and is not counted here: only a
+   * subscription Stripe is actually billing contributes.
+   */
+  mrr: MrrLine[];
   byPlan: { plan: string; count: number }[];
   byStatus: { status: string; count: number }[];
   billingEnabled: boolean;
@@ -110,6 +132,8 @@ export async function listBilling(filters: {
            p.display_name,
            m.plan,
            m.status,
+           m.entitlement_source,
+           m.cancel_at_period_end,
            m.stripe_customer_id,
            m.stripe_subscription_id,
            m.current_period_end,
@@ -157,6 +181,9 @@ export async function getBillingSummary(): Promise<BillingSummary> {
     pastDue: 0,
     canceled: 0,
     free: 0,
+    pendingPayment: 0,
+    pendingActivation: 0,
+    mrr: [],
     byPlan: [],
     byStatus: [],
     billingEnabled: isBillingEnabled(),
@@ -164,12 +191,13 @@ export async function getBillingSummary(): Promise<BillingSummary> {
 
   if (!isDatabaseConfigured()) return empty;
 
+  const compIds = [...compUserIds()];
+
   try {
-    const [totals, byPlan, byStatus] = await Promise.all([
+    const [totals, byPlan, byStatus, mrr, pending, comped] = await Promise.all([
       query<{
         total: number;
         paying: number;
-        comped: number;
         trialing: number;
         past_due: number;
         canceled: number;
@@ -178,15 +206,12 @@ export async function getBillingSummary(): Promise<BillingSummary> {
         `select
            count(*)::int as total,
            count(*) filter (
-             where stripe_subscription_id is not null and status in ('active', 'trialing')
+             where entitlement_source = 'stripe' and status in ('active', 'trialing')
            )::int as paying,
-           count(*) filter (
-             where stripe_subscription_id is null and plan <> 'free'
-           )::int as comped,
            count(*) filter (where status = 'trialing')::int as trialing,
            count(*) filter (where status = 'past_due')::int as past_due,
            count(*) filter (where status = 'canceled')::int as canceled,
-           count(*) filter (where plan = 'free')::int as free
+           count(*) filter (where entitlement_source = 'none')::int as free
          from member_membership`,
       ),
       query<{ plan: string; count: number }>(
@@ -195,16 +220,49 @@ export async function getBillingSummary(): Promise<BillingSummary> {
       query<{ status: string; count: number }>(
         `select status, count(*)::int as count from member_membership group by 1 order by count desc`,
       ),
+      // Annual prices are divided by twelve so the figure is monthly recurring
+      // revenue rather than a mix of monthly and annual amounts.
+      query<{ currency: string; amount_minor: number; subscriptions: number }>(
+        `select coalesce(currency, 'usd') as currency,
+                coalesce(sum(
+                  case when interval = 'year' then unit_amount / 12 else unit_amount end
+                ), 0)::int as amount_minor,
+                count(*)::int as subscriptions
+         from subscription
+         where status in ('active', 'trialing')
+         group by 1
+         order by 2 desc`,
+      ),
+      query<{ pending_payment: number; pending_activation: number }>(
+        `select
+           count(*) filter (where status = 'pending')::int as pending_payment,
+           count(*) filter (where status = 'paid')::int as pending_activation
+         from member_signup_intent`,
+      ),
+      compIds.length > 0
+        ? query<{ total: number }>(
+            `select count(*)::int as total from member_membership
+             where user_id = any($1::text[])`,
+            [compIds],
+          )
+        : Promise.resolve([{ total: 0 }]),
     ]);
 
     return {
       total: totals[0]?.total ?? 0,
       paying: totals[0]?.paying ?? 0,
-      comped: totals[0]?.comped ?? 0,
+      comped: comped[0]?.total ?? 0,
       trialing: totals[0]?.trialing ?? 0,
       pastDue: totals[0]?.past_due ?? 0,
       canceled: totals[0]?.canceled ?? 0,
       free: totals[0]?.free ?? 0,
+      pendingPayment: pending[0]?.pending_payment ?? 0,
+      pendingActivation: pending[0]?.pending_activation ?? 0,
+      mrr: mrr.map((row) => ({
+        currency: row.currency,
+        amountMinor: row.amount_minor,
+        subscriptions: row.subscriptions,
+      })),
       byPlan,
       byStatus,
       billingEnabled: isBillingEnabled(),
@@ -215,6 +273,46 @@ export async function getBillingSummary(): Promise<BillingSummary> {
       cause instanceof Error ? cause.message : cause,
     );
     return empty;
+  }
+}
+
+export interface SignupIntentRow {
+  id: string;
+  email: string;
+  plan: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+  paid_at: string | null;
+  activated_at: string | null;
+}
+
+/**
+ * Recent signups, including the ones that never became accounts.
+ *
+ * This is the operator's view of the funnel: a checkout that was started and
+ * abandoned, a payment that settled but was never activated, and a payment that
+ * failed all look different here, which is the point. No card data is selected
+ * because none is stored.
+ */
+export async function listSignupIntents(limit = 25): Promise<SignupIntentRow[]> {
+  if (!isDatabaseConfigured()) return [];
+
+  try {
+    return await query<SignupIntentRow>(
+      `select id::text, email_normalized as email, plan, status,
+              created_at, expires_at, paid_at, activated_at
+       from member_signup_intent
+       order by created_at desc
+       limit $1`,
+      [Math.min(Math.max(limit, 1), 100)],
+    );
+  } catch (cause) {
+    console.log(
+      "[v0] signup intent read failed:",
+      cause instanceof Error ? cause.message : cause,
+    );
+    return [];
   }
 }
 

@@ -1,83 +1,74 @@
-export interface Plan {
-  id: "observer" | "operator" | "desk";
+/**
+ * The published membership.
+ *
+ * There is one plan and no free tier. The amount is deliberately absent from
+ * this file: the price shown to a visitor is read from the configured Stripe
+ * Price at render time, so the page can never advertise a number the checkout
+ * would not charge.
+ */
+
+export interface FoundingPlan {
+  id: "founding";
   name: string;
-  price: string;
   cadence: string;
   summary: string;
-  features: string[];
-  featured?: boolean;
-  priceIdKey?: "operator" | "desk";
+  features: { title: string; detail: string }[];
 }
 
-export const plans: Plan[] = [
-  {
-    id: "observer",
-    name: "Observer",
-    price: "$0",
-    cadence: "forever",
-    summary: "Research without execution. For anyone who wants to see the evidence first.",
-    features: [
-      "Insider Radar with 30-day signal history",
-      "Institutional Radar, latest quarter",
-      "One watchlist",
-      "Read-only market data",
-      "Community support",
-    ],
-  },
-  {
-    id: "operator",
-    name: "Operator",
-    price: "$49",
-    cadence: "per month",
-    summary: "For active self-directed traders who validate before they size.",
-    features: [
-      "Everything in Observer",
-      "Strategy Lab with out-of-sample runs",
-      "Full signal history and exports",
-      "Risk Centre with enforced limits",
-      "Paper trading accounts",
-      "Email support",
-    ],
-    featured: true,
-    priceIdKey: "operator",
-  },
-  {
-    id: "desk",
-    name: "Desk",
-    price: "$149",
-    cadence: "per month",
-    summary: "For small funds and traders running more than one account.",
-    features: [
-      "Everything in Operator",
-      "Multiple portfolios and accounts",
-      "Automated bots with a global kill switch",
-      "Priority data refresh",
-      "API access",
-      "Onboarding call",
-    ],
-    priceIdKey: "desk",
-  },
-];
+export const foundingPlan: FoundingPlan = {
+  id: "founding",
+  name: "Wands Founding Access",
+  cadence: "per month",
+  summary:
+    "Insider intelligence, institutional research and the tools to look deeper into market activity.",
+  features: [
+    {
+      title: "Insider Radar",
+      detail: "Full signal history with filing provenance on every transaction.",
+    },
+    {
+      title: "Institutional Radar",
+      detail: "13F position changes, quarter over quarter, with the source filing.",
+    },
+    {
+      title: "Strategy Lab",
+      detail: "Out-of-sample validation before you size anything.",
+    },
+    {
+      title: "Saved research",
+      detail: "Watchlists, saved signals and notes that stay with your account.",
+    },
+    {
+      title: "Billing you control",
+      detail: "Update your card, cancel renewal or resume from the billing portal.",
+    },
+  ],
+};
 
 export const pricingFaq = [
   {
-    question: "Is billing live yet?",
+    question: "Is there a free plan?",
     answer:
-      "No. Wands is in a private beta and every plan is free while we onboard the first cohort. Pricing is published so you know what it will cost when billing opens, and we will give existing beta members notice before anything is charged.",
+      "No. Wands is a paid research platform and there is no free tier and no free trial. Every account is backed by an active subscription, which is what pays for the data behind the research.",
   },
   {
-    question: "Do I need a card to join the waitlist?",
+    question: "What does it cost?",
     answer:
-      "No. The waitlist takes an email address and nothing else. Payment details are only requested if and when you choose to start a paid plan.",
+      "Wands Founding Access is billed monthly. The exact amount, currency and billing interval are shown on this page and again at checkout before you pay — the figure you see is read from the live Stripe price, not a marketing placeholder.",
   },
   {
-    question: "Can I change plan later?",
+    question: "When am I charged?",
     answer:
-      "Yes. Plans are designed to move up and down without losing your data, watchlists or backtest history.",
+      "Once at checkout, then automatically on the same date each month until you cancel. There is no setup fee and no minimum term.",
   },
   {
     question: "What happens if I cancel?",
     answer:
-      "Your account drops to Observer at the end of the paid period. Your data stays available and exportable; nothing is deleted because a subscription lapsed.",
+      "You keep full access until the end of the period you have already paid for, and nothing further is charged. Your watchlists, saved research and notes are preserved, so reactivating later picks up where you left off.",
+  },
+  {
+    question: "How do I get into my account after paying?",
+    answer:
+      "Stripe confirms the payment to us directly, and we email an activation link to the address you paid with. Open it to set your password. The link is single-use and expires in 24 hours.",
   },
 ];

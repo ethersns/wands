@@ -68,6 +68,31 @@ export const CUSTOMER_PREFIXES = [
 export const MEMBER_PAGE_PREFIXES = ["/app", "/onboarding"] as const;
 
 /**
+ * Member pages a signed-in but unpaid account may still reach.
+ *
+ * These are the billing and account surfaces. A member whose subscription has
+ * lapsed has to be able to see why and pay, so locking them out of the page
+ * that fixes it would be a dead end. Everything else under `/app` requires an
+ * eligible subscription.
+ */
+export const BILLING_SURFACE_PREFIXES = ["/app/membership", "/app/account"] as const;
+
+export function isBillingSurface(pathname: string): boolean {
+  return matches(pathname, BILLING_SURFACE_PREFIXES);
+}
+
+/**
+ * Request header the middleware sets so the workspace layout can tell which
+ * page it is rendering.
+ *
+ * A layout cannot read the pathname, and the entitlement gate has to know
+ * whether the current page is the billing surface. The middleware already
+ * classifies every `/app` request, so it is the right place to answer that
+ * question once rather than re-deriving it in the layout.
+ */
+export const ENTITLEMENT_EXEMPT_HEADER = "x-wands-entitlement-exempt";
+
+/**
  * Better Auth's session cookie, prefixed by the `cookiePrefix` in
  * `lib/auth/member.ts`. Kept here because middleware runs on the edge and
  * cannot import the auth instance.
@@ -99,6 +124,10 @@ export const PUBLIC_API_PREFIXES = [
   "/api/track",
   "/api/billing/checkout",
   "/api/billing/webhook",
+  // Activation is called by someone who has just paid and does not have a
+  // session yet. The activation token is the credential, and the route
+  // re-validates it on every call.
+  "/api/billing/activate",
 ] as const;
 
 function matches(pathname: string, prefixes: readonly string[]): boolean {
