@@ -5,7 +5,9 @@ import {
   toUIMessageStream,
   type UIMessage,
 } from "ai";
+import { NextResponse } from "next/server";
 
+import { authorizeOperatorRequest } from "@/lib/admin/guard";
 import {
   getBacktests,
   getBots,
@@ -107,6 +109,17 @@ ${backtestLines || "- none"}`;
 }
 
 export async function POST(request: Request) {
+  // The assistant is handed the operator's portfolio, risk policy, bot
+  // configuration and backtests as context, so an unauthenticated call would
+  // disclose all four. The guard runs before the body is even parsed.
+  const auth = await authorizeOperatorRequest();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { error: { code: auth.denial.code, message: auth.denial.message } },
+      { status: auth.denial.status },
+    );
+  }
+
   const { messages }: { messages: UIMessage[] } = await request.json();
 
   const [portfolio, risk, markets, bots, backtests] = await Promise.all([

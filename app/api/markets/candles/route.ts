@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { authorizeOperatorRequest } from "@/lib/admin/guard";
 import type { CandleSeries } from "@/lib/api/contracts";
 import { getCandles } from "@/lib/api/endpoints";
 
@@ -13,6 +14,16 @@ const INTERVALS: CandleSeries["interval"][] = [
 ];
 
 export async function GET(request: NextRequest) {
+  // This route reaches the engine with the server-side admin token, so it is an
+  // admin request to the engine whether or not the caller holds a session.
+  const auth = await authorizeOperatorRequest();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { error: { code: auth.denial.code, message: auth.denial.message } },
+      { status: auth.denial.status },
+    );
+  }
+
   const symbol = request.nextUrl.searchParams.get("symbol");
   const intervalParam = request.nextUrl.searchParams.get("interval") ?? "1h";
 

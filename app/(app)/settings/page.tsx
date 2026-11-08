@@ -4,6 +4,7 @@ import { DataNotice } from "@/components/shared/data-notice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { SettingsView } from "@/components/settings/settings-view";
+import { requireOperator } from "@/lib/admin/guard";
 import { getSettings } from "@/lib/api/endpoints";
 
 export const metadata: Metadata = {
@@ -11,6 +12,8 @@ export const metadata: Metadata = {
 };
 
 export default async function SettingsPage() {
+  await requireOperator("/settings");
+
   const settings = await getSettings();
 
   return (

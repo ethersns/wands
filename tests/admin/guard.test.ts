@@ -101,13 +101,56 @@ describe("checkOperator", () => {
     expect(await checkOperator()).toEqual({ ok: false, reason: "unconfigured" });
   });
 
-  it("stays open in development when the gate is unconfigured", async () => {
+  it("fails closed in development when the gate is unconfigured and no bypass is requested", async () => {
     unconfigureGate();
     vi.stubEnv("NODE_ENV", "development");
     cookieStore.get.mockReturnValue(undefined);
 
+    expect(await checkOperator()).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("fails closed when the bypass is requested but the database is not declared non-production", async () => {
+    // The original exposure: a development server reading the production
+    // database. Requesting the bypass is not enough; the database has to be
+    // declared non-production too.
+    unconfigureGate();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    cookieStore.get.mockReturnValue(undefined);
+
+    expect(await checkOperator()).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("fails closed when the bypass is requested against a database declared production", async () => {
+    unconfigureGate();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "production");
+    cookieStore.get.mockReturnValue(undefined);
+
+    expect(await checkOperator()).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("never bypasses in a production build, even with the bypass requested", async () => {
+    unconfigureGate();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "development");
+    cookieStore.get.mockReturnValue(undefined);
+
+    expect(await checkOperator()).toEqual({ ok: false, reason: "unconfigured" });
+  });
+
+  it("allows the explicit bypass in development against a declared development database", async () => {
+    unconfigureGate();
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "development");
+    cookieStore.get.mockReturnValue(undefined);
+
     const result = await checkOperator();
     expect(result.ok).toBe(true);
+    if (result.ok) expect(result.identity.actor).toBe("operator (dev bypass)");
   });
 });
 

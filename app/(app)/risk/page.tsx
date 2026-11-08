@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { requireOperator } from "@/lib/admin/guard";
 import { getEngineStatus, getRisk } from "@/lib/api/endpoints";
 import { formatDateTime, titleCase } from "@/lib/format";
 import { severityTone } from "@/lib/status";
@@ -27,6 +28,8 @@ export const metadata: Metadata = {
 };
 
 export default async function RiskPage() {
+  await requireOperator("/risk");
+
   const [risk, engine] = await Promise.all([getRisk(), getEngineStatus()]);
   const data = risk.data;
 

@@ -5,6 +5,7 @@ import { DataNotice } from "@/components/shared/data-notice";
 import { ModeBadge } from "@/components/shared/mode-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
+import { requireOperator } from "@/lib/admin/guard";
 import { getCandles, getEngineStatus, getMarkets } from "@/lib/api/endpoints";
 
 export const metadata: Metadata = {
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default async function MarketsPage() {
+  await requireOperator("/markets");
+
   const [markets, engine] = await Promise.all([getMarkets(), getEngineStatus()]);
 
   const firstCrypto =

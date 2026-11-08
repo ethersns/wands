@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { devBypassActive } from "@/lib/auth/dev-bypass";
 import {
   SESSION_COOKIE,
   gateConfigured,
@@ -20,8 +21,9 @@ import {
  * same secret, before it reads a single row of business data.
  *
  * The development affordance mirrors middleware exactly: an unconfigured gate
- * cannot be signed into, so outside production it stays open rather than
- * locking the founder out of their own console. Production fails closed.
+ * fails closed, and the only way through is the explicit bypass in
+ * `lib/auth/dev-bypass.ts`, which requires the operator to declare the database
+ * non-production. A development server pointed at production data is refused.
  */
 
 export const ADMIN_HOME = "/dashboard";
@@ -36,10 +38,6 @@ export type OperatorCheck =
   | { ok: true; identity: OperatorIdentity }
   | { ok: false; reason: "unconfigured" | "unauthenticated" };
 
-function devBypassActive(): boolean {
-  return !gateConfigured() && process.env.NODE_ENV !== "production";
-}
-
 export async function checkOperator(): Promise<OperatorCheck> {
   const configured = gateConfigured();
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -48,8 +46,8 @@ export async function checkOperator(): Promise<OperatorCheck> {
     return { ok: true, identity: { actor: operatorUsername() ?? "operator" } };
   }
 
-  if (devBypassActive()) {
-    return { ok: true, identity: { actor: "operator (gate unconfigured)" } };
+  if (!configured && devBypassActive()) {
+    return { ok: true, identity: { actor: "operator (dev bypass)" } };
   }
 
   return { ok: false, reason: configured ? "unauthenticated" : "unconfigured" };
