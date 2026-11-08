@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Lock } from "lucide-react";
 
-import { navGroups } from "./nav-items";
+import { isNavItemActive, navGroups } from "./nav-items";
 import { ModeBadge } from "@/components/shared/mode-badge";
 import type { EngineStatus, Envelope } from "@/lib/api/contracts";
 import { engineStatus, toneDot, toneText } from "@/lib/status";
@@ -59,7 +59,7 @@ export function Sidebar({
             </p>
             <ul className="flex flex-col gap-0.5">
               {group.items.map((item) => {
-                const active = pathname.startsWith(item.href);
+                const active = isNavItemActive(item, pathname);
                 return (
                   <li key={item.href}>
                     <Link
