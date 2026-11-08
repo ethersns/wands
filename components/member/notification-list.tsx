@@ -58,7 +58,15 @@ export function NotificationList({ initial }: { initial: Payload }) {
       {items.length === 0 ? (
         <EmptyState
           title="No notifications yet"
-          description="Alerts about the tickers you track will appear here. Delivery is in-app only; email alerts are not enabled."
+          description="Alerts appear here once an alert rule matches something. Delivery is in-app only; email alerts are not enabled."
+          action={
+            <Link
+              href="/app/alerts"
+              className="inline-flex items-center rounded-lg bg-mk-accent px-3 py-2 text-sm font-semibold text-mk-accent-ink transition-opacity hover:opacity-90"
+            >
+              Set up an alert rule
+            </Link>
+          }
         />
       ) : (
         <ul className="overflow-hidden rounded-xl border border-mk-line bg-mk-surface/60">

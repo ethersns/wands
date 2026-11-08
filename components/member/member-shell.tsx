@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Bell,
+  BellRing,
   Bookmark,
   CreditCard,
   FlaskConical,
@@ -45,6 +46,7 @@ export const MEMBER_NAV: MemberNavItem[] = [
   { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
   { href: "/app/opportunity", label: "Opportunity Desk", icon: Target, founderOnly: true },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
+  { href: "/app/alerts", label: "Alerts", icon: BellRing },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];
 

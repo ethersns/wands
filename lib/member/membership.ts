@@ -28,13 +28,20 @@ export type MemberPlan = (typeof MEMBER_PLANS)[number];
 export type PlanLimits = {
   watchlists: number;
   savedItems: number;
+  alertRules: number;
   insiderWindowDays: number;
   institutionalChanges: boolean;
 };
 
 const PLAN_LIMITS: Record<MemberPlan, PlanLimits> = {
-  none: { watchlists: 0, savedItems: 0, insiderWindowDays: 0, institutionalChanges: false },
-  founding: { watchlists: 50, savedItems: 5000, insiderWindowDays: 1095, institutionalChanges: true },
+  none: { watchlists: 0, savedItems: 0, alertRules: 0, insiderWindowDays: 0, institutionalChanges: false },
+  founding: {
+    watchlists: 50,
+    savedItems: 5000,
+    alertRules: 25,
+    insiderWindowDays: 1095,
+    institutionalChanges: true,
+  },
 };
 
 const PLAN_LABELS: Record<MemberPlan, string> = {
