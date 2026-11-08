@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Search, Users } from "lucide-react";
+import { Download, Search, Users } from "lucide-react";
 
+import { AccountStatusBadge, MembershipStatusBadge } from "@/components/admin/account-status-badge";
+import { MemberActions } from "@/components/admin/member-actions";
+import { MemberTabs } from "@/components/admin/member-tabs";
 import { AdminPagination } from "@/components/admin/pagination";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
@@ -34,6 +37,7 @@ interface SearchParams {
   plan?: string;
   status?: string;
   verified?: string;
+  accountStatus?: string;
   from?: string;
   to?: string;
   page?: string;
@@ -59,6 +63,10 @@ export default async function MembersPage({
     status: params.status || undefined,
     verified:
       params.verified === "yes" || params.verified === "no" ? params.verified : undefined,
+    accountStatus:
+      params.accountStatus === "active" || params.accountStatus === "suspended"
+        ? params.accountStatus
+        : undefined,
     from: params.from || undefined,
     to: params.to || undefined,
     page: Number.isFinite(page) ? page : 1,
@@ -71,15 +79,44 @@ export default async function MembersPage({
   ]);
 
   const filtered = Boolean(
-    filters.search || filters.plan || filters.status || filters.verified || filters.from || filters.to,
+    filters.search ||
+      filters.plan ||
+      filters.status ||
+      filters.verified ||
+      filters.accountStatus ||
+      filters.from ||
+      filters.to,
   );
+
+  const exportParams = new URLSearchParams();
+  if (filters.search) exportParams.set("search", filters.search);
+  if (filters.plan) exportParams.set("plan", filters.plan);
+  if (filters.status) exportParams.set("status", filters.status);
+  if (filters.verified) exportParams.set("verified", filters.verified);
+  if (filters.accountStatus) exportParams.set("accountStatus", filters.accountStatus);
+  if (filters.from) exportParams.set("from", filters.from);
+  if (filters.to) exportParams.set("to", filters.to);
+  const exportHref = `/api/admin/members/export${
+    exportParams.size > 0 ? `?${exportParams.toString()}` : ""
+  }`;
 
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Members"
-        description="Every Better Auth account, with the membership and engagement records already stored against it. Read-only."
+        description="Every registered account, with its membership, account status and last recorded sign-in. Suspending or deleting an account takes effect on the server immediately."
+        actions={
+          <a
+            href={exportHref}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <Download className="size-3" aria-hidden />
+            Export CSV
+          </a>
+        }
       />
+
+      <MemberTabs />
 
       <SectionCard
         title="Search and filter"
@@ -89,7 +126,7 @@ export default async function MembersPage({
         <form method="get" className="flex flex-wrap items-end gap-2">
           <div className="flex min-w-[180px] flex-1 flex-col gap-1">
             <label htmlFor="member-search" className={labelClass}>
-              Email or name
+              Email, name or account ID
             </label>
             <div className="relative">
               <Search
@@ -108,16 +145,32 @@ export default async function MembersPage({
           </div>
 
           <div className="flex flex-col gap-1">
+            <label htmlFor="member-account-status" className={labelClass}>
+              Account
+            </label>
+            <select
+              id="member-account-status"
+              name="accountStatus"
+              defaultValue={params.accountStatus ?? ""}
+              className={`${inputClass} min-w-[110px]`}
+            >
+              <option value="">Any</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
             <label htmlFor="member-plan" className={labelClass}>
-              Plan
+              Tier
             </label>
             <select
               id="member-plan"
               name="plan"
               defaultValue={params.plan ?? ""}
-              className={`${inputClass} min-w-[120px]`}
+              className={`${inputClass} min-w-[110px]`}
             >
-              <option value="">Any plan</option>
+              <option value="">Any tier</option>
               {plans.map((plan) => (
                 <option key={plan} value={plan}>
                   {plan}
@@ -128,13 +181,13 @@ export default async function MembersPage({
 
           <div className="flex flex-col gap-1">
             <label htmlFor="member-status" className={labelClass}>
-              Status
+              Subscription
             </label>
             <select
               id="member-status"
               name="status"
               defaultValue={params.status ?? ""}
-              className={`${inputClass} min-w-[120px]`}
+              className={`${inputClass} min-w-[110px]`}
             >
               <option value="">Any status</option>
               {statuses.map((status) => (
@@ -207,7 +260,7 @@ export default async function MembersPage({
 
       <SectionCard
         title={`${result.total} member${result.total === 1 ? "" : "s"}`}
-        description="Select a member to see their support and engagement detail."
+        description="Select a member to see their profile, security activity and account controls."
         bodyClassName="px-0 pb-0 sm:px-0"
         footer={
           <AdminPagination
@@ -221,6 +274,7 @@ export default async function MembersPage({
               plan: filters.plan,
               status: filters.status,
               verified: filters.verified,
+              accountStatus: filters.accountStatus,
               from: filters.from,
               to: filters.to,
             }}
@@ -240,82 +294,90 @@ export default async function MembersPage({
             />
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Member</TableHead>
-                <TableHead>Registered</TableHead>
-                <TableHead>Plan</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Verified</TableHead>
-                <TableHead>Onboarding</TableHead>
-                <TableHead className="text-right">Watchlists</TableHead>
-                <TableHead className="text-right">Saved</TableHead>
-                <TableHead>Last sign-in</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {result.rows.map((member) => (
-                <TableRow key={member.id}>
-                  <TableCell>
-                    <Link
-                      href={`/dashboard/members/${member.id}`}
-                      className="flex flex-col gap-0.5 hover:underline"
-                    >
-                      <span className="text-[12px] font-medium text-foreground">
-                        {member.display_name || member.name || member.email}
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        {member.email}
-                      </span>
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground">
-                    {formatDate(member.created_at)}
-                  </TableCell>
-                  <TableCell className="text-[11px] text-foreground">
-                    {member.plan ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-[11px] text-muted-foreground">
-                    {member.status ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={
-                        member.email_verified
-                          ? "text-[11px] text-profit"
-                          : "text-[11px] text-muted-foreground"
-                      }
-                    >
-                      {member.email_verified ? "Verified" : "Unverified"}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={
-                        member.onboarding_completed
-                          ? "text-[11px] text-profit"
-                          : "text-[11px] text-muted-foreground"
-                      }
-                    >
-                      {member.onboarding_completed ? "Complete" : "Incomplete"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-[11px] tabular text-foreground">
-                    {member.watchlist_count}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-[11px] tabular text-foreground">
-                    {member.saved_count}
-                  </TableCell>
-                  <TableCell className="text-[11px] text-muted-foreground">
-                    {member.last_login_at ? formatRelative(member.last_login_at) : "Not tracked"}
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member</TableHead>
+                  <TableHead>Account ID</TableHead>
+                  <TableHead>Registered</TableHead>
+                  <TableHead>Verified</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Subscription</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Last sign-in</TableHead>
+                  <TableHead className="sticky right-0 z-10 border-l border-border bg-card text-right">
+                    Controls
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {result.rows.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell>
+                      <Link
+                        href={`/dashboard/members/${member.id}`}
+                        className="flex flex-col gap-0.5 hover:underline"
+                      >
+                        <span className="text-[12px] font-medium text-foreground">
+                          {member.display_name || member.name || member.email}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {member.email}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground">
+                      {member.id.slice(0, 10)}…
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {formatDate(member.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          member.email_verified
+                            ? "text-[11px] text-profit"
+                            : "text-[11px] text-muted-foreground"
+                        }
+                      >
+                        {member.email_verified ? "Verified" : "Unverified"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-foreground">
+                      {member.plan ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      <MembershipStatusBadge status={member.status} />
+                    </TableCell>
+                    <TableCell>
+                      <AccountStatusBadge status={member.account_status} />
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-muted-foreground">
+                      {member.last_login_at ? formatRelative(member.last_login_at) : "Not recorded"}
+                    </TableCell>
+                    <TableCell className="sticky right-0 z-10 border-l border-border bg-card">
+                      <div className="flex justify-end">
+                        <MemberActions
+                          userId={member.id}
+                          email={member.email}
+                          status={member.account_status}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </SectionCard>
+
+      <p className="text-[10px] leading-relaxed text-muted-foreground">
+        Password hashes, session tokens and reset tokens are never selected by this view. A
+        suspension revokes the account&apos;s sessions and is enforced at sign-in; a deletion
+        removes the account and retains billing records.
+      </p>
     </div>
   );
 }

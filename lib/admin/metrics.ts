@@ -53,6 +53,8 @@ export interface Overview {
     today: number;
     window: MetricWindow;
     firstAt: string | null;
+    /** Accounts that cannot sign in. A separate axis from membership status. */
+    suspended: number;
   };
   waitlist: {
     total: number;
@@ -100,7 +102,7 @@ export function emptyOverview(range: DateRange): Overview {
   return {
     degraded: true,
     timezone: REPORTING_TIMEZONE,
-    members: { total: 0, today: 0, window: emptyWindow(), firstAt: null },
+    members: { total: 0, today: 0, window: emptyWindow(), firstAt: null, suspended: 0 },
     waitlist: { total: 0, today: 0, window: emptyWindow(), firstAt: null },
     traffic: { views: 0, visitors: 0, tracked: false, since: null },
     signIns: { window: 0, tracked: false, since: null, activeSessions: 0 },
@@ -126,6 +128,7 @@ interface CountRow {
   current: number;
   previous: number;
   first_at: string | null;
+  suspended?: number;
 }
 
 export async function getOverview(range: DateRange): Promise<Overview> {
@@ -160,7 +163,8 @@ export async function getOverview(range: DateRange): Promise<Overview> {
            (select count(*)::int from scoped where d = $2::date) as today,
            (select count(*)::int from scoped where d between $3::date and $4::date) as current,
            (select count(*)::int from scoped where d between $5::date and $6::date) as previous,
-           (select min(at) from scoped) as first_at`,
+           (select min(at) from scoped) as first_at,
+           (select count(*)::int from member_account_status where status = 'suspended') as suspended`,
         [tz, today, range.from, range.to, previous.from, previous.to],
       ),
       query<CountRow>(
@@ -282,6 +286,7 @@ export async function getOverview(range: DateRange): Promise<Overview> {
           change: percentChange(members?.current ?? 0, members?.previous ?? 0),
         },
         firstAt: members?.first_at ?? null,
+        suspended: members?.suspended ?? 0,
       },
       waitlist: {
         total: waitlist?.total ?? 0,

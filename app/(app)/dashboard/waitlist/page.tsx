@@ -3,9 +3,11 @@ import Link from "next/link";
 import { Download, Inbox, Search } from "lucide-react";
 
 import { Kpi } from "@/components/admin/kpi";
+import { MemberTabs } from "@/components/admin/member-tabs";
 import { AdminPagination } from "@/components/admin/pagination";
 import { RangePicker } from "@/components/admin/range-picker";
 import { TrendChart } from "@/components/admin/trend-chart";
+import { WaitlistRowActions } from "@/components/admin/waitlist-actions";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { SectionCard } from "@/components/shared/section-card";
@@ -23,6 +25,7 @@ import {
   getWaitlistSummary,
   listWaitlist,
   listWaitlistSources,
+  type WaitlistFilters,
 } from "@/lib/admin/waitlist";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 
@@ -35,6 +38,7 @@ export const dynamic = "force-dynamic";
 interface SearchParams {
   search?: string;
   source?: string;
+  converted?: string;
   from?: string;
   to?: string;
   page?: string;
@@ -56,9 +60,11 @@ export default async function WaitlistPage({
   const range = resolveRange(params);
   const page = Number(params.page ?? "1");
 
-  const filters = {
+  const filters: WaitlistFilters = {
     search: params.search?.trim() || undefined,
     source: params.source || undefined,
+    converted:
+      params.converted === "yes" || params.converted === "no" ? params.converted : undefined,
     from: params.from || undefined,
     to: params.to || undefined,
     page: Number.isFinite(page) ? page : 1,
@@ -73,6 +79,7 @@ export default async function WaitlistPage({
   const exportParams = new URLSearchParams();
   if (filters.search) exportParams.set("search", filters.search);
   if (filters.source) exportParams.set("source", filters.source);
+  if (filters.converted) exportParams.set("converted", filters.converted);
   if (filters.from) exportParams.set("from", filters.from);
   if (filters.to) exportParams.set("to", filters.to);
   const exportHref = `/api/admin/waitlist/export${
@@ -99,6 +106,8 @@ export default async function WaitlistPage({
           </a>
         }
       />
+
+      <MemberTabs />
 
       <RangePicker range={range} basePath="/dashboard/waitlist" />
 
@@ -194,6 +203,22 @@ export default async function WaitlistPage({
           </div>
 
           <div className="flex flex-col gap-1">
+            <label htmlFor="waitlist-converted" className={labelClass}>
+              Registered
+            </label>
+            <select
+              id="waitlist-converted"
+              name="converted"
+              defaultValue={params.converted ?? ""}
+              className={`${inputClass} min-w-[120px]`}
+            >
+              <option value="">Any</option>
+              <option value="yes">Has an account</option>
+              <option value="no">Waitlist only</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
             <label htmlFor="waitlist-from" className={labelClass}>
               Signed up from
             </label>
@@ -249,6 +274,7 @@ export default async function WaitlistPage({
             params={{
               search: filters.search,
               source: filters.source,
+              converted: filters.converted,
               from: filters.from,
               to: filters.to,
             }}
@@ -268,18 +294,32 @@ export default async function WaitlistPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Email</TableHead>
+                <TableHead>Account</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead>Referrer</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Signed up</TableHead>
                 <TableHead>Updated</TableHead>
+                <TableHead className="text-right">Remove</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {result.rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="font-mono text-[11px] text-foreground">{row.email}</TableCell>
+                  <TableCell>
+                    {row.member_id ? (
+                      <Link
+                        href={`/dashboard/members/${row.member_id}`}
+                        className="text-[11px] text-primary hover:underline"
+                      >
+                        Registered
+                      </Link>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">Waitlist only</span>
+                    )}
+                  </TableCell>
                   <TableCell className="text-[11px] text-muted-foreground capitalize">
                     {row.role ?? "—"}
                   </TableCell>
@@ -292,11 +332,20 @@ export default async function WaitlistPage({
                   <TableCell className="text-[11px] text-muted-foreground">
                     {row.status ?? "—"}
                   </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground">
+                  <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
                     {formatDateTime(row.created_at)}
                   </TableCell>
-                  <TableCell className="font-mono text-[11px] text-muted-foreground">
+                  <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
                     {formatDateTime(row.updated_at)}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      <WaitlistRowActions
+                        id={row.id}
+                        email={row.email}
+                        memberId={row.member_id}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -308,7 +357,8 @@ export default async function WaitlistPage({
       <p className="text-[10px] leading-relaxed text-muted-foreground">
         Exports are operator-only, capped at 10,000 rows, and every cell is quoted with
         formula-leading characters neutralised. Each export is written to the admin audit
-        log.
+        log. Removing a waitlist entry deletes only the signup record — a registered account
+        with the same address is a separate record and is never touched.
       </p>
     </div>
   );

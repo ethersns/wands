@@ -22,6 +22,8 @@ const MAX_EXPORT_ROWS = 10_000;
 export interface WaitlistFilters {
   search?: string;
   source?: string;
+  /** Whether the address also belongs to a registered account. */
+  converted?: "yes" | "no";
   from?: string;
   to?: string;
   page?: number;
@@ -37,7 +39,38 @@ export interface WaitlistRow {
   status: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * The registered account with the same address, when one exists.
+   *
+   * A waitlist contact and a member account are different records that happen
+   * to share an address. This link is read-only: it lets the operator see that
+   * someone converted, and it never lets a waitlist action reach the account.
+   */
+  member_id: string | null;
 }
+
+/**
+ * The waitlist table, joined to the account that shares its address.
+ *
+ * `email_normalized` is the column the signup form already writes, so the join
+ * does not depend on how the visitor capitalised their address.
+ */
+const FROM_CLAUSE = `
+  from public.waitlist_signup w
+  left join "user" u on lower(u.email) = w.email_normalized
+`;
+
+const ROW_COLUMNS = `
+  w.id::text as id,
+  w.email,
+  w.role,
+  w.source,
+  w.referrer,
+  w.status,
+  w.created_at,
+  w.updated_at,
+  u.id::text as member_id
+`;
 
 export interface WaitlistPage {
   rows: WaitlistRow[];
@@ -68,25 +101,31 @@ function buildFilter(filters: WaitlistFilters): { where: string; values: unknown
   const search = filters.search?.trim();
   if (search) {
     values.push(likeTerm(search));
-    clauses.push(`email ilike $${values.length}`);
+    clauses.push(`w.email ilike $${values.length}`);
   }
 
   if (filters.source) {
     values.push(filters.source);
-    clauses.push(`source = $${values.length}`);
+    clauses.push(`w.source = $${values.length}`);
+  }
+
+  if (filters.converted === "yes") {
+    clauses.push(`u.id is not null`);
+  } else if (filters.converted === "no") {
+    clauses.push(`u.id is null`);
   }
 
   if (filters.from) {
     values.push(filters.from, REPORTING_TIMEZONE);
     clauses.push(
-      `(created_at at time zone $${values.length})::date >= $${values.length - 1}::date`,
+      `(w.created_at at time zone $${values.length})::date >= $${values.length - 1}::date`,
     );
   }
 
   if (filters.to) {
     values.push(filters.to, REPORTING_TIMEZONE);
     clauses.push(
-      `(created_at at time zone $${values.length})::date <= $${values.length - 1}::date`,
+      `(w.created_at at time zone $${values.length})::date <= $${values.length - 1}::date`,
     );
   }
 
@@ -109,15 +148,15 @@ export async function listWaitlist(filters: WaitlistFilters = {}): Promise<Waitl
   try {
     const [rows, totals] = await Promise.all([
       query<WaitlistRow>(
-        `select id::text, email, role, source, referrer, status, created_at, updated_at
-         from public.waitlist_signup
+        `select ${ROW_COLUMNS}
+         ${FROM_CLAUSE}
          ${where}
-         order by created_at desc
+         order by w.created_at desc
          limit $${values.length + 1} offset $${values.length + 2}`,
         [...values, pageSize, (page - 1) * pageSize],
       ),
       query<{ total: number }>(
-        `select count(*)::int as total from public.waitlist_signup ${where}`,
+        `select count(distinct w.id)::int as total ${FROM_CLAUSE} ${where}`,
         values,
       ),
     ]);
@@ -263,6 +302,7 @@ export function toCsv(rows: WaitlistRow[]): string {
     "status",
     "signed_up_at",
     "updated_at",
+    "registered_member",
   ];
 
   const lines = rows.map((row) =>
@@ -274,6 +314,7 @@ export function toCsv(rows: WaitlistRow[]): string {
       row.status,
       row.created_at,
       row.updated_at,
+      row.member_id ? "yes" : "no",
     ]
       .map(csvCell)
       .join(","),
@@ -290,10 +331,10 @@ export async function exportWaitlist(filters: WaitlistFilters = {}): Promise<Wai
 
   try {
     return await query<WaitlistRow>(
-      `select id::text, email, role, source, referrer, status, created_at, updated_at
-       from public.waitlist_signup
+      `select ${ROW_COLUMNS}
+       ${FROM_CLAUSE}
        ${where}
-       order by created_at desc
+       order by w.created_at desc
        limit $${values.length + 1}`,
       [...values, MAX_EXPORT_ROWS],
     );

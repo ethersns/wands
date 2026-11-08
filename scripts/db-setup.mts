@@ -22,6 +22,7 @@ import { memberAuth } from "../lib/auth/member";
 const MIGRATIONS = [
   "0001_member_workspace.sql",
   "0002_admin_control_centre.sql",
+  "0003_member_administration.sql",
 ] as const;
 
 const connectionString = process.env.DATABASE_URL;

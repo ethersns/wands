@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isDatabaseConfigured, query } from "@/lib/db";
+import { isDatabaseConfigured, query, type TransactionQuery } from "@/lib/db";
 
 /**
  * Audit trail for sensitive administrative actions.
@@ -13,12 +13,37 @@ import { isDatabaseConfigured, query } from "@/lib/db";
  * Writing is best-effort. A failed audit insert must not turn a successful
  * export into a 500 for the operator, but it is logged so the gap is visible.
  */
-export async function recordAdminAction(input: {
+export interface AdminActionInput {
   actor: string;
   action: string;
   target?: string | null;
   detail?: Record<string, unknown>;
-}): Promise<void> {
+}
+
+/**
+ * Writes the audit row on a caller-supplied transaction.
+ *
+ * A destructive action must not commit without its audit row, so the deletion
+ * and the record of who performed it share one transaction. This variant
+ * therefore throws: a failure here has to roll the whole action back.
+ */
+export async function writeAudit(
+  tx: TransactionQuery,
+  input: AdminActionInput,
+): Promise<void> {
+  await tx(
+    `insert into admin_audit_log (actor, action, target, detail)
+     values ($1, $2, $3, $4::jsonb)`,
+    [
+      input.actor,
+      input.action,
+      input.target ?? null,
+      JSON.stringify(input.detail ?? {}),
+    ],
+  );
+}
+
+export async function recordAdminAction(input: AdminActionInput): Promise<void> {
   if (!isDatabaseConfigured()) return;
 
   try {

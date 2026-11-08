@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { Kpi } from "@/components/admin/kpi";
+import { MemberTabs } from "@/components/admin/member-tabs";
 import { RangePicker } from "@/components/admin/range-picker";
 import { TrendChart } from "@/components/admin/trend-chart";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -97,6 +98,8 @@ export default async function AdminOverviewPage({
         }
       />
 
+      <MemberTabs />
+
       <RangePicker range={range} basePath="/dashboard" />
 
       {overview.degraded ? (
@@ -172,6 +175,13 @@ export default async function AdminOverviewPage({
           label="Active sessions"
           value={formatNumber(overview.signIns.activeSessions)}
           footnote="unexpired member sessions"
+        />
+        <Kpi
+          label="Suspended"
+          value={formatNumber(overview.members.suspended)}
+          footnote={
+            overview.members.suspended > 0 ? "cannot sign in" : "every account can sign in"
+          }
         />
       </section>
 
