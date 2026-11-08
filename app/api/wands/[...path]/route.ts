@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { authorizeOperatorRequest } from "@/lib/admin/guard";
 import { engineConfig } from "@/lib/api/client";
 
 /**
@@ -43,6 +44,18 @@ function notConfigured() {
 }
 
 async function proxy(request: NextRequest, path: string[]) {
+  // Middleware already refuses this path without a session, but middleware is a
+  // routing convenience that a rewrite or a config change can skip. This route
+  // holds the engine's admin token, so it re-validates the operator session
+  // itself before forwarding anything.
+  const auth = await authorizeOperatorRequest();
+  if (!auth.ok) {
+    return NextResponse.json(
+      { error: { code: auth.denial.code, message: auth.denial.message } },
+      { status: auth.denial.status },
+    );
+  }
+
   const { baseUrl, token, configured } = engineConfig();
 
   if (!configured || !baseUrl) {

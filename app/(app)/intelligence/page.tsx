@@ -26,6 +26,7 @@ import { SymbolSearch } from "@/components/intelligence/symbol-search";
 import { UnavailablePanel } from "@/components/intelligence/unavailable-panel";
 import { ProvenanceLabel } from "@/components/intelligence/provenance-label";
 import { FilingSourceLink } from "@/components/intelligence/filing-link";
+import { requireOperator } from "@/lib/admin/guard";
 import {
   getInsiderFeed,
   getInstitutions,
@@ -55,6 +56,8 @@ export default async function IntelligenceOverviewPage({
 }: {
   searchParams: Promise<{ symbol?: string; category?: string; page?: string }>;
 }) {
+  await requireOperator("/intelligence");
+
   const params = await searchParams;
   const symbol = (params.symbol ?? "").trim().toUpperCase();
   const category = params.category ?? "";

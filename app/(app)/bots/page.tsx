@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { SectionCard } from "@/components/shared/section-card";
 import { Stat } from "@/components/shared/stat";
+import { requireOperator } from "@/lib/admin/guard";
 import {
   getBotLogs,
   getBots,
@@ -42,6 +43,8 @@ const levelTone = {
 } as const;
 
 export default async function BotsPage() {
+  await requireOperator("/bots");
+
   const [bots, logs, strategies, portfolio, engine] = await Promise.all([
     getBots(),
     getBotLogs(),

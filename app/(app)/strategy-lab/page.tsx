@@ -5,6 +5,7 @@ import { ModeBadge } from "@/components/shared/mode-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { StrategyLabView } from "@/components/strategy-lab/strategy-lab-view";
+import { requireOperator } from "@/lib/admin/guard";
 import { getBacktests, getPortfolio, getStrategies } from "@/lib/api/endpoints";
 
 export const metadata: Metadata = {
@@ -12,6 +13,8 @@ export const metadata: Metadata = {
 };
 
 export default async function StrategyLabPage() {
+  await requireOperator("/strategy-lab");
+
   const [strategies, backtests, portfolio] = await Promise.all([
     getStrategies(),
     getBacktests(),

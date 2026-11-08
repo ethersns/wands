@@ -6,6 +6,7 @@ import { DataNotice } from "@/components/shared/data-notice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { SectionCard } from "@/components/shared/section-card";
+import { requireOperator } from "@/lib/admin/guard";
 import { getConnections, getPortfolio } from "@/lib/api/endpoints";
 
 export const metadata: Metadata = {
@@ -13,6 +14,8 @@ export const metadata: Metadata = {
 };
 
 export default async function ConnectionsPage() {
+  await requireOperator("/connections");
+
   const [connections, portfolio] = await Promise.all([
     getConnections(),
     getPortfolio(),

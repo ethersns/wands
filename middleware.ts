@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { devBypassActive } from "@/lib/auth/dev-bypass";
 import { hasMemberSessionCookie, isApiPath, isMemberPage, routeTier } from "@/lib/auth/routes";
 import {
   SESSION_COOKIE,
@@ -19,9 +20,12 @@ import {
  * depend on an operator secret being set, and must not start returning 503
  * because the operator password is missing.
  *
- * When the gate is unconfigured the operator tier fails closed in production
- * rather than silently becoming public. Development and preview stay open so
- * the app is usable without a password.
+ * When the gate is unconfigured the operator tier fails closed in every
+ * environment. A development server is not a safe place to relax that: it can
+ * be pointed at the production database, and then "not a production build"
+ * would mean "unauthenticated access to production records". Local work is
+ * served instead by the explicit, isolated bypass in `lib/auth/dev-bypass.ts`,
+ * which requires the operator to declare the database non-production.
  */
 
 function unconfiguredResponse() {
@@ -106,10 +110,11 @@ export async function middleware(request: NextRequest) {
     return unauthorizedResponse();
   }
 
-  // An unconfigured gate cannot be signed into, so outside production it stays
-  // open rather than locking the operator out of their own console. Production
-  // fails closed.
-  if (!configured && process.env.NODE_ENV !== "production") {
+  // An unconfigured gate cannot be signed into, so it fails closed. The only
+  // way through is the explicit development bypass, which refuses to activate
+  // unless the operator has declared this process a non-production environment
+  // backed by a non-production database.
+  if (!configured && devBypassActive()) {
     return NextResponse.next();
   }
 

@@ -81,9 +81,28 @@ describe("engine proxy gate", () => {
     expect(passedThrough(response)).toBe(false);
   });
 
-  it("stays open in development when the gate is unconfigured", async () => {
+  it("fails closed in development when the gate is unconfigured and no bypass is requested", async () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     vi.stubEnv("NODE_ENV", "development");
+    const response = await middleware(request("/api/wands/engine/status"));
+    expect(response.status).toBe(503);
+    expect(passedThrough(response)).toBe(false);
+  });
+
+  it("fails closed when the bypass is requested against an undeclared database", async () => {
+    delete process.env.WANDS_OPERATOR_PASSWORD;
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    const response = await middleware(request("/api/wands/engine/status"));
+    expect(response.status).toBe(503);
+    expect(passedThrough(response)).toBe(false);
+  });
+
+  it("allows the explicit bypass in development against a declared development database", async () => {
+    delete process.env.WANDS_OPERATOR_PASSWORD;
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "development");
     const response = await middleware(request("/api/wands/engine/status"));
     expect(passedThrough(response)).toBe(true);
   });
@@ -127,10 +146,22 @@ describe("operator console pages", () => {
     expect(passedThrough(response)).toBe(true);
   });
 
-  it("stays open in development when the gate is unconfigured", async () => {
+  it("fails closed in development when the gate is unconfigured and no bypass is requested", async () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "development");
+
+    const response = await middleware(request("/portfolio"));
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/login");
+  });
+
+  it("serves the console in development only under the explicit bypass", async () => {
+    delete process.env.WANDS_OPERATOR_PASSWORD;
+    delete process.env.WANDS_SESSION_SECRET;
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "test");
 
     const response = await middleware(request("/portfolio"));
     expect(passedThrough(response)).toBe(true);
@@ -273,13 +304,15 @@ describe("member pages", () => {
     }
   });
 
-  it("never lets a member session into the operator console, even with the gate unconfigured", async () => {
-    // The development affordance keeps an unconfigured console open for the
-    // operator. A customer session must not inherit that: trading functions are
-    // operator-only in every environment.
+  it("never lets a member session into the operator console, even under the development bypass", async () => {
+    // The bypass keeps an unconfigured console open for the operator. A customer
+    // session must not inherit that: trading functions are operator-only in
+    // every environment.
     delete process.env.WANDS_OPERATOR_PASSWORD;
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
+    vi.stubEnv("WANDS_DATABASE_ENV", "development");
 
     for (const name of MEMBER_SESSION_COOKIES) {
       const page = await middleware(request("/portfolio", `${name}=present`));
