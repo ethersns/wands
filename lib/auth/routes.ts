@@ -29,6 +29,10 @@ export const OPERATOR_PREFIXES = [
   "/api/wands",
   "/api/research",
   "/api/markets",
+  // The founder control centre's own endpoints. They read member, waitlist and
+  // traffic data, so they belong to the operator tier and never to a customer
+  // session. Every handler re-validates the session in `lib/admin/guard.ts`.
+  "/api/admin",
   "/dashboard",
   "/portfolio",
   "/markets",
@@ -90,6 +94,9 @@ export const PUBLIC_API_PREFIXES = [
   "/api/session",
   "/api/waitlist",
   "/api/contact",
+  // Anonymous page-view beacon. It accepts only a path and a referrer, refuses
+  // every private surface, and is rate limited; see `app/api/track/route.ts`.
+  "/api/track",
   "/api/billing/checkout",
   "/api/billing/webhook",
 ] as const;

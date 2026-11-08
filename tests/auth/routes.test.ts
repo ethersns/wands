@@ -49,8 +49,17 @@ describe("customer tier", () => {
 describe("deny by default for APIs", () => {
   it("denies an API route that no list claims", () => {
     expect(routeTier("/api/internal/keys")).toBe("denied");
-    expect(routeTier("/api/admin/users")).toBe("denied");
+    expect(routeTier("/api/private/reports")).toBe("denied");
     expect(routeTier("/api")).toBe("denied");
+  });
+
+  it("classifies the founder control centre API as operator, never public", () => {
+    // `/api/admin` reads member, waitlist and traffic data. It is declared so
+    // the middleware gates it rather than 404s it, and it must never fall into
+    // the public tier.
+    expect(routeTier("/api/admin")).toBe("operator");
+    expect(routeTier("/api/admin/waitlist/export")).toBe("operator");
+    expect(routeTier("/api/admin/users")).toBe("operator");
   });
 
   it("still lets an unclassified page through, so marketing can grow", () => {

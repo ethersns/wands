@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
 import { emailDeliveryConfigured, passwordResetEmail, sendTransactionalEmail, verificationEmail } from "@/lib/email/send";
+import { recordSignIn } from "@/lib/member/login-events";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -55,6 +56,20 @@ export const memberAuth = betterAuth({
     sendVerificationEmail: async ({ user, url }) => {
       const message = verificationEmail(url);
       await sendTransactionalEmail({ to: user.email, ...message });
+    },
+  },
+  // A session row is created on every successful sign-in and deleted on
+  // sign-out, so it cannot answer "how many people signed in this week". This
+  // hook records the durable event. It is additive: the sign-in itself has
+  // already succeeded by the time it runs, and `recordSignIn` swallows its own
+  // errors, so a logging failure can never block a member.
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          await recordSignIn(session.userId);
+        },
+      },
     },
   },
   advanced: {
