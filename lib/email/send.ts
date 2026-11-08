@@ -44,6 +44,21 @@ export function verificationEmail(url: string) {
   };
 }
 
+/**
+ * The activation link sent after a verified payment.
+ *
+ * This is the only message that can turn a payment into an account, so it says
+ * plainly what it does, how long it lasts and what to do if it was not
+ * expected. It never contains a password, a card detail or a session.
+ */
+export function activationEmail(url: string, planName: string) {
+  return {
+    subject: "Activate your Wands membership",
+    text: `Your payment for ${planName} is confirmed.\n\nSet your password to activate your Wands account:\n\n${url}\n\nThe link can be used once and expires in 24 hours. If you did not start a Wands membership you can ignore this message and nothing will be charged to you by us.`,
+    html: `<p>Your payment for <strong>${planName}</strong> is confirmed.</p><p><a href="${url}">Set your password and activate your account</a></p><p>The link can be used once and expires in 24 hours. If you did not start a Wands membership you can ignore this message.</p>`,
+  };
+}
+
 export function passwordResetEmail(url: string) {
   return {
     subject: "Reset your Wands password",

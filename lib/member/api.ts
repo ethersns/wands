@@ -3,6 +3,11 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { isAccountSuspended } from "@/lib/admin/account-status";
+import {
+  entitlementMessage,
+  getEntitlement,
+  type EntitlementReason,
+} from "@/lib/billing/entitlement";
 import { getMemberSession } from "./session";
 import { firstIssue } from "./validation";
 
@@ -22,6 +27,22 @@ export class UnauthorizedError extends Error {
 export class SuspendedError extends Error {
   constructor() {
     super("This account is suspended. Contact support if you believe this is a mistake.");
+  }
+}
+
+/**
+ * A signed-in account with no eligible subscription.
+ *
+ * 402 rather than 403: the request is well-formed and the caller is who they
+ * say they are, they simply have not paid for this. The reason travels with it
+ * so the client can say "your payment failed" instead of a generic refusal.
+ */
+export class MembershipRequiredError extends Error {
+  reason: EntitlementReason;
+
+  constructor(reason: EntitlementReason) {
+    super(entitlementMessage(reason));
+    this.reason = reason;
   }
 }
 
@@ -53,6 +74,29 @@ export async function requireMemberApi(): Promise<MemberActor> {
   };
 }
 
+/**
+ * The paid gate for APIs.
+ *
+ * Used by every endpoint that returns research, watchlists, saved items or
+ * notifications. Hiding a navigation link is not access control: a member with
+ * a valid session and no subscription can still call these routes directly, so
+ * the entitlement is checked on the server for each one.
+ *
+ * Account, preferences and onboarding deliberately use `requireMemberApi`
+ * instead — an unpaid member must be able to finish setting up and see their
+ * own account.
+ */
+export async function requireEntitledMemberApi(): Promise<MemberActor> {
+  const actor = await requireMemberApi();
+  const entitlement = await getEntitlement(actor.userId);
+
+  if (!entitlement.allowed) {
+    throw new MembershipRequiredError(entitlement.reason);
+  }
+
+  return actor;
+}
+
 export async function handleMemberRoute(fn: () => Promise<unknown>): Promise<NextResponse> {
   try {
     const data = await fn();
@@ -63,6 +107,12 @@ export async function handleMemberRoute(fn: () => Promise<unknown>): Promise<Nex
     }
     if (error instanceof SuspendedError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (error instanceof MembershipRequiredError) {
+      return NextResponse.json(
+        { error: error.message, code: "membership_required", reason: error.reason },
+        { status: 402 },
+      );
     }
     if (error instanceof ZodError) {
       return NextResponse.json({ error: firstIssue(error) }, { status: 400 });

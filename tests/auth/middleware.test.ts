@@ -42,6 +42,27 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe("public registration", () => {
+  it("closes the Better Auth sign-up endpoint", async () => {
+    // Accounts are only created by the activation route after a verified
+    // payment. Leaving this open would be a free account with one POST.
+    const response = await middleware(request("/api/auth/sign-up/email"));
+    expect(response.status).toBe(404);
+    expect(passedThrough(response)).toBe(false);
+  });
+
+  it("still allows sign-in and password reset", async () => {
+    for (const path of [
+      "/api/auth/sign-in/email",
+      "/api/auth/request-password-reset",
+      "/api/auth/get-session",
+    ]) {
+      const response = await middleware(request(path));
+      expect(passedThrough(response), path).toBe(true);
+    }
+  });
+});
+
 describe("engine proxy gate", () => {
   it("forwards a request carrying a valid session", async () => {
     const token = await createSessionToken();

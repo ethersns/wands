@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { devBypassActive } from "@/lib/auth/dev-bypass";
-import { hasMemberSessionCookie, isApiPath, isMemberPage, routeTier } from "@/lib/auth/routes";
+import {
+  ENTITLEMENT_EXEMPT_HEADER,
+  hasMemberSessionCookie,
+  isApiPath,
+  isBillingSurface,
+  isMemberPage,
+  routeTier,
+} from "@/lib/auth/routes";
 import {
   SESSION_COOKIE,
   gateConfigured,
@@ -67,6 +74,19 @@ function notFoundResponse() {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Public registration is closed.
+  //
+  // Wands has no free accounts, so the only way an account is created is the
+  // activation route, after a verified payment. That route calls Better Auth's
+  // server API in-process rather than over HTTP, so closing this endpoint does
+  // not affect it — but it does stop anyone from creating a free account by
+  // posting to the auth handler directly, which would otherwise be a way around
+  // the paid signup entirely.
+  if (pathname === "/api/auth/sign-up" || pathname.startsWith("/api/auth/sign-up/")) {
+    return notFoundResponse();
+  }
+
   const tier = routeTier(pathname);
 
   if (tier === "denied") {
@@ -83,7 +103,14 @@ export async function middleware(request: NextRequest) {
       signIn.searchParams.set("next", pathname);
       return NextResponse.redirect(signIn);
     }
-    return NextResponse.next();
+
+    // The workspace layout enforces the paid entitlement, but it cannot read
+    // the pathname. The billing surface is the one part of `/app` an unpaid
+    // member must still reach, so the classification is passed down here.
+    const headers = new Headers(request.headers);
+    headers.set(ENTITLEMENT_EXEMPT_HEADER, isBillingSurface(pathname) ? "1" : "0");
+
+    return NextResponse.next({ request: { headers } });
   }
 
   if (tier !== "operator") {

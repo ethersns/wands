@@ -20,6 +20,7 @@ import {
   getBillingSummary,
   listBilling,
   listRetainedBillingReferences,
+  listSignupIntents,
   recentBillingEvents,
   upcomingRenewals,
 } from "@/lib/admin/billing";
@@ -35,13 +36,27 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   await requireOperator("/dashboard/members/billing");
 
-  const [summary, billing, events, renewals, retained] = await Promise.all([
+  const [summary, billing, events, renewals, retained, signups] = await Promise.all([
     getBillingSummary(),
     listBilling({ pageSize: 50 }),
     recentBillingEvents(10),
     upcomingRenewals(8),
     listRetainedBillingReferences(25),
+    listSignupIntents(25),
   ]);
+
+  const mrrLabel =
+    summary.mrr.length === 0
+      ? "—"
+      : summary.mrr
+          .map((line) =>
+            new Intl.NumberFormat("en-US", {
+              style: "currency",
+              currency: line.currency.toUpperCase(),
+              maximumFractionDigits: 0,
+            }).format(line.amountMinor / 100),
+          )
+          .join(" · ");
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,11 +78,14 @@ export default async function BillingPage() {
 
       <MemberTabs />
 
-      <section aria-label="Billing totals" className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      <section
+        aria-label="Billing totals"
+        className="grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-6"
+      >
         <Kpi
-          label="Memberships"
-          value={formatNumber(summary.total)}
-          footnote="rows in member_membership"
+          label="MRR"
+          value={mrrLabel}
+          footnote="from Stripe subscriptions only"
         />
         <Kpi
           label="Paying"
@@ -75,16 +93,93 @@ export default async function BillingPage() {
           footnote={`${formatNumber(summary.trialing)} trialing`}
         />
         <Kpi
-          label="Comped"
-          value={formatNumber(summary.comped)}
-          footnote="non-free, no subscription"
+          label="Pending payment"
+          value={formatNumber(summary.pendingPayment)}
+          footnote="checkout started, unpaid"
+        />
+        <Kpi
+          label="Pending activation"
+          value={formatNumber(summary.pendingActivation)}
+          footnote="paid, not activated"
         />
         <Kpi
           label="Past due"
           value={formatNumber(summary.pastDue)}
           footnote={summary.pastDue > 0 ? "needs attention" : "none"}
         />
+        <Kpi
+          label="Comped"
+          value={formatNumber(summary.comped)}
+          footnote="owner grant, not revenue"
+        />
       </section>
+
+      <SectionCard
+        title="Signup funnel"
+        description="Every checkout that was started, including the ones that never became accounts. A manually assigned plan is not counted as revenue anywhere on this page."
+        bodyClassName="px-0 pb-0 sm:px-0"
+      >
+        {signups.length === 0 ? (
+          <div className="px-4 pb-4 sm:px-5">
+            <EmptyState
+              icon={CreditCard}
+              title="No signups yet"
+              description="A row appears here as soon as someone starts a checkout."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Paid</TableHead>
+                  <TableHead>Activated</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {signups.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-[11px] text-foreground">
+                      {row.email}
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-foreground">
+                      {row.plan}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          row.status === "activated"
+                            ? "rounded-md border border-profit/30 bg-profit/10 px-2 py-0.5 text-[10px] font-medium text-profit"
+                            : row.status === "paid"
+                              ? "rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-foreground"
+                              : row.status === "pending"
+                                ? "rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                : "rounded-md border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
+                        }
+                      >
+                        {row.status}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(row.created_at)}
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.paid_at ? formatDateTime(row.paid_at) : "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.activated_at ? formatDateTime(row.activated_at) : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
 
       <div className="grid gap-3 lg:grid-cols-3">
         <SectionCard title="By tier" description="Every membership row, grouped by plan.">
@@ -179,6 +274,7 @@ export default async function BillingPage() {
                   <TableHead>Member</TableHead>
                   <TableHead>Tier</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Entitlement</TableHead>
                   <TableHead>Account</TableHead>
                   <TableHead>Period end</TableHead>
                   <TableHead>Stripe customer</TableHead>
@@ -206,6 +302,13 @@ export default async function BillingPage() {
                     </TableCell>
                     <TableCell>
                       <MembershipStatusBadge status={row.status} />
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.entitlement_source === "stripe"
+                        ? row.cancel_at_period_end
+                          ? "stripe · cancelling"
+                          : "stripe"
+                        : row.entitlement_source}
                     </TableCell>
                     <TableCell>
                       <AccountStatusBadge status={row.account_status} />

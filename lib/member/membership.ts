@@ -1,8 +1,28 @@
 import "server-only";
 
-import { query } from "@/lib/db";
+import { billingEnabled } from "@/lib/billing/config";
+import {
+  getEntitlement,
+  type EntitlementReason,
+  type EntitlementSource,
+} from "@/lib/billing/entitlement";
+import { isDatabaseConfigured, query } from "@/lib/db";
 
-export const MEMBER_PLANS = ["free", "early_access", "desk"] as const;
+/**
+ * What a member's account includes.
+ *
+ * This is a presentation layer over the entitlement decision, not a second
+ * source of truth. `getEntitlement` decides whether access is allowed; this
+ * module turns that answer into a plan name, a set of limits and the dates the
+ * billing page shows.
+ *
+ * There is no free plan. An account with no eligible subscription resolves to
+ * `none`, which carries zero limits — the limits exist so a lapsed member's
+ * saved research is preserved and readable in the billing surface, not so it
+ * can be used.
+ */
+
+export const MEMBER_PLANS = ["none", "founding"] as const;
 export type MemberPlan = (typeof MEMBER_PLANS)[number];
 
 export type PlanLimits = {
@@ -13,37 +33,14 @@ export type PlanLimits = {
 };
 
 const PLAN_LIMITS: Record<MemberPlan, PlanLimits> = {
-  free: { watchlists: 1, savedItems: 25, insiderWindowDays: 30, institutionalChanges: false },
-  early_access: { watchlists: 10, savedItems: 500, insiderWindowDays: 365, institutionalChanges: true },
-  desk: { watchlists: 50, savedItems: 5000, insiderWindowDays: 1095, institutionalChanges: true },
+  none: { watchlists: 0, savedItems: 0, insiderWindowDays: 0, institutionalChanges: false },
+  founding: { watchlists: 50, savedItems: 5000, insiderWindowDays: 1095, institutionalChanges: true },
 };
 
 const PLAN_LABELS: Record<MemberPlan, string> = {
-  free: "Free",
-  early_access: "Early access",
-  desk: "Desk",
+  none: "No active membership",
+  founding: "Wands Founding Access",
 };
-
-export const PLAN_CATALOG: Array<{ plan: MemberPlan; label: string; blurb: string; limits: PlanLimits }> = [
-  {
-    plan: "free",
-    label: PLAN_LABELS.free,
-    blurb: "One watchlist and a 30-day insider window.",
-    limits: PLAN_LIMITS.free,
-  },
-  {
-    plan: "early_access",
-    label: PLAN_LABELS.early_access,
-    blurb: "Full research history, institutional changes and ten watchlists.",
-    limits: PLAN_LIMITS.early_access,
-  },
-  {
-    plan: "desk",
-    label: PLAN_LABELS.desk,
-    blurb: "Three-year insider history and the largest saved-research allowance.",
-    limits: PLAN_LIMITS.desk,
-  },
-];
 
 export type Membership = {
   plan: MemberPlan;
@@ -52,49 +49,64 @@ export type Membership = {
   limits: PlanLimits;
   currentPeriodEnd: string | null;
   billingEnabled: boolean;
+  entitled: boolean;
+  reason: EntitlementReason;
+  source: EntitlementSource;
+  cancelAtPeriodEnd: boolean;
+  stripeCustomerId: string | null;
 };
-
-type MembershipRow = {
-  plan: string;
-  status: string;
-  current_period_end: Date | null;
-};
-
-function defaultPlan(): MemberPlan {
-  const configured = process.env.WANDS_DEFAULT_PLAN;
-  return MEMBER_PLANS.includes(configured as MemberPlan) ? (configured as MemberPlan) : "early_access";
-}
 
 export function isBillingEnabled(): boolean {
-  return process.env.WANDS_BILLING_ENABLED === "true";
+  return billingEnabled;
+}
+
+/**
+ * Maps a stored plan onto the current catalogue.
+ *
+ * Rows written before billing existed carry `free`, `early_access` or `desk`.
+ * None of those is a payment, so they resolve to `none` — unless the account
+ * holds an entitlement by another route (an owner grant), in which case it is
+ * shown as founding access because that is what it now receives.
+ */
+function resolvePlan(storedPlan: string | null, entitled: boolean): MemberPlan {
+  if (storedPlan === "founding") return "founding";
+  return entitled ? "founding" : "none";
 }
 
 export async function getMembership(userId: string): Promise<Membership> {
-  const rows = await query<MembershipRow>(
-    `select plan, status, current_period_end from member_membership where user_id = $1`,
-    [userId],
-  );
-
-  const row = rows[0];
-  const plan = MEMBER_PLANS.includes(row?.plan as MemberPlan) ? (row!.plan as MemberPlan) : defaultPlan();
+  const entitlement = await getEntitlement(userId);
+  const plan = resolvePlan(entitlement.plan, entitlement.allowed);
 
   return {
     plan,
-    status: row?.status ?? "active",
+    status: entitlement.status,
     label: PLAN_LABELS[plan],
     limits: PLAN_LIMITS[plan],
-    currentPeriodEnd: row?.current_period_end ? row.current_period_end.toISOString() : null,
-    billingEnabled: isBillingEnabled(),
+    currentPeriodEnd: entitlement.currentPeriodEnd,
+    billingEnabled,
+    entitled: entitlement.allowed,
+    reason: entitlement.reason,
+    source: entitlement.source,
+    cancelAtPeriodEnd: entitlement.cancelAtPeriodEnd,
+    stripeCustomerId: entitlement.stripeCustomerId,
   };
 }
 
+/**
+ * Creates the membership row for a new account.
+ *
+ * The row starts with no entitlement. It exists so the account has somewhere to
+ * record a subscription later, not so it has something to use now.
+ */
 export async function ensureMembership(userId: string): Promise<Membership> {
-  await query(
-    `insert into member_membership (user_id, plan, status)
-     values ($1, $2, 'active')
-     on conflict (user_id) do nothing`,
-    [userId, defaultPlan()],
-  );
+  if (isDatabaseConfigured()) {
+    await query(
+      `insert into member_membership (user_id, plan, status, entitlement_source)
+       values ($1, 'none', 'none', 'none')
+       on conflict (user_id) do nothing`,
+      [userId],
+    );
+  }
 
   return getMembership(userId);
 }
