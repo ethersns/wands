@@ -140,9 +140,9 @@ and an `Institutions` entry in `MEMBER_NAV`.
 | Gap | Detail | Status |
 | --- | --- | --- |
 | Institution drill-down | `GET /v1/intelligence/institutions/{cik}/changes` is served by the engine, but there is no member-safe client function and no member detail page. The list shows reported value, position count and public-availability date only. | `missing-frontend` |
-| Engine not deployed | No `WANDS_ENGINE_URL` or `WANDS_RESEARCH_TOKEN` is configured, so every member research page renders the `unavailable` state. | `blocked` |
-| Two engine migrations unapplied | `f1a2b3c4d5e6` (Performance Lab) and `a7c4e2b91f38` (Opportunity Desk) are pending per `docs/secure-infra-engine-readiness.md`. Not re-verified here: the engine database is not reachable from this environment. | `blocked` |
-| Development shares the production database | Isolation is a manual Vercel/Neon step. | `blocked` |
+| Engine not deployed | No `WANDS_ENGINE_URL` or `WANDS_RESEARCH_TOKEN` is configured, so every member research page renders the `unavailable` state. The engine itself now runs and answers correctly; it has no public host. See `docs/railway-deployment.md`. | `blocked` |
+| Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with all 8 migrations applied (45 tables, at head `a7c4e2b91f38`). No engine is connected to it yet. | `local-verified` |
+| Development shares the production database | The engine is isolated in `wands_engine`. The Next.js app still shares `neondb` between development and production. | `blocked` |
 
 ---
 
@@ -332,17 +332,18 @@ Not run, and therefore not claimed:
 
 ## 8. Blockers requiring the owner
 
-1. **Deploy the engine.** It is a long-lived FastAPI process with an in-process
-   market-data worker and job scheduler, so it cannot run as a Vercel serverless
-   function. `docs/secure-infra-engine-readiness.md` section 8 has the runtime,
-   the required variables and the probe paths. This needs a hosting decision and
-   spending approval.
+1. **Deploy the engine to Railway.** Configuration is prepared in
+   `backend/railway.json` and `backend/.env.railway.example`; the runbook is
+   `docs/railway-deployment.md`. This needs Railway access, which was not
+   available when the configuration was written. No Railway build or deploy has
+   been attempted, and no Railway Postgres should be added.
 2. **Set `WANDS_ENGINE_URL` and `WANDS_RESEARCH_TOKEN`** on the frontend once the
-   engine is reachable. Until then every member research page renders
-   `unavailable`, which is the correct behaviour, not a bug.
-3. **Apply the two pending engine migrations** after a backup. Sequence in
-   `docs/secure-infra-engine-readiness.md` section 9.
+   engine is reachable. Mint the token with
+   `python -m scripts.create_research_key`. Until then every member research page
+   renders `unavailable`, which is the correct behaviour, not a bug.
+3. **Set `WANDS_ENCRYPTION_KEY`** on the engine before any broker credential is
+   stored. The engine starts without it, but credential writes fail closed.
 4. **Set `WANDS_FOUNDER_USER_IDS`** to make the Opportunity Desk operable.
-5. **Isolate the development database** from production.
+5. **Isolate the application database** between development and production.
 6. **Set `WANDS_SEC_USER_AGENT`** to a real operator contact before enabling SEC
    ingestion. The settings validator refuses to start on the placeholder.
