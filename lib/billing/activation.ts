@@ -63,6 +63,27 @@ export async function hasLiveActivationToken(intentId: string): Promise<boolean>
   return rows.length > 0;
 }
 
+/**
+ * Invalidates every live token for an intent.
+ *
+ * Used when a replacement link is issued: the customer must never be left
+ * holding two working links, and a link that was never delivered has to stop
+ * working the moment a new one exists.
+ */
+export async function revokeLiveActivationTokens(intentId: string): Promise<number> {
+  if (!isDatabaseConfigured()) return 0;
+
+  const rows = await query<{ id: string }>(
+    `update member_activation_token
+     set used_at = now()
+     where intent_id = $1::uuid and used_at is null
+     returning id::text as id`,
+    [intentId],
+  );
+
+  return rows.length;
+}
+
 export interface ActivationLookup {
   tokenId: string;
   expiresAt: string;

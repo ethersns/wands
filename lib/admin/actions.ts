@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { safeReturnTo, type ActionState } from "./action-state";
+import { safeReturnTo, type ActionState, type ActivationLinkState } from "./action-state";
+import {
+  emailActivationLink,
+  issueActivationLink,
+  revokeActivationLinks,
+} from "./activation-links";
 import { checkOperator } from "./guard";
 import {
   deleteMember,
@@ -117,6 +122,59 @@ export async function deleteMemberAction(
   refreshMemberViews(userId);
 
   return { ok: result.ok, message: result.message };
+}
+
+/**
+ * Mints a replacement activation link and returns it to the operator once.
+ *
+ * This is the manual path for a paid customer who never received the emailed
+ * link. It is deliberately not a "resend": the stored token is a hash, so the
+ * original link cannot be recovered, and the only way to hand one over is to
+ * replace it.
+ */
+export async function issueActivationLinkAction(
+  _previous: ActivationLinkState | null,
+  formData: FormData,
+): Promise<ActivationLinkState> {
+  const who = await resolveActor();
+  if (!who.ok) return who.state;
+
+  const intentId = String(formData.get("intentId") ?? "");
+
+  const result = await issueActivationLink({ intentId, actor: who.actor });
+  revalidatePath("/dashboard/members/billing");
+
+  return result;
+}
+
+export async function emailActivationLinkAction(
+  _previous: ActivationLinkState | null,
+  formData: FormData,
+): Promise<ActivationLinkState> {
+  const who = await resolveActor();
+  if (!who.ok) return who.state;
+
+  const intentId = String(formData.get("intentId") ?? "");
+
+  const result = await emailActivationLink({ intentId, actor: who.actor });
+  revalidatePath("/dashboard/members/billing");
+
+  return result;
+}
+
+export async function revokeActivationLinkAction(
+  _previous: ActionState | null,
+  formData: FormData,
+): Promise<ActionState> {
+  const who = await resolveActor();
+  if (!who.ok) return who.state;
+
+  const intentId = String(formData.get("intentId") ?? "");
+
+  const result = await revokeActivationLinks({ intentId, actor: who.actor });
+  revalidatePath("/dashboard/members/billing");
+
+  return result;
 }
 
 export async function deleteWaitlistEntryAction(
