@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
 import { AccountStatusBadge } from "@/components/admin/account-status-badge";
+import { ActionFlash } from "@/components/admin/action-flash";
 import { MemberActions } from "@/components/admin/member-actions";
 import { MemberTabs } from "@/components/admin/member-tabs";
 import { AdminPagination } from "@/components/admin/pagination";
@@ -30,7 +31,7 @@ export const dynamic = "force-dynamic";
 export default async function SuspendedMembersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; reactivated?: string }>;
 }) {
   await requireOperator("/dashboard/members/suspended");
 
@@ -42,6 +43,18 @@ export default async function SuspendedMembersPage({
     page: Number.isFinite(page) ? page : 1,
   });
 
+  // A reactivated account is no longer suspended, so it is gone from this list
+  // by the time the page re-renders. The confirmation has to come from the URL
+  // rather than from the row, and it has to say why the row disappeared.
+  const reactivated = typeof params.reactivated === "string" ? params.reactivated : null;
+  const reactivatedEmail = reactivated && reactivated !== "1" ? reactivated : null;
+
+  const dismissParams = new URLSearchParams();
+  if (result.page > 1) dismissParams.set("page", String(result.page));
+  const dismissHref = `/dashboard/members/suspended${
+    dismissParams.size > 0 ? `?${dismissParams.toString()}` : ""
+  }`;
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -50,6 +63,15 @@ export default async function SuspendedMembersPage({
       />
 
       <MemberTabs />
+
+      {reactivated ? (
+        <ActionFlash
+          dismissHref={dismissHref}
+          message={`${
+            reactivatedEmail ? `${reactivatedEmail} was` : "The account was"
+          } reactivated and can sign in again. It is no longer in this list because it is active.`}
+        />
+      ) : null}
 
       <SectionCard
         title={`${result.total} suspended account${result.total === 1 ? "" : "s"}`}
@@ -121,6 +143,7 @@ export default async function SuspendedMembersPage({
                           userId={member.id}
                           email={member.email}
                           status={member.account_status}
+                          returnTo="/dashboard/members/suspended"
                         />
                       </div>
                     </TableCell>

@@ -247,6 +247,49 @@ export async function recentBillingEvents(limit = 15): Promise<BillingEventRow[]
   }
 }
 
+export interface RetainedBillingReference {
+  id: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  plan: string | null;
+  membership_status: string | null;
+  current_period_end: string | null;
+  deleted_at: string;
+  deleted_by: string;
+}
+
+/**
+ * Billing references kept after an account was deleted.
+ *
+ * These rows are the only surviving link between a charge and the customer it
+ * belonged to, so they are read here — in the billing view, behind the operator
+ * gate — and nowhere else. They carry no name, address or email: the person is
+ * identified by the Stripe customer reference, which is the system of record
+ * for the payment.
+ */
+export async function listRetainedBillingReferences(
+  limit = 25,
+): Promise<RetainedBillingReference[]> {
+  if (!isDatabaseConfigured()) return [];
+
+  try {
+    return await query<RetainedBillingReference>(
+      `select id::text, stripe_customer_id, stripe_subscription_id, plan,
+              membership_status, current_period_end, deleted_at, deleted_by
+       from member_billing_reference
+       order by deleted_at desc
+       limit $1`,
+      [Math.min(Math.max(limit, 1), 100)],
+    );
+  } catch (cause) {
+    console.log(
+      "[v0] retained billing reference read failed:",
+      cause instanceof Error ? cause.message : cause,
+    );
+    return [];
+  }
+}
+
 /** Renewals due in the next 30 days, for the billing page's forward look. */
 export async function upcomingRenewals(limit = 10): Promise<
   { user_id: string; email: string; plan: string; current_period_end: string }[]

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Bookmark, Eye, ListChecks, ShieldCheck } from "lucide-react";
 
 import { AccountStatusBadge, MembershipStatusBadge } from "@/components/admin/account-status-badge";
+import { ActionFlash } from "@/components/admin/action-flash";
 import { MemberActions } from "@/components/admin/member-actions";
 import { MemberTabs } from "@/components/admin/member-tabs";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -37,8 +38,10 @@ function NotRecorded() {
 
 export default async function MemberDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ reactivated?: string }>;
 }) {
   const { id } = await params;
   await requireOperator(`/dashboard/members/${id}`);
@@ -48,6 +51,7 @@ export default async function MemberDetailPage({
   if (!member) notFound();
 
   const suspended = member.account_status === "suspended";
+  const { reactivated } = await searchParams;
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,11 +77,19 @@ export default async function MemberDetailPage({
             userId={member.id}
             email={member.email}
             status={member.account_status}
+            returnTo={`/dashboard/members/${member.id}`}
           />
         }
       />
 
       <MemberTabs />
+
+      {reactivated ? (
+        <ActionFlash
+          dismissHref={`/dashboard/members/${member.id}`}
+          message={`${member.email} was reactivated and can sign in again.`}
+        />
+      ) : null}
 
       {suspended ? (
         <section

@@ -244,6 +244,9 @@ export async function reactivateMember(input: {
         ok: true,
         changed: true,
         message: "Account reactivated. The member can sign in again.",
+        // The address is returned so the caller can name the account in the
+        // confirmation it shows after the row has left the suspended list.
+        detail: { email: user.email },
       };
     });
 
@@ -320,8 +323,10 @@ export async function deleteMember(input: {
         stripe_customer_id: string | null;
         stripe_subscription_id: string | null;
         status: string | null;
+        plan: string | null;
+        current_period_end: string | null;
       }>(
-        `select stripe_customer_id, stripe_subscription_id, status
+        `select stripe_customer_id, stripe_subscription_id, status, plan, current_period_end
          from member_membership where user_id = $1`,
         [input.userId],
       );
@@ -349,40 +354,81 @@ export async function deleteMember(input: {
         [input.userId],
       );
 
-      // The security trail outlives the account, but the link to the person
-      // does not. Nulling the reference keeps the aggregate counts honest while
-      // removing the association with a deleted member.
-      await tx(`update member_login_event set user_id = null where user_id = $1`, [
-        input.userId,
-      ]);
-      await tx(`update member_security_event set user_id = null where user_id = $1`, [
-        input.userId,
-      ]);
+      // The security trail outlives the account, but the person does not. The
+      // account reference, the address digest and the network metadata are all
+      // identifiers of a human being, and none of them is needed once the
+      // account is gone. What remains is the aggregate record — when, what kind
+      // of event, and whether it succeeded — which is what the counts and the
+      // security review actually use.
+      await tx(
+        `update member_login_event
+         set user_id = null, ip_address = null, user_agent = null
+         where user_id = $1`,
+        [input.userId],
+      );
+      await tx(
+        `update member_security_event
+         set user_id = null, ip_address = null, user_agent = null, email_hash = null
+         where user_id = $1`,
+        [input.userId],
+      );
+
+      // Billing references are a legal record, not an audit note. They are kept
+      // in their own table, reachable only from the operator's billing view, so
+      // the general audit log never becomes a place where a deleted customer's
+      // payment identity accumulates.
+      const hasBillingReference = Boolean(
+        live?.stripe_customer_id || live?.stripe_subscription_id,
+      );
+
+      let billingReferenceId: string | null = null;
+
+      if (hasBillingReference) {
+        const retained = await tx<{ id: string }>(
+          `insert into member_billing_reference
+             (stripe_customer_id, stripe_subscription_id, plan, membership_status,
+              current_period_end, deleted_by)
+           values ($1, $2, $3, $4, $5, $6)
+           returning id::text as id`,
+          [
+            live?.stripe_customer_id ?? null,
+            live?.stripe_subscription_id ?? null,
+            live?.plan ?? null,
+            live?.status ?? null,
+            live?.current_period_end ?? null,
+            input.actor,
+          ],
+        );
+        billingReferenceId = retained[0]?.id ?? null;
+      }
 
       // Every member-owned table cascades from "user", so this one statement
       // removes the profile, watchlists, saved research, notifications,
       // preferences, membership and sessions together.
       await tx(`delete from "user" where id = $1`, [input.userId]);
 
+      // The audit row records that a deletion happened and what it removed. It
+      // deliberately carries no account id, no address and no Stripe reference:
+      // the account no longer exists, so keeping its identifier here would
+      // retain a personal identifier for no operational reason. The billing
+      // reference id is a random key into the separate table above.
       await writeAudit(tx, {
         actor: input.actor,
         action: "member.delete",
-        target: input.userId,
+        target: null,
         detail: {
           ...counts[0],
-          // The Stripe references are recorded so the operator can still find
-          // the customer in Stripe after the Wands account is gone. Billing
-          // records themselves are never deleted here.
-          stripe_customer_id: live?.stripe_customer_id ?? null,
-          stripe_subscription_id: live?.stripe_subscription_id ?? null,
-          billing_records_retained: Boolean(live?.stripe_customer_id),
+          billing_reference_retained: billingReferenceId !== null,
+          billing_reference_id: billingReferenceId,
         },
       });
 
       return {
         ok: true,
         changed: true,
-        message: "Account deleted. Billing records were retained.",
+        message: hasBillingReference
+          ? "Account deleted. Billing references were retained separately."
+          : "Account deleted. No billing reference was held for this account.",
         detail: { ...counts[0] },
       };
     });

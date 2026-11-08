@@ -131,10 +131,12 @@ function SuspendForm({
 function ReactivateForm({
   userId,
   email,
+  returnTo,
   onClose,
 }: {
   userId: string;
   email: string;
+  returnTo: string;
   onClose: () => void;
 }) {
   const [state, formAction, pending] = useActionState(reactivateMemberAction, null);
@@ -149,6 +151,7 @@ function ReactivateForm({
       </DialogHeader>
 
       <input type="hidden" name="userId" value={userId} />
+      <input type="hidden" name="returnTo" value={returnTo} />
 
       <div className="flex flex-col gap-1">
         <label
@@ -260,10 +263,13 @@ export function MemberActions({
   userId,
   email,
   status,
+  returnTo = "/dashboard/members",
 }: {
   userId: string;
   email: string;
   status: string;
+  /** Where a successful reactivation reports back to. */
+  returnTo?: string;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const suspended = status === "suspended";
@@ -303,7 +309,12 @@ export function MemberActions({
             <SuspendForm userId={userId} email={email} onClose={() => setMode(null)} />
           ) : null}
           {mode === "reactivate" ? (
-            <ReactivateForm userId={userId} email={email} onClose={() => setMode(null)} />
+            <ReactivateForm
+              userId={userId}
+              email={email}
+              returnTo={returnTo}
+              onClose={() => setMode(null)}
+            />
           ) : null}
           {mode === "delete" ? (
             <DeleteForm userId={userId} email={email} onClose={() => setMode(null)} />
