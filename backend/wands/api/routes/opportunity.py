@@ -11,6 +11,7 @@ than leaving it to be inferred.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -147,6 +148,16 @@ def _test_payload(row: OppPaperTestRow) -> dict[str, Any]:
     }
 
 
+def _decision_payload(row: OppDecisionRow) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "candidateId": str(row.candidate_id),
+        "decision": row.decision,
+        "note": row.note,
+        "decidedAt": row.decided_at.isoformat(),
+    }
+
+
 @router.get("/budget")
 def get_budget(principal: Principal = _admin) -> dict[str, Any]:
     """The research workspace's stated limits, including which one binds."""
@@ -252,6 +263,29 @@ def list_candidates(
     )
 
 
+@router.get("/decisions")
+def list_decisions(
+    limit: int = Query(default=200, ge=1, le=500),
+    session: Session = Depends(get_session),
+    principal: Principal = _admin,
+) -> dict[str, Any]:
+    """The recorded decisions, newest first.
+
+    Decisions are append-only, so this is the journal rather than a current
+    state. The member surface reads it to show what was already decided about a
+    candidate instead of offering the same action twice.
+    """
+    rows = session.scalars(
+        select(OppDecisionRow)
+        .order_by(OppDecisionRow.decided_at.desc())
+        .limit(limit)
+    ).all()
+    return envelope(
+        {"decisions": [_decision_payload(row) for row in rows]},
+        warnings=[DISCLOSURE],
+    )
+
+
 @router.post("/candidates/{candidate_id}/decision")
 def record_decision(
     candidate_id: str,
@@ -263,7 +297,11 @@ def record_decision(
         raise BadRequest(
             f"Decision must be {CANDIDATE_WATCHED} or {CANDIDATE_REJECTED}."
         )
-    row = session.get(OppCandidateRow, candidate_id)
+    try:
+        parsed = uuid.UUID(candidate_id)
+    except ValueError as exc:
+        raise NotFound("That candidate does not exist.") from exc
+    row = session.get(OppCandidateRow, parsed)
     if row is None:
         raise NotFound("That candidate does not exist.")
 
@@ -299,7 +337,11 @@ def record_test(
     with an invented quantity, because a test that could not have been opened
     is not evidence.
     """
-    row = session.get(OppCandidateRow, candidate_id)
+    try:
+        parsed = uuid.UUID(candidate_id)
+    except ValueError as exc:
+        raise NotFound("That candidate does not exist.") from exc
+    row = session.get(OppCandidateRow, parsed)
     if row is None:
         raise NotFound("That candidate does not exist.")
     if row.quantity is None:
@@ -369,7 +411,11 @@ def evaluate(
     quoted prices did and subtracts estimated costs; it does not claim an order
     would have been filled at those prices.
     """
-    row = session.get(OppPaperTestRow, test_id)
+    try:
+        parsed = uuid.UUID(test_id)
+    except ValueError as exc:
+        raise NotFound("That test does not exist.") from exc
+    row = session.get(OppPaperTestRow, parsed)
     if row is None:
         raise NotFound("That test does not exist.")
 

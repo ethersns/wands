@@ -280,6 +280,36 @@ def test_the_time_stop_expires_an_unresolved_test() -> None:
     assert outcome.exit_price == D("101.3")
 
 
+def test_the_time_stop_settles_inside_the_window_not_after_it() -> None:
+    """The series runs past the deadline; the exit must not.
+
+    Every quiet candle inside the window closes at 101.3, and the candles after
+    the deadline close at 200. An evaluation that settled on the last candle in
+    the series would report a price and a holding period the rule never allowed.
+    """
+    inside = [
+        bar(105 + i * 5, "101.3", "101.5", "101.1", "101.3", "1000") for i in range(0, 40)
+    ]
+    after = [bar(345 + i * 5, "200", "200", "200", "200", "1000") for i in range(0, 10)]
+    test = make_test()
+
+    outcome = evaluate_test(test, inside + after)
+
+    assert outcome.status == TEST_EXPIRED
+    assert outcome.exit_price == D("101.3")
+    assert outcome.exit_at is not None
+    assert outcome.exit_at <= test.deadline
+    assert outcome.holding_seconds is not None
+    assert outcome.holding_seconds <= 4 * 3600
+
+
+def test_a_window_with_no_candles_inside_it_is_insufficient_data() -> None:
+    after = [bar(345 + i * 5, "200", "200", "200", "200", "1000") for i in range(0, 5)]
+    outcome = evaluate_test(make_test(), after)
+    assert outcome.status == INSUFFICIENT_DATA
+    assert outcome.exit_price is None
+
+
 def test_an_open_test_stays_active_and_reports_drawdown() -> None:
     outcome = evaluate_test(
         make_test(), [ENTRY_BAR, bar(110, "101.3", "101.5", "101.1", "101.3", "1000")]

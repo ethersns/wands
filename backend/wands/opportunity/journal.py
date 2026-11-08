@@ -110,11 +110,19 @@ def evaluate_test(
     status = TEST_ACTIVE
     reason = "The test is still open."
     notes: list[str] = []
+    # The last candle that actually fell inside the holding window. The time stop
+    # must settle on this one: the series handed in routinely runs past the
+    # deadline, and exiting on the final candle would report a price and a
+    # holding period the rule never allowed.
+    last_inside: Candle | None = None
+    window_closed = False
 
     for candle in candles:
         moment = _at(candle)
         if moment > test.deadline:
+            window_closed = True
             break
+        last_inside = candle
         worst = min(worst, candle.low)
 
         hit_stop = candle.low <= test.invalidation_price
@@ -147,10 +155,17 @@ def evaluate_test(
             break
 
     if status is TEST_ACTIVE:
-        last = candles[-1]
-        last_at = _at(last)
-        if last_at >= test.deadline:
-            exit_price = last.close
+        if last_inside is None:
+            return TestOutcome(
+                status=INSUFFICIENT_DATA,
+                exit_reason=(
+                    "No completed candle fell inside the holding window, so the "
+                    "price path cannot be evaluated."
+                ),
+            )
+        last_at = _at(last_inside)
+        if window_closed or last_at >= test.deadline:
+            exit_price = last_inside.close
             exit_at = last_at
             status = TEST_EXPIRED
             reason = "The holding window ended before either level was reached."
