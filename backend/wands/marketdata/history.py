@@ -297,17 +297,16 @@ class NasdaqHistoricalProvider:
     def is_configured(self) -> bool:
         return True
 
+    # Nasdaq serves funds and operating companies from the same path under a
+    # different asset class, and answers the wrong one with an empty table
+    # rather than an error. SPY is an ETF, so a stocks-only request looks
+    # exactly like a missing symbol. Both classes are tried, stocks first
+    # because that is the common case.
+    ASSET_CLASSES = ("stocks", "etf")
+
     def fetch_daily(self, symbol: str, start: date, end: date) -> list[HistoricalBar]:
         canonical = normalize_symbol(symbol, MarketType.STOCKS)
-        payload = self._get(canonical, start, end)
-        data = payload.get("data")
-        if not isinstance(data, dict):
-            raise ProviderDataError(
-                f"Nasdaq returned no historical table for {canonical}."
-            )
-        rows = ((data.get("tradesTable") or {}).get("rows")) or []
-        if not isinstance(rows, list):
-            raise ProviderDataError(f"Nasdaq returned a malformed table for {canonical}.")
+        rows = self._rows(canonical, start, end)
 
         bars: list[HistoricalBar] = []
         for raw in rows:
@@ -316,6 +315,17 @@ class NasdaqHistoricalProvider:
                 bars.append(parsed)
         bars.sort(key=lambda bar: bar.trading_date)
         return bars
+
+    def _rows(self, symbol: str, start: date, end: date) -> list[Any]:
+        for asset_class in self.ASSET_CLASSES:
+            payload = self._get(symbol, start, end, asset_class=asset_class)
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                continue
+            rows = ((data.get("tradesTable") or {}).get("rows")) or []
+            if isinstance(rows, list) and rows:
+                return rows
+        raise ProviderDataError(f"Nasdaq returned no historical table for {symbol}.")
 
     def _bar(self, symbol: str, raw: dict[str, Any]) -> HistoricalBar | None:
         stamp = raw.get("date")
@@ -342,7 +352,9 @@ class NasdaqHistoricalProvider:
             retrieved_at=self._clock(),
         )
 
-    def _get(self, symbol: str, start: date, end: date) -> dict[str, Any]:
+    def _get(
+        self, symbol: str, start: date, end: date, *, asset_class: str = "stocks"
+    ) -> dict[str, Any]:
         def operation() -> dict[str, Any]:
             now = time.monotonic()
             if not self._bucket.try_acquire(now):
@@ -354,7 +366,7 @@ class NasdaqHistoricalProvider:
                 response = self._http().get(
                     f"{self.BASE_URL}/{symbol}/historical",
                     params={
-                        "assetclass": "stocks",
+                        "assetclass": asset_class,
                         "fromdate": start.isoformat(),
                         "todate": end.isoformat(),
                         "limit": 9999,
