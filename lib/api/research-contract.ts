@@ -391,6 +391,31 @@ export interface QuantStudyResult {
   sampleSize: number;
   symbols?: string[];
   parameters?: Record<string, unknown>;
+  /** The versioned instrument set the study covers, and its known bias. */
+  universe?: {
+    identifier: string;
+    version: string;
+    symbols: string[];
+    rationale: string;
+    membershipReferenceDate: string;
+    dataSource: string;
+    dateRange: { start: string; end: string };
+    eligibility: string;
+    survivorshipLimitation: string;
+  };
+  /**
+   * Whether the result is in-sample, retrospective, or genuinely held out.
+   * Only `held_out` is independent evidence; the others are labelled so a
+   * retrospective result is never read as an out-of-sample proof.
+   */
+  evaluationStatus?: {
+    status: string;
+    label: string;
+    reason: string;
+    parametersFitted: boolean;
+    selectionMethod: string;
+    periods?: { period: string; status: string; note: string }[];
+  };
   benchmark?: string;
   costBps?: number;
   summary?: QuantStudySummary;

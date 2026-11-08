@@ -13,6 +13,7 @@ from wands.api.routes import (
     intelligence,
     markets,
     orders,
+    performance,
     portfolio,
     risk,
     settings,
@@ -38,3 +39,6 @@ api_router.include_router(risk.router, dependencies=_operator_only)
 api_router.include_router(connections.router, dependencies=_operator_only)
 api_router.include_router(settings.router, dependencies=_operator_only)
 api_router.include_router(intelligence.router)
+# The Performance Lab is a private research surface. It is operator-only, and
+# every route inside it additionally requires the admin role.
+api_router.include_router(performance.router, dependencies=_operator_only)

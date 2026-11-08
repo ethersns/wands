@@ -255,7 +255,7 @@ def _prices(args: argparse.Namespace) -> int:
     from datetime import date, timedelta
 
     from wands.marketdata.history import (
-        RESEARCH_UNIVERSE,
+        COLLECTION_UNIVERSE,
         HistoricalBarCollector,
         coverage_report,
     )
@@ -265,7 +265,7 @@ def _prices(args: argparse.Namespace) -> int:
     start = (
         date.fromisoformat(args.start) if args.start else end - timedelta(days=args.days)
     )
-    symbols = _split(args.symbols) or list(RESEARCH_UNIVERSE)
+    symbols = _split(args.symbols) or list(COLLECTION_UNIVERSE)
     with session_scope() as session:
         collector = HistoricalBarCollector(session, settings)
         results = collector.collect(symbols, start=start, end=end)

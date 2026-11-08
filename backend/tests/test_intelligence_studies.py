@@ -34,9 +34,11 @@ from wands.db.models import (
 from wands.intelligence.experiments import ExperimentDefinition
 from wands.intelligence.strategies import RULE_MOVING_AVERAGE, TREND
 from wands.intelligence.studies import (
+    EVALUATION_RETROSPECTIVE,
     INSIDER_PURCHASE,
     INSTITUTIONAL_DECREASE,
     INSTITUTIONAL_INCREASE,
+    PILOT_UNIVERSE,
     STATUS_COMPLETE,
     STATUS_INSUFFICIENT,
     STUDY_INSIDER,
@@ -752,3 +754,53 @@ def test_an_insufficient_experiment_is_returned_as_unavailable(client, session):
     assert body["provenance"] == "unavailable"
     assert body["data"]["status"] == STATUS_INSUFFICIENT
     assert body["data"]["sampleSize"] == 0
+
+
+def test_the_strategy_study_is_bounded_by_the_experiment_period(session):
+    """Bars outside the declared period must not reach the simulation.
+
+    The experiment records a period, so the run has to be the run that period
+    describes. Reading the whole stored series made the recorded period a label
+    that did not match the computation.
+    """
+    _candles(session)
+    # A second series that begins after the declared period ends.
+    _candles(session, start_day=400, sessions=60)
+
+    outcome = _lab(session).run_strategy_study(_strategy_definition())
+
+    coverage = outcome.payload["coverage"]
+    assert coverage["windowStart"] == PERIOD_START.isoformat()
+    assert coverage["windowEnd"] == PERIOD_END.isoformat()
+    # Only the in-period bars were read, not the later series as well.
+    assert coverage["bars"] == 200
+
+
+def test_the_strategy_study_records_the_universe_it_actually_covered(session):
+    _candles(session)
+
+    outcome = _lab(session).run_strategy_study(_strategy_definition())
+
+    universe = outcome.payload["universe"]
+    assert universe["identifier"] == PILOT_UNIVERSE.identifier
+    assert universe["version"] == PILOT_UNIVERSE.version
+    # The definition narrowed the list to one symbol, so the recorded universe
+    # must say one symbol rather than the default five.
+    assert universe["symbols"] == ["AAPL"]
+    assert universe["membershipReferenceDate"]
+    assert universe["survivorshipLimitation"]
+
+
+def test_the_strategy_study_labels_itself_retrospective_not_out_of_sample(session):
+    """The pilot data has been explored, so the result is not out-of-sample proof."""
+    _candles(session)
+
+    outcome = _lab(session).run_strategy_study(_strategy_definition())
+
+    status = outcome.payload["evaluationStatus"]
+    assert status["status"] == EVALUATION_RETROSPECTIVE
+    assert status["parametersFitted"] is False
+    periods = {item["period"]: item["status"] for item in status["periods"]}
+    assert periods["development"] == "explored"
+    assert periods["validation"] == "explored"
+    assert periods["holdout"] == "absent"

@@ -70,6 +70,120 @@ STRATEGY_SIGNAL_VERSION = "1.1"
 # validated would multiply the data-quality questions without answering any.
 PILOT_SYMBOLS: tuple[str, ...] = ("AAPL", "MSFT", "NVDA", "AMD", "JPM")
 
+
+@dataclass(frozen=True)
+class ResearchUniverse:
+    """A versioned statement of which instruments a study covers, and why.
+
+    A bare symbol list is not a universe. Which instruments, chosen on what
+    reference date, by what rule, from what source, over what range, and with
+    what known bias is what makes a result reproducible and its limits legible.
+    Recording it beside the result lets a later reader tell whether two runs
+    covered the same thing.
+    """
+
+    identifier: str
+    version: str
+    symbols: tuple[str, ...]
+    rationale: str
+    membership_reference_date: str
+    data_source: str
+    date_range: tuple[str, str]
+    eligibility: str
+    survivorship_limitation: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "identifier": self.identifier,
+            "version": self.version,
+            "symbols": list(self.symbols),
+            "rationale": self.rationale,
+            "membershipReferenceDate": self.membership_reference_date,
+            "dataSource": self.data_source,
+            "dateRange": {"start": self.date_range[0], "end": self.date_range[1]},
+            "eligibility": self.eligibility,
+            "survivorshipLimitation": self.survivorship_limitation,
+        }
+
+
+PILOT_UNIVERSE = ResearchUniverse(
+    identifier="pilot-large-cap-us",
+    version="1.0",
+    symbols=PILOT_SYMBOLS,
+    rationale=(
+        "Five large-capitalisation US listings chosen to exercise the pipeline "
+        "across semiconductors, software and banking. They are not a "
+        "representation of the market and were not selected by performance."
+    ),
+    membership_reference_date="2024-01-01",
+    data_source="stored daily OHLCV bars from the configured historical provider",
+    date_range=("2024-01-01", "2024-12-31"),
+    eligibility=(
+        "A symbol is measured only when its stored daily series covers the "
+        "experiment period and is long enough for the rule's warmup."
+    ),
+    survivorship_limitation=(
+        "Membership is a present-day list of companies that are still listed and "
+        "still large. Delisted and acquired issuers are absent, so the sample "
+        "carries survivorship bias that is not corrected here."
+    ),
+)
+
+# How a result relates to the data that produced it. These are not
+# interchangeable: only the last is independent evidence.
+EVALUATION_IN_SAMPLE = "in_sample"
+EVALUATION_RETROSPECTIVE = "retrospective_validation"
+EVALUATION_HELD_OUT = "held_out"
+
+# The three periods a properly staged evaluation would use, and what each one
+# actually is for this pilot. The holdout is absent rather than empty: no
+# untouched window exists in the stored history, and saying so is the honest
+# alternative to presenting explored data as a test.
+EVALUATION_PERIODS: tuple[dict[str, str], ...] = (
+    {
+        "period": "development",
+        "status": "explored",
+        "note": "The rules were written against this data.",
+    },
+    {
+        "period": "validation",
+        "status": "explored",
+        "note": (
+            "The same data was used to check the rules, so it is not an "
+            "independent check."
+        ),
+    },
+    {
+        "period": "holdout",
+        "status": "absent",
+        "note": "No untouched window exists in the stored history.",
+    },
+)
+
+
+def evaluation_status() -> dict[str, Any]:
+    """Whether a result is in-sample, retrospective, or genuinely held out.
+
+    The pilot symbols and the evaluation period were examined while the rules
+    were being written, so no part of this data is untouched. Calling the result
+    out-of-sample would be a claim the design cannot support, so it is labelled
+    retrospective validation and the reason travels with it.
+    """
+    return {
+        "status": EVALUATION_RETROSPECTIVE,
+        "label": "Retrospective validation",
+        "reason": (
+            "The pilot symbols and the evaluation period were examined while the "
+            "rules were being written, so this data has already influenced their "
+            "design. No untouched holdout window exists in the stored history, so "
+            "this is a retrospective result, not independent out-of-sample proof."
+        ),
+        "parametersFitted": False,
+        "selectionMethod": "stated defaults, no grid search",
+        "periods": [dict(item) for item in EVALUATION_PERIODS],
+    }
+
+
 INSIDER_PURCHASE = "insider_open_market_purchase"
 
 INSTITUTIONAL_INCREASE = "institutional_increase"
@@ -134,7 +248,8 @@ STRATEGY_LIMITATIONS = (
     "Corporate actions beyond splits are not reconstructed. A merger, spin-off or "
     "delisting inside the period would distort both the rule and the benchmark.",
     "The evaluation period is the same period the rules were written against. "
-    "There is no held-out out-of-sample window, so these are in-sample results.",
+    "There is no held-out out-of-sample window, so these are retrospective "
+    "results rather than independent out-of-sample proof.",
     "Three rules were evaluated on the same data. A per-rule p-value is not "
     "corrected for that search unless a multiple-testing adjustment is reported "
     "alongside it.",
@@ -729,9 +844,20 @@ class QuantLab:
     # -- baseline strategies ----------------------------------------------
 
     def run_strategy_study(self, definition: ExperimentDefinition) -> StudyOutcome:
-        symbols = tuple(definition.parameters.get("symbols", PILOT_SYMBOLS))
+        symbols = tuple(definition.parameters.get("symbols", PILOT_UNIVERSE.symbols))
+        # Record the universe that actually ran, not the default it was derived
+        # from: a definition that narrowed the symbol list must not be described
+        # by a universe that claims the wider one.
+        universe = replace(PILOT_UNIVERSE, symbols=symbols)
         raw = definition.parameters.get("strategy", {})
         parameters = strategies.StrategyParameters.from_dict(raw)
+
+        # The simulation is bounded by the period the experiment declares, and by
+        # its information cutoff. Reading the whole stored series instead would
+        # make the recorded period a label that does not describe the run, and
+        # would let bars past the cutoff influence a result that claims not to
+        # have used them.
+        window_end = min(definition.period_end, definition.information_cutoff)
 
         provider = strategies.CandleBarProvider(self.session)
         per_symbol: list[dict[str, Any]] = []
@@ -740,13 +866,16 @@ class QuantLab:
         bars_used = 0
 
         for symbol in symbols:
-            bars = provider.bars(symbol)
+            bars = provider.bars(symbol, definition.period_start, window_end)
             if not bars:
                 per_symbol.append(
                     {
                         "symbol": symbol,
                         "status": strategies.STATUS_NO_PRICE_DATA,
-                        "note": "No daily bars are stored for this symbol.",
+                        "note": (
+                            "No daily bars are stored for this symbol inside the "
+                            "experiment period."
+                        ),
                     }
                 )
                 continue
@@ -843,6 +972,8 @@ class QuantLab:
             "status": status,
             "sampleSize": len(pooled),
             "symbols": list(symbols),
+            "universe": universe.as_dict(),
+            "evaluationStatus": evaluation_status(),
             "parameters": parameters.as_dict(),
             "benchmark": "BUY_AND_HOLD",
             "costBps": parameters.cost_bps,
@@ -903,6 +1034,10 @@ class QuantLab:
                 "symbols": len(symbols),
                 "symbolsWithPrices": len(completed),
                 "bars": bars_used,
+                # The window actually simulated, which is the declared period
+                # clipped to the information cutoff rather than the whole series.
+                "windowStart": definition.period_start.isoformat(),
+                "windowEnd": window_end.isoformat(),
             },
             "flags": flags,
             "limitations": list(STRATEGY_LIMITATIONS),

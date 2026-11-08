@@ -13,6 +13,7 @@ import {
 } from "@/components/member/ui";
 import type { QuantCategory } from "@/lib/api/research-contract";
 import {
+  evaluationTone,
   formatCount,
   formatPercent,
   formatPValue,
@@ -188,6 +189,82 @@ export default async function ExperimentPage({
               hint="Share of bars holding a position"
             />
           </div>
+
+          <Panel title="Evaluation status">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={evaluationTone(result?.evaluationStatus?.status)}>
+                  {result?.evaluationStatus?.label ?? "Not recorded"}
+                </Badge>
+                <span className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+                  {result?.evaluationStatus?.parametersFitted
+                    ? "Parameters fitted"
+                    : "No parameters fitted"}
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-mk-muted text-pretty">
+                {result?.evaluationStatus?.reason ??
+                  "This result does not record how it relates to the data that produced it, so it cannot be read as out-of-sample evidence."}
+              </p>
+              {result?.evaluationStatus?.periods?.length ? (
+                <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {result.evaluationStatus.periods.map((period) => (
+                    <div key={period.period}>
+                      <dt className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+                        {period.period}
+                      </dt>
+                      <dd className="mt-0.5 font-marketing-mono text-sm tabular-nums text-mk-fg">
+                        {period.status}
+                      </dd>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-mk-dim text-pretty">
+                        {period.note}
+                      </p>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </div>
+          </Panel>
+
+          {result?.universe ? (
+            <Panel title="Universe">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                <Metric
+                  label="Identifier"
+                  value={`${result.universe.identifier} v${result.universe.version}`}
+                />
+                <Metric
+                  label="Membership reference"
+                  value={result.universe.membershipReferenceDate}
+                />
+                <Metric label="Symbols" value={result.universe.symbols.join(", ")} />
+                <Metric
+                  label="Date range"
+                  value={`${result.universe.dateRange.start} to ${result.universe.dateRange.end}`}
+                />
+                <Metric label="Data source" value={result.universe.dataSource} />
+                <Metric label="Eligibility" value={result.universe.eligibility} />
+              </dl>
+              <div className="mt-4 flex flex-col gap-3">
+                <div>
+                  <p className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+                    Selection rationale
+                  </p>
+                  <p className="mt-0.5 text-sm leading-relaxed text-mk-muted text-pretty">
+                    {result.universe.rationale}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+                    Known survivorship limitation
+                  </p>
+                  <p className="mt-0.5 text-sm leading-relaxed text-mk-muted text-pretty">
+                    {result.universe.survivorshipLimitation}
+                  </p>
+                </div>
+              </div>
+            </Panel>
+          ) : null}
 
           <Panel title="Equity curve">
             <QuantSeriesExplorer series={series} />

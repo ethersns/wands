@@ -498,11 +498,14 @@ class SignalValidator:
         benchmark: str,
         cost_bps: float,
     ) -> list[SplitEvaluation]:
-        """Split by availability time, not by row count.
+        """Split chronologically, at a fraction of the ordered sample.
 
-        A time split is what an observer would actually have experienced: the
-        early signals are the ones you could have studied, the later ones are
-        the ones you could not.
+        The observations are ordered by availability time and cut at a fraction
+        of the count, so the early signals are the ones an observer could have
+        studied and the later ones are the ones they could not. The boundary is
+        a position in the ordered sample rather than a calendar date, so adding
+        one signal moves it: the split is reproducible for a given sample, not
+        for a given period.
         """
         if len(observations) < 2:
             return []

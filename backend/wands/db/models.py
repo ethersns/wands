@@ -1138,3 +1138,228 @@ class IntelSignalOutcomeRow(Base):
     # ``ok`` | ``missing_price`` | ``missing_benchmark`` | ``delisted``
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="ok")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+# --------------------------------------------------------------------------
+# Performance Lab
+#
+# These tables exist to capture evidence before the outcome is known. A signal
+# row is written when the signal is generated, never backfilled, and the
+# evaluation rows that reference it are append-only. ``content_hash`` on each
+# row is a tamper-evidence check, not a third-party audit.
+# --------------------------------------------------------------------------
+
+# Returns need more precision than PERCENT: a 0.1435 return is 14.35%, and
+# rounding it to three decimals would lose the difference between two runs.
+RETURN = Numeric(20, 10)
+
+
+class PerfStrategyVersionRow(Base):
+    """A frozen strategy definition.
+
+    A version is immutable once a recorded test references it. Changing a
+    parameter creates a new version, so a result can always be traced back to
+    the exact definition that produced it.
+    """
+
+    __tablename__ = "perf_strategy_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "strategy_key", "version", name="uq_perf_strategy_versions_key_version"
+        ),
+        UniqueConstraint(
+            "strategy_key", "definition_hash", name="uq_perf_strategy_versions_key_hash"
+        ),
+        Index("ix_perf_strategy_versions_key", "strategy_key", "version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    strategy_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    signal_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    definition_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class PerfRecordedSignalRow(Base):
+    """A signal as it was generated, with the data it was generated from.
+
+    ``generated_at`` is when the strategy produced the signal; ``observed_at`` is
+    when the underlying market data was observed. They are separate columns
+    because a signal computed from a stale bar is a different claim from one
+    computed from a fresh bar, and collapsing them would hide that.
+    """
+
+    __tablename__ = "perf_recorded_signals"
+    __table_args__ = (
+        UniqueConstraint("signal_key", name="uq_perf_recorded_signals_signal_key"),
+        Index("ix_perf_recorded_signals_symbol", "symbol", "generated_at"),
+        Index("ix_perf_recorded_signals_generated", "generated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    signal_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    strategy_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("perf_strategy_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset_class: Mapped[str] = mapped_column(String(16), nullable=False, default="equity")
+    # ``BUY`` | ``SELL`` | ``HOLD``
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(16), nullable=False, default="1d")
+    generated_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    reference_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    reference_price_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    confidence: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    data_source: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    data_freshness_seconds: Mapped[int | None] = mapped_column(Integer)
+    conditions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    risk_parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    model_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class PerfSignalEvaluationRow(Base):
+    """One horizon's outcome for one recorded signal.
+
+    ``eligible_at`` is when the horizon elapsed, so a row cannot exist before the
+    outcome was knowable. The unique constraint on (signal, horizon) makes a
+    re-run idempotent instead of duplicating an observation.
+    """
+
+    __tablename__ = "perf_signal_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "signal_id", "horizon_label", name="uq_perf_signal_evaluations_signal_horizon"
+        ),
+        Index("ix_perf_signal_evaluations_status", "status", "eligible_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    signal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("perf_recorded_signals.id", ondelete="RESTRICT"), nullable=False
+    )
+    horizon_label: Mapped[str] = mapped_column(String(16), nullable=False)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligible_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    # ``ok`` | ``pending`` | ``missing_price`` | ``missing_benchmark``
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    entry_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    entry_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    exit_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    exit_price: Mapped[Decimal | None] = mapped_column(MONEY)
+    gross_return: Mapped[Decimal | None] = mapped_column(RETURN)
+    net_return: Mapped[Decimal | None] = mapped_column(RETURN)
+    benchmark_return: Mapped[Decimal | None] = mapped_column(RETURN)
+    excess_return: Mapped[Decimal | None] = mapped_column(RETURN)
+    direction_correct: Mapped[bool | None] = mapped_column(Boolean)
+    cost_bps: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False, default=0)
+    detail: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class PerfEvidenceRecordRow(Base):
+    """An immutable snapshot of one test, with its assumptions and limitations.
+
+    ``kind`` is one of ``backtest``, ``forward_paper`` or ``live_verified``. The
+    last is only reachable through independently reconcilable execution
+    evidence, which this system does not yet have, so nothing is written with it.
+    """
+
+    __tablename__ = "perf_evidence_records"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_perf_evidence_records_run_id"),
+        Index("ix_perf_evidence_records_kind", "kind", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    objective: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    strategy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("perf_strategy_versions.id", ondelete="RESTRICT")
+    )
+    dataset: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    assumptions: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    results: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    limitations: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    conclusion: Mapped[str | None] = mapped_column(Text)
+    integrity_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    finalized_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+
+
+class PerfAuditEventRow(Base):
+    """Append-only record of what was done to the evidence store."""
+
+    __tablename__ = "perf_audit_events"
+    __table_args__ = (
+        Index("ix_perf_audit_events_subject", "subject_type", "subject_id"),
+        Index("ix_perf_audit_events_at", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    occurred_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
+    actor: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class PerfEvaluationJobRow(Base):
+    """A queued horizon evaluation.
+
+    The lease column lets a crashed worker's job be reclaimed instead of being
+    stuck in ``running`` forever, and the unique constraint keeps a signal from
+    queueing the same horizon twice.
+    """
+
+    __tablename__ = "perf_evaluation_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "signal_id", "horizon_label", name="uq_perf_evaluation_jobs_signal_horizon"
+        ),
+        Index("ix_perf_evaluation_jobs_due", "status", "due_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    signal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("perf_recorded_signals.id", ondelete="CASCADE"), nullable=False
+    )
+    horizon_label: Mapped[str] = mapped_column(String(16), nullable=False)
+    due_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    # ``pending`` | ``running`` | ``done`` | ``failed``
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=utcnow, nullable=False
+    )
