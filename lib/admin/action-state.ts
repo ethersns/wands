@@ -10,6 +10,18 @@ export interface ActionState {
   message: string;
 }
 
+/**
+ * The result of an activation-link action.
+ *
+ * The plaintext link is returned exactly once, at the moment it is minted,
+ * because only its hash is stored. It travels in the action result rather than
+ * in the URL so it never lands in a browser history entry or a server log.
+ */
+export interface ActivationLinkState extends ActionState {
+  url?: string;
+  expiresAt?: string;
+}
+
 export const DEFAULT_RETURN_TO = "/dashboard/members";
 
 /**

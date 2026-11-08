@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CreditCard, Receipt } from "lucide-react";
+import { CreditCard, Link2, Receipt, TriangleAlert } from "lucide-react";
 
 import { AccountStatusBadge, MembershipStatusBadge } from "@/components/admin/account-status-badge";
+import { ActivationLinkActions } from "@/components/admin/activation-link-actions";
 import { Kpi } from "@/components/admin/kpi";
 import { MemberTabs } from "@/components/admin/member-tabs";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -24,8 +25,10 @@ import {
   recentBillingEvents,
   upcomingRenewals,
 } from "@/lib/admin/billing";
+import { listPendingActivations } from "@/lib/admin/activation-links";
 import { requireOperator } from "@/lib/admin/guard";
-import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
+import { emailDeliveryConfigured } from "@/lib/email/send";
+import { formatDate, formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 
 export const metadata: Metadata = {
   title: "Billing",
@@ -36,13 +39,14 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   await requireOperator("/dashboard/members/billing");
 
-  const [summary, billing, events, renewals, retained, signups] = await Promise.all([
+  const [summary, billing, events, renewals, retained, signups, pending] = await Promise.all([
     getBillingSummary(),
     listBilling({ pageSize: 50 }),
     recentBillingEvents(10),
     upcomingRenewals(8),
     listRetainedBillingReferences(25),
     listSignupIntents(25),
+    listPendingActivations(25),
   ]);
 
   const mrrLabel =
@@ -172,6 +176,82 @@ export default async function BillingPage() {
                     </TableCell>
                     <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
                       {row.activated_at ? formatDateTime(row.activated_at) : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title="Pending activations"
+        description="Paid signups that have not become accounts yet. The activation link is stored only as a hash, so an existing link cannot be read back — issuing a new one replaces it."
+        bodyClassName="px-0 pb-0 sm:px-0"
+      >
+        {!emailDeliveryConfigured ? (
+          <div className="mx-4 mb-3 flex gap-2 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2 sm:mx-5">
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+            <p className="text-[11px] leading-relaxed text-foreground">
+              Email delivery is not configured on this deployment, so activation links are never
+              sent automatically. Issue a link here and pass it to the customer yourself.
+            </p>
+          </div>
+        ) : null}
+
+        {pending.length === 0 ? (
+          <div className="px-4 pb-4 sm:px-5">
+            <EmptyState
+              icon={Link2}
+              title="Nothing waiting"
+              description="Every paid signup has become an account."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead>Paid</TableHead>
+                  <TableHead>Link</TableHead>
+                  <TableHead className="text-right">Controls</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pending.map((row) => (
+                  <TableRow key={row.intentId}>
+                    <TableCell className="font-mono text-[11px] text-foreground">
+                      {row.email}
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-foreground">
+                      {row.plan}
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.paidAt ? formatDateTime(row.paidAt) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {row.liveLinkExpiresAt ? (
+                        <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-foreground">
+                          live · expires {formatRelative(row.liveLinkExpiresAt)}
+                        </span>
+                      ) : (
+                        <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-medium whitespace-nowrap text-warning">
+                          no live link
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        <ActivationLinkActions
+                          intentId={row.intentId}
+                          email={row.email}
+                          hasLiveLink={Boolean(row.liveLinkExpiresAt)}
+                          emailConfigured={emailDeliveryConfigured}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
