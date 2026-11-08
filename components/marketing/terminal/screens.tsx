@@ -582,14 +582,14 @@ export function PerformanceScreen({ className }: { className?: string }) {
             </caption>
             <thead>
               <tr className="border-b border-mk-line">
-                <Th width="40%">Experiment</Th>
-                <Th hide="sm" width="22%">
+                <Th width="36%">Experiment</Th>
+                <Th hide="sm" width="20%">
                   Sample
                 </Th>
                 <Th hide="md" width="20%">
                   Data quality
                 </Th>
-                <Th align="right" width="18%">
+                <Th align="right" width="24%">
                   Status
                 </Th>
               </tr>
@@ -614,7 +614,7 @@ export function PerformanceScreen({ className }: { className?: string }) {
                     </span>
                   </Td>
                   <Td align="right">
-                    <span className="font-marketing-mono text-[8.5px] tracking-[0.08em] text-mk-dim uppercase">
+                    <span className="font-marketing-mono text-[8.5px] tracking-[0.08em] whitespace-nowrap text-mk-dim uppercase">
                       {row.status}
                     </span>
                   </Td>

@@ -1,20 +1,10 @@
 import type { Metadata } from "next";
 
-import { FinalCta } from "@/components/marketing/final-cta";
-import { FoundingAccess } from "@/components/marketing/founding-access";
+import { EarlyAccess } from "@/components/marketing/early-access";
 import { Hero } from "@/components/marketing/hero";
-import { LensSwitcher } from "@/components/marketing/lens-switcher";
-import { Manifesto } from "@/components/marketing/manifesto";
-import { ProductStage } from "@/components/marketing/product-stage";
-import { SourceStrip } from "@/components/marketing/source-strip";
-import {
-  ActInsider,
-  ActInstitutional,
-  ActProblem,
-  ActResearch,
-  ActSignal,
-} from "@/components/marketing/story";
-import { WaitlistPanel } from "@/components/marketing/waitlist-panel";
+import { IntelligenceSection } from "@/components/marketing/intelligence-section";
+import { NextChapter } from "@/components/marketing/next-chapter";
+import { ResearchSection } from "@/components/marketing/research-section";
 import { siteDescription } from "@/lib/marketing/site";
 
 export const metadata: Metadata = {
@@ -27,18 +17,10 @@ export default function LandingPage() {
   return (
     <>
       <Hero />
-      <SourceStrip />
-      <ActProblem />
-      <ProductStage />
-      <ActInsider />
-      <ActInstitutional />
-      <ActSignal />
-      <ActResearch />
-      <LensSwitcher />
-      <Manifesto />
-      <FoundingAccess />
-      <WaitlistPanel />
-      <FinalCta />
+      <IntelligenceSection />
+      <ResearchSection />
+      <NextChapter />
+      <EarlyAccess />
     </>
   );
 }
