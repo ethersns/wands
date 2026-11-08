@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { QuantExperiment } from "@/lib/api/research-contract";
 import {
+  evaluationTone,
   formatPercent,
   formatPoints,
   formatPValue,
@@ -63,6 +64,21 @@ describe("formatPercent", () => {
   it("keeps the sign on a return", () => {
     expect(formatPercent(0.5305042815176799)).toBe("+53.1%");
     expect(formatPercent(-3.800589700339395)).toBe("-380.1%");
+  });
+});
+
+describe("evaluationTone", () => {
+  it("reserves the clean tone for a genuinely held-out result", () => {
+    expect(evaluationTone("held_out")).toBe("emerald");
+  });
+
+  it("marks a retrospective result as limited rather than as a pass", () => {
+    expect(evaluationTone("retrospective_validation")).toBe("warn");
+  });
+
+  it("does not imply evidence when the status is missing", () => {
+    expect(evaluationTone(undefined)).toBe("neutral");
+    expect(evaluationTone("in_sample")).toBe("neutral");
   });
 });
 

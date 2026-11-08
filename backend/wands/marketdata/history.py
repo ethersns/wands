@@ -53,6 +53,16 @@ DAILY_INTERVAL = "1d"
 # to these symbols so a run is a known cost rather than an open-ended crawl.
 RESEARCH_UNIVERSE: tuple[str, ...] = ("AAPL", "MSFT", "NVDA", "AMD", "JPM")
 
+# The benchmark the event studies measure excess returns against. It is
+# collected but is not a research instrument: no rule trades it and no signal is
+# attributed to it. Leaving it out of the collection set made the benchmark
+# column empty by construction, so every excess return was unmeasurable no
+# matter how much research data was stored.
+BENCHMARK_SYMBOLS: tuple[str, ...] = ("SPY",)
+
+# What a collection run covers: the research instruments plus the benchmark.
+COLLECTION_UNIVERSE: tuple[str, ...] = RESEARCH_UNIVERSE + BENCHMARK_SYMBOLS
+
 USER_AGENT = "wands-engine/0.1 (+market-data)"
 
 
@@ -683,6 +693,8 @@ def coverage_report(session: Session, symbols: Sequence[str] | None = None) -> l
 
 
 __all__ = [
+    "BENCHMARK_SYMBOLS",
+    "COLLECTION_UNIVERSE",
     "DAILY_INTERVAL",
     "RESEARCH_UNIVERSE",
     "AlpacaHistoricalProvider",

@@ -16,6 +16,9 @@ from wands.config import get_settings
 from wands.db.models import MarketCandleRow, MarketPriceCoverageRow
 from wands.marketdata.base import ProviderUnavailable
 from wands.marketdata.history import (
+    BENCHMARK_SYMBOLS,
+    COLLECTION_UNIVERSE,
+    RESEARCH_UNIVERSE,
     HistoricalBar,
     HistoricalBarCollector,
     trading_days,
@@ -160,3 +163,15 @@ def test_the_first_working_provider_answers_and_the_series_keeps_one_source(sess
     assert {row.provider for row in session.scalars(select(MarketCandleRow)).all()} == {
         "fake"
     }
+
+
+def test_the_collection_universe_includes_the_benchmark():
+    """The benchmark has to be collectable, or every excess return is unmeasurable.
+
+    The event studies measure excess returns against SPY. While SPY was outside
+    the collection set the benchmark column was empty by construction, so the
+    comparison could never be computed however much research data was stored.
+    """
+    assert "SPY" in COLLECTION_UNIVERSE
+    assert "SPY" not in RESEARCH_UNIVERSE
+    assert set(COLLECTION_UNIVERSE) == set(RESEARCH_UNIVERSE) | set(BENCHMARK_SYMBOLS)

@@ -92,6 +92,20 @@ export function statusLabel(status: string): string {
   }
 }
 
+/**
+ * The tone for an evaluation status.
+ *
+ * Only a genuinely held-out result is independent evidence, so it is the only
+ * one that reads as a clean pass. A retrospective result is a warning rather
+ * than a failure: it is a real measurement whose independence is limited, and
+ * the label says which.
+ */
+export function evaluationTone(status: string | undefined): QuantTone {
+  if (status === "held_out") return "emerald";
+  if (status === "retrospective_validation") return "warn";
+  return "neutral";
+}
+
 export function studyLabel(study: string | undefined): string {
   switch (study) {
     case "strategy_baseline":
