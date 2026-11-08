@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound, redirect } from "next/navigation";
 import { ShieldAlert } from "lucide-react";
 
 import { OpportunityDesk } from "@/components/opportunity/opportunity-desk";
@@ -10,6 +11,7 @@ import {
   getOpportunityDecisions,
   getOpportunityTests,
 } from "@/lib/api/opportunity";
+import { requireFounder } from "@/lib/auth/founder";
 
 export const metadata: Metadata = {
   title: "Opportunity Desk",
@@ -48,6 +50,20 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 }
 
 export default async function OpportunityDeskPage() {
+  // The desk reads private candidates, decisions, budgets and paper tests, and
+  // every read below carries the privileged engine credential. The grant is
+  // checked before the first fetch so an unauthorised member never causes one.
+  const access = await requireFounder();
+
+  if (!access.ok) {
+    if (access.reason === "unauthenticated") {
+      redirect(`/signin?next=${encodeURIComponent("/app/opportunity")}`);
+    }
+
+    // A member without the grant is told nothing about what lives here.
+    notFound();
+  }
+
   const [budgetResult, candidatesResult, decisionsResult, testsResult] = await Promise.all([
     getOpportunityBudget(),
     getOpportunityCandidates(),

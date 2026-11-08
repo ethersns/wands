@@ -11,12 +11,18 @@ import {
   type OpportunityDecisionKind,
 } from "@/lib/api/opportunity";
 import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
+import { requireFounder } from "@/lib/auth/founder";
 
 /**
  * Manual research actions for the Opportunity Desk.
  *
- * Every one of these is authorised by the engine, not by this UI: the request
- * carries the server-side engine token and the engine enforces the admin role.
+ * These are reachable by anyone who can call a server action, so each one
+ * authorises the caller itself before it does anything. The engine's admin role
+ * is not a substitute: every request here carries the shared server-side engine
+ * token, so the engine sees the token's authority rather than the member's. A
+ * check that only the engine performs would let any signed-in member borrow
+ * that authority, which is exactly the escalation this guard closes.
+ *
  * The outcome returned here is the engine's own answer, so the client can never
  * show a success the backend did not acknowledge.
  *
@@ -25,6 +31,15 @@ import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
  */
 
 const DESK_PATH = "/app/opportunity";
+
+/**
+ * A scan writes a candidate row per qualifying symbol, so a double submit would
+ * store the same setups twice. The button disables itself while a scan runs;
+ * this is the server-side backstop for a request that slips past it. It is
+ * per-instance best effort, not a security control.
+ */
+const SCAN_COOLDOWN_MS = 15_000;
+let lastScanAt = 0;
 
 function outcome(
   ok: boolean,
@@ -54,10 +69,40 @@ function explain(error: ApiError, action: string): string {
   return error.message;
 }
 
+/**
+ * The gate every action runs before it touches the engine. Returning an outcome
+ * rather than throwing keeps the existing error-handling shape for authorised
+ * users, and gives an unauthorised caller a plain refusal that names no engine
+ * detail and confirms nothing about the desk's contents.
+ */
+async function denyUnlessFounder(): Promise<ActionOutcome | null> {
+  const access = await requireFounder();
+  if (access.ok) return null;
+
+  return failure(
+    "Not authorised",
+    "The Opportunity Desk is limited to the founder account. Nothing was sent to the engine.",
+  );
+}
+
 export async function runScanAction(): Promise<ActionOutcome> {
+  const denied = await denyUnlessFounder();
+  if (denied) return denied;
+
+  const now = Date.now();
+  if (now - lastScanAt < SCAN_COOLDOWN_MS) {
+    return failure(
+      "A scan just ran",
+      "The desk ignores a second scan within 15 seconds so a double click cannot store the same candidates twice.",
+    );
+  }
+  lastScanAt = now;
+
   const result = await getOpportunityScan();
 
   if (!result.ok) {
+    // A failed scan stored nothing, so the founder can retry immediately.
+    lastScanAt = 0;
     return failure("The scan did not run", explain(result.error, "scan"), [
       `error code: ${result.error.code}`,
     ]);
@@ -90,6 +135,9 @@ export async function recordDecisionAction(
   decision: OpportunityDecisionKind,
   note: string,
 ): Promise<ActionOutcome> {
+  const denied = await denyUnlessFounder();
+  if (denied) return denied;
+
   const result = await recordOpportunityDecision(candidateId, decision, note);
 
   if (!result.ok) {
@@ -116,6 +164,9 @@ export async function recordTestAction(
   candidateId: string,
   quantity?: string,
 ): Promise<ActionOutcome> {
+  const denied = await denyUnlessFounder();
+  if (denied) return denied;
+
   const result = await recordOpportunityTest(candidateId, quantity);
 
   if (!result.ok) {
@@ -140,6 +191,9 @@ export async function recordTestAction(
 }
 
 export async function evaluateTestAction(testId: string): Promise<ActionOutcome> {
+  const denied = await denyUnlessFounder();
+  if (denied) return denied;
+
   const result = await evaluateOpportunityTest(testId);
 
   if (!result.ok) {

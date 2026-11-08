@@ -17,20 +17,33 @@ import {
   Sparkles,
   Target,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Logo } from "@/components/marketing/logo";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "./sign-out-button";
 
-export const MEMBER_NAV = [
+type MemberNavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /**
+   * Hidden from members who do not hold the founder grant. This is a
+   * convenience, not a boundary: the page and every desk action authorise the
+   * caller on the server regardless of what the navigation renders.
+   */
+  founderOnly?: boolean;
+};
+
+export const MEMBER_NAV: MemberNavItem[] = [
   { href: "/app", label: "Overview", icon: LayoutGrid },
   { href: "/app/research", label: "Research", icon: Search },
   { href: "/app/watchlists", label: "Watchlists", icon: ListChecks },
   { href: "/app/insiders", label: "Insiders", icon: Radar },
   { href: "/app/signals", label: "Signals", icon: Sparkles },
   { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
-  { href: "/app/opportunity", label: "Opportunity Desk", icon: Target },
+  { href: "/app/opportunity", label: "Opportunity Desk", icon: Target, founderOnly: true },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];
@@ -49,20 +62,24 @@ export function MemberShell({
   email,
   planLabel,
   unread,
+  founder,
   children,
 }: {
   name: string;
   email: string;
   planLabel: string;
   unread: number;
+  founder: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
+  const navItems = MEMBER_NAV.filter((item) => !item.founderOnly || founder);
+
   const nav = (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Workspace">
-      {MEMBER_NAV.map((item) => {
+      {navItems.map((item) => {
         const active = isActive(pathname, item.href);
         const Icon = item.icon;
         return (

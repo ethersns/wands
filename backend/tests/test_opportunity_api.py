@@ -81,6 +81,26 @@ def test_the_desk_rejects_an_unauthenticated_request(client) -> None:
     assert client.get("/v1/opportunity/decisions").status_code == 401
 
 
+def test_the_scan_is_not_reachable_as_a_get(client) -> None:
+    """A scan writes candidates, so it must not be triggerable by a GET.
+
+    A GET that writes can be replayed by a prefetch, a crawler or a link
+    preview. The method now matches the effect, and the old verb answers 405
+    rather than silently storing candidates.
+    """
+    assert client.get("/v1/opportunity/scan", headers=_admin()).status_code == 405
+
+
+def test_the_scan_rejects_a_non_admin(client) -> None:
+    key, _user, _secret = make_api_key("viewer")
+    headers = {"authorization": f"Bearer {key}"}
+    assert client.post("/v1/opportunity/scan", headers=headers).status_code == 403
+
+
+def test_the_scan_rejects_an_unauthenticated_request(client) -> None:
+    assert client.post("/v1/opportunity/scan").status_code == 401
+
+
 # --- decisions ------------------------------------------------------------
 
 
