@@ -69,7 +69,7 @@ export async function POST() {
     return NextResponse.json({ url: portal.url });
   } catch (cause) {
     console.log(
-      "[v0] billing portal failed:",
+      "[wands] billing portal failed:",
       cause instanceof Error ? cause.message : cause,
     );
 

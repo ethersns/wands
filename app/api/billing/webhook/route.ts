@@ -193,7 +193,7 @@ export async function POST(request: Request) {
     event = stripe.webhooks.constructEvent(raw, signature, stripeWebhookSecret);
   } catch (cause) {
     console.log(
-      "[v0] webhook signature rejected:",
+      "[wands] webhook signature rejected:",
       cause instanceof Error ? cause.message : cause,
     );
     return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
@@ -218,7 +218,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true });
   } catch (cause) {
     console.log(
-      "[v0] webhook handling failed:",
+      "[wands] webhook handling failed:",
       cause instanceof Error ? cause.message : cause,
     );
 

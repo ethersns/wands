@@ -64,7 +64,7 @@ export async function recordSecurityEvent(input: SecurityEventInput): Promise<vo
     );
   } catch (cause) {
     console.log(
-      "[v0] security event write failed:",
+      "[wands] security event write failed:",
       cause instanceof Error ? cause.message : cause,
     );
   }

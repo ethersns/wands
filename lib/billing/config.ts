@@ -148,7 +148,7 @@ export const getMembershipPrice = cache(
       };
     } catch (cause) {
       console.log(
-        "[v0] membership price lookup failed:",
+        "[wands] membership price lookup failed:",
         cause instanceof Error ? cause.message : cause,
       );
       return base;

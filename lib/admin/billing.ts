@@ -165,7 +165,7 @@ export async function listBilling(filters: {
     };
   } catch (cause) {
     console.log(
-      "[v0] admin billing list failed:",
+      "[wands] admin billing list failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { rows: [], total: 0, page, pageSize, pageCount: 0 };
@@ -269,7 +269,7 @@ export async function getBillingSummary(): Promise<BillingSummary> {
     };
   } catch (cause) {
     console.log(
-      "[v0] admin billing summary failed:",
+      "[wands] admin billing summary failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return empty;
@@ -309,7 +309,7 @@ export async function listSignupIntents(limit = 25): Promise<SignupIntentRow[]> 
     );
   } catch (cause) {
     console.log(
-      "[v0] signup intent read failed:",
+      "[wands] signup intent read failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return [];
@@ -381,7 +381,7 @@ export async function listRetainedBillingReferences(
     );
   } catch (cause) {
     console.log(
-      "[v0] retained billing reference read failed:",
+      "[wands] retained billing reference read failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return [];

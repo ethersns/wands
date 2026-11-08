@@ -239,7 +239,7 @@ export async function recordPageView(input: TrackInput): Promise<TrackResult> {
     return { recorded: true };
   } catch (cause) {
     console.log(
-      "[v0] page view record failed:",
+      "[wands] page view record failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { recorded: false, reason: "failed" };

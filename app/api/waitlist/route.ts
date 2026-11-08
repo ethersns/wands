@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     );
   } catch (cause) {
     console.log(
-      "[v0] waitlist signup failed:",
+      "[wands] waitlist signup failed:",
       cause instanceof Error ? cause.message : cause,
     );
 

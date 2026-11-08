@@ -119,7 +119,7 @@ export async function getSecuritySummary(range: DateRange): Promise<SecuritySumm
     };
   } catch (cause) {
     console.log(
-      "[v0] admin security summary failed:",
+      "[wands] admin security summary failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return empty;

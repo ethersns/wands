@@ -195,7 +195,7 @@ export async function listMembers(filters: MemberFilters = {}): Promise<MemberPa
     };
   } catch (cause) {
     console.log(
-      "[v0] admin member list failed:",
+      "[wands] admin member list failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { rows: [], total: 0, page, pageSize, pageCount: 0 };
@@ -302,7 +302,7 @@ export async function getMember(id: string): Promise<MemberDetail | null> {
     return rows[0] ?? null;
   } catch (cause) {
     console.log(
-      "[v0] admin member detail failed:",
+      "[wands] admin member detail failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return null;
@@ -355,7 +355,7 @@ export async function exportMembers(filters: MemberFilters = {}): Promise<Member
     );
   } catch (cause) {
     console.log(
-      "[v0] admin member export failed:",
+      "[wands] admin member export failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return [];

@@ -59,7 +59,7 @@ export async function recordAdminAction(input: AdminActionInput): Promise<void> 
     );
   } catch (cause) {
     console.log(
-      "[v0] admin audit write failed:",
+      "[wands] admin audit write failed:",
       cause instanceof Error ? cause.message : cause,
     );
   }

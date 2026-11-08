@@ -172,7 +172,7 @@ export async function listWaitlist(filters: WaitlistFilters = {}): Promise<Waitl
     };
   } catch (cause) {
     console.log(
-      "[v0] admin waitlist list failed:",
+      "[wands] admin waitlist list failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return { rows: [], total: 0, page, pageSize, pageCount: 0 };
@@ -252,7 +252,7 @@ export async function getWaitlistSummary(range: DateRange): Promise<WaitlistSumm
     };
   } catch (cause) {
     console.log(
-      "[v0] admin waitlist summary failed:",
+      "[wands] admin waitlist summary failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return empty;
@@ -340,7 +340,7 @@ export async function exportWaitlist(filters: WaitlistFilters = {}): Promise<Wai
     );
   } catch (cause) {
     console.log(
-      "[v0] admin waitlist export failed:",
+      "[wands] admin waitlist export failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return [];

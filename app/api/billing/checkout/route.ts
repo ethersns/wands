@@ -90,7 +90,7 @@ async function reuseOpenSession(sessionId: string | null): Promise<string | null
     return session.status === "open" && session.url ? session.url : null;
   } catch (cause) {
     console.log(
-      "[v0] checkout session lookup failed:",
+      "[wands] checkout session lookup failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return null;
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ url: session.url });
   } catch (cause) {
     console.log(
-      "[v0] checkout session failed:",
+      "[wands] checkout session failed:",
       cause instanceof Error ? cause.message : cause,
     );
 

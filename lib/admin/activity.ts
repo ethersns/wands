@@ -188,7 +188,7 @@ export async function getActivity(range: DateRange): Promise<ActivitySummary> {
     };
   } catch (cause) {
     console.log(
-      "[v0] admin activity query failed:",
+      "[wands] admin activity query failed:",
       cause instanceof Error ? cause.message : cause,
     );
     return emptyActivity(range);
