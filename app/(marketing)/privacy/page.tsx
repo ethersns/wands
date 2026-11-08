@@ -23,10 +23,17 @@ export default function PrivacyPage() {
           submission.
         </p>
         <p>
-          <span className="text-mk-fg">Account and usage data.</span> If you are
-          invited to the terminal, we store the information needed to operate
-          your account: your email, authentication records, the connections you
-          create, and the orders, watchlists and backtests you run.
+          <span className="text-mk-fg">Account and usage data.</span> If you have a
+          membership, we store the information needed to operate your account: your
+          email, authentication records, the connections you create, and the orders,
+          watchlists and backtests you run.
+        </p>
+        <p>
+          <span className="text-mk-fg">Billing details.</span> Payments are handled
+          by Stripe. We store the identifiers Stripe returns — a customer id, a
+          subscription id and the subscription&apos;s status — so we can tell whether
+          a membership is active. Card numbers, expiry dates and security codes are
+          never sent to us and are never stored by Wands.
         </p>
         <p>
           <span className="text-mk-fg">Sign-in history.</span> We record that an
@@ -75,7 +82,7 @@ export default function PrivacyPage() {
 
       <LegalSection heading="3. Why we collect it">
         <ul className="flex list-disc flex-col gap-1.5 pl-5">
-          <li>to operate the waitlist and invite people in order;</li>
+          <li>to operate the waitlist and the membership signup;</li>
           <li>to provide the terminal and the features you use;</li>
           <li>to respond to messages you send us;</li>
           <li>to understand which pages are read, in aggregate;</li>

@@ -115,12 +115,6 @@ export function SiteHeader() {
               Sign in
             </Link>
             <Link
-              href="/signup"
-              className="rounded-md px-3 py-1.5 font-marketing-mono text-[10.5px] tracking-[0.14em] text-mk-muted uppercase transition-colors hover:text-mk-fg"
-            >
-              Create account
-            </Link>
-            <Link
               href={primaryCta.href}
               className="group inline-flex h-9 items-center gap-1.5 rounded-full bg-mk-accent px-4 font-marketing-mono text-[10.5px] font-medium tracking-[0.12em] text-mk-accent-ink uppercase transition-colors hover:bg-mk-accent/90"
             >
@@ -186,13 +180,6 @@ export function SiteHeader() {
                   className="inline-flex h-12 items-center justify-center rounded-full border border-mk-line-strong font-marketing-mono text-[11px] tracking-[0.14em] text-mk-fg uppercase"
                 >
                   Sign in
-                </Link>
-                <Link
-                  href="/signup"
-                  onClick={() => setOpen(false)}
-                  className="inline-flex h-12 items-center justify-center rounded-full border border-mk-line-strong font-marketing-mono text-[11px] tracking-[0.14em] text-mk-fg uppercase"
-                >
-                  Create account
                 </Link>
               </div>
             </nav>

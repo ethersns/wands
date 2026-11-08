@@ -15,7 +15,7 @@ export const siteTagline = "Market intelligence for the independently minded";
 
 export const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? null;
 
-export const legalUpdated = "6 November 2026";
+export const legalUpdated = "8 November 2026";
 
 export interface MarketingNavItem {
   href: string;
@@ -59,4 +59,4 @@ export const footerNav: { title: string; items: MarketingNavItem[] }[] = [
   },
 ];
 
-export const primaryCta = { href: "/#access", label: "Get Early Access" };
+export const primaryCta = { href: "/pricing", label: "Get access" };
