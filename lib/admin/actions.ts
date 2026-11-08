@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
-import type { ActionState } from "./action-state";
+import { safeReturnTo, type ActionState } from "./action-state";
 import { checkOperator } from "./guard";
 import {
   deleteMember,
@@ -82,9 +83,22 @@ export async function reactivateMemberAction(
 
   const userId = String(formData.get("userId") ?? "");
   const reason = String(formData.get("reason") ?? "");
+  const returnTo = safeReturnTo(formData.get("returnTo"));
 
   const result = await reactivateMember({ userId, reason, actor: who.actor });
   refreshMemberViews(userId);
+
+  // A reactivated account is no longer suspended, so it leaves the suspended
+  // list and the row that owns this dialog unmounts. A message held in that
+  // dialog would vanish with it, so a successful reactivation is reported by
+  // redirecting to the same page with the outcome in the URL, where the page
+  // renders it above the table. A refusal still returns normally, because the
+  // row is still there and the dialog is the right place to explain it.
+  if (result.ok && result.changed) {
+    const email = typeof result.detail?.email === "string" ? result.detail.email : null;
+    const params = new URLSearchParams({ reactivated: email ?? "1" });
+    redirect(`${returnTo}?${params.toString()}`);
+  }
 
   return { ok: result.ok, message: result.message };
 }

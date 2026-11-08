@@ -19,6 +19,7 @@ import {
 import {
   getBillingSummary,
   listBilling,
+  listRetainedBillingReferences,
   recentBillingEvents,
   upcomingRenewals,
 } from "@/lib/admin/billing";
@@ -34,11 +35,12 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   await requireOperator("/dashboard/members/billing");
 
-  const [summary, billing, events, renewals] = await Promise.all([
+  const [summary, billing, events, renewals, retained] = await Promise.all([
     getBillingSummary(),
     listBilling({ pageSize: 50 }),
     recentBillingEvents(10),
     upcomingRenewals(8),
+    listRetainedBillingReferences(25),
   ]);
 
   return (
@@ -249,10 +251,66 @@ export default async function BillingPage() {
         )}
       </SectionCard>
 
+      <SectionCard
+        title="Retained billing references"
+        description="Accounts that were deleted while holding a Stripe reference. Kept here, separately from the audit log, so a charge stays traceable without the audit trail becoming a record of payment identities."
+        bodyClassName="px-0 pb-0 sm:px-0"
+      >
+        {retained.length === 0 ? (
+          <div className="px-4 pb-4 sm:px-5">
+            <EmptyState
+              icon={Receipt}
+              title="Nothing retained"
+              description="No account has been deleted while holding a Stripe reference."
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Stripe customer</TableHead>
+                  <TableHead>Subscription</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Status at deletion</TableHead>
+                  <TableHead>Deleted</TableHead>
+                  <TableHead>By</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {retained.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-[10px] text-foreground">
+                      {row.stripe_customer_id ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground">
+                      {row.stripe_subscription_id ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-foreground">
+                      {row.plan ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.membership_status ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(row.deleted_at)}
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-muted-foreground">
+                      {row.deleted_by}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+
       <p className="text-[10px] leading-relaxed text-muted-foreground">
         Deleting a member never deletes billing history. A live Stripe subscription blocks account
         deletion until it is cancelled in Stripe, so a paying customer cannot be removed by
-        accident.
+        accident. The audit row for a deletion records what was removed and a reference to the
+        retained billing record, but not the account id, the address or the Stripe ids themselves.
       </p>
     </div>
   );

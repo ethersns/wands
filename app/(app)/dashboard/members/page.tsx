@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Download, Search, Users } from "lucide-react";
 
 import { AccountStatusBadge, MembershipStatusBadge } from "@/components/admin/account-status-badge";
+import { ActionFlash } from "@/components/admin/action-flash";
 import { MemberActions } from "@/components/admin/member-actions";
 import { MemberTabs } from "@/components/admin/member-tabs";
 import { AdminPagination } from "@/components/admin/pagination";
@@ -41,6 +42,7 @@ interface SearchParams {
   from?: string;
   to?: string;
   page?: string;
+  reactivated?: string;
 }
 
 const inputClass =
@@ -100,6 +102,18 @@ export default async function MembersPage({
     exportParams.size > 0 ? `?${exportParams.toString()}` : ""
   }`;
 
+  // A reactivated account leaves a suspended-filtered list, so the confirmation
+  // is carried in the URL and rendered above the table rather than inside the
+  // row that is about to disappear.
+  const reactivated = typeof params.reactivated === "string" ? params.reactivated : null;
+  const reactivatedEmail = reactivated && reactivated !== "1" ? reactivated : null;
+
+  const dismissParams = new URLSearchParams(exportParams);
+  if (result.page > 1) dismissParams.set("page", String(result.page));
+  const dismissHref = `/dashboard/members${
+    dismissParams.size > 0 ? `?${dismissParams.toString()}` : ""
+  }`;
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -117,6 +131,15 @@ export default async function MembersPage({
       />
 
       <MemberTabs />
+
+      {reactivated ? (
+        <ActionFlash
+          dismissHref={dismissHref}
+          message={`${
+            reactivatedEmail ? `${reactivatedEmail} was` : "The account was"
+          } reactivated and can sign in again. It no longer matches a suspended filter.`}
+        />
+      ) : null}
 
       <SectionCard
         title="Search and filter"
@@ -362,6 +385,7 @@ export default async function MembersPage({
                           userId={member.id}
                           email={member.email}
                           status={member.account_status}
+                          returnTo="/dashboard/members"
                         />
                       </div>
                     </TableCell>

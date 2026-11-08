@@ -53,8 +53,9 @@ function handlers(overrides: { match: RegExp; rows: unknown[] }[] = []) {
     { match: /delete from session/, rows: [{ id: "s1" }, { id: "s2" }] },
     { match: /select stripe_customer_id/, rows: [] },
     { match: /select\s+\(select count\(\*\)::int from member_watchlist/, rows: [{ watchlists: 2, saved: 5, notifications: 1, sessions: 1 }] },
-    { match: /update member_login_event set user_id = null/, rows: [] },
-    { match: /update member_security_event set user_id = null/, rows: [] },
+    { match: /update member_login_event/, rows: [] },
+    { match: /update member_security_event/, rows: [] },
+    { match: /insert into member_billing_reference/, rows: [{ id: "ref_1" }] },
     { match: /delete from "user" where id = \$1/, rows: [] },
     { match: /delete from public\.waitlist_signup/, rows: [] },
     { match: /insert into admin_audit_log/, rows: [] },
@@ -200,6 +201,10 @@ describe("reactivateMember", () => {
 
     expect(result).toMatchObject({ ok: true, changed: true });
 
+    // The address comes back from the server so the confirmation can name the
+    // account after its row has left the suspended list.
+    expect(result.ok && result.detail).toMatchObject({ email: USER.email });
+
     const update = callsMatching(/update member_account_status/);
     expect(update).toHaveLength(1);
     expect(update[0].values).toEqual(["usr_1", "operator"]);
@@ -307,7 +312,9 @@ describe("deleteMember", () => {
           {
             stripe_customer_id: "cus_1",
             stripe_subscription_id: null,
-            status: "active",
+            status: "canceled",
+            plan: "pro",
+            current_period_end: "2026-01-01T00:00:00.000Z",
           },
         ],
       },
@@ -326,24 +333,72 @@ describe("deleteMember", () => {
     expect(deleted).toHaveLength(1);
     expect(deleted[0].values).toEqual(["usr_1"]);
 
-    // The security trail survives, but the link to the person does not.
-    expect(callsMatching(/update member_login_event set user_id = null/)).toHaveLength(1);
-    expect(callsMatching(/update member_security_event set user_id = null/)).toHaveLength(1);
+    // The security trail survives, but every identifier of the person does not.
+    const logins = callsMatching(/update member_login_event/);
+    expect(logins).toHaveLength(1);
+    expect(logins[0].sql).toContain("ip_address = null");
+    expect(logins[0].sql).toContain("user_agent = null");
+
+    const events = callsMatching(/update member_security_event/);
+    expect(events).toHaveLength(1);
+    expect(events[0].sql).toContain("ip_address = null");
+    expect(events[0].sql).toContain("user_agent = null");
+    expect(events[0].sql).toContain("email_hash = null");
 
     // Billing records are never deleted by this action.
     expect(callsMatching(/delete from billing_customer/)).toHaveLength(0);
     expect(callsMatching(/delete from subscription/)).toHaveLength(0);
 
+    // The Stripe reference is preserved, but in its own table.
+    const retained = callsMatching(/insert into member_billing_reference/);
+    expect(retained).toHaveLength(1);
+    expect(retained[0].values).toEqual([
+      "cus_1",
+      null,
+      "pro",
+      "canceled",
+      "2026-01-01T00:00:00.000Z",
+      "operator",
+    ]);
+
     const audit = callsMatching(/insert into admin_audit_log/);
     expect(audit).toHaveLength(1);
     expect(audit[0].values[1]).toBe("member.delete");
-    expect(JSON.parse(String(audit[0].values[3]))).toMatchObject({
+
+    // The audit row carries no personal identifier: no account id as the
+    // target, and no address or Stripe reference in the detail.
+    expect(audit[0].values[2]).toBeNull();
+
+    const detail = JSON.parse(String(audit[0].values[3]));
+    expect(detail).toMatchObject({
       watchlists: 2,
       saved: 5,
       notifications: 1,
       sessions: 1,
-      stripe_customer_id: "cus_1",
-      billing_records_retained: true,
+      billing_reference_retained: true,
+      billing_reference_id: "ref_1",
+    });
+    expect(detail).not.toHaveProperty("stripe_customer_id");
+    expect(detail).not.toHaveProperty("stripe_subscription_id");
+    expect(JSON.stringify(detail)).not.toContain(USER.email);
+    expect(JSON.stringify(detail)).not.toContain("usr_1");
+  });
+
+  it("writes no billing reference when the account never had one", async () => {
+    const result = await deleteMember({
+      userId: "usr_1",
+      confirmEmail: USER.email,
+      actor: "operator",
+    });
+
+    expect(result).toMatchObject({ ok: true, changed: true });
+    expect(callsMatching(/insert into member_billing_reference/)).toHaveLength(0);
+
+    const audit = callsMatching(/insert into admin_audit_log/);
+    const detail = JSON.parse(String(audit[0].values[3]));
+    expect(detail).toMatchObject({
+      billing_reference_retained: false,
+      billing_reference_id: null,
     });
   });
 
