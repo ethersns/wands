@@ -12,6 +12,7 @@ from wands.api.routes import (
     engine,
     intelligence,
     markets,
+    opportunity,
     orders,
     performance,
     portfolio,
@@ -42,3 +43,7 @@ api_router.include_router(intelligence.router)
 # The Performance Lab is a private research surface. It is operator-only, and
 # every route inside it additionally requires the admin role.
 api_router.include_router(performance.router, dependencies=_operator_only)
+# The Opportunity Desk is a private research surface too. It is operator-only,
+# and every route inside it additionally requires the admin role. It has no
+# order path, so mounting it here cannot expose execution.
+api_router.include_router(opportunity.router, dependencies=_operator_only)
