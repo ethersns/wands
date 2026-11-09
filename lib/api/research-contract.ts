@@ -450,6 +450,58 @@ export interface QuantStudyResult {
   limitations?: string[];
 }
 
+/**
+ * How a forensic check came out.
+ *
+ * `cannot_assess` is not a soft failure. It is the honest answer when the stored
+ * record does not contain the evidence a check needs, and it must never be
+ * rendered as a pass. `not_applicable` is narrower still: the check does not
+ * apply to this kind of study at all.
+ */
+export type QuantForensicStatus =
+  | "verified"
+  | "not_verified"
+  | "cannot_assess"
+  | "not_applicable";
+
+/**
+ * One check on whether the evidence behind a result supports it.
+ *
+ * `evidence` names the stored fields the check read, so a status is never an
+ * opinion. `limitation` is the part of the question the check could not close,
+ * and `nextStep` is what would close it.
+ */
+export interface QuantForensicFinding {
+  id: string;
+  title: string;
+  status: QuantForensicStatus;
+  explanation: string;
+  evidence: string[];
+  limitation: string | null;
+  nextStep: string | null;
+}
+
+/**
+ * A read-only assessment of a recorded experiment.
+ *
+ * There is deliberately no confidence score: a single number summarising
+ * "trustworthiness" would be a fabricated metric. The report counts what it
+ * verified and states what it could not.
+ */
+export interface QuantForensics {
+  findings: QuantForensicFinding[];
+  counts: {
+    total: number;
+    verified: number;
+    notVerified: number;
+    cannotAssess: number;
+    notApplicable: number;
+  };
+  verdict: string;
+  nextSteps: string[];
+  note: string;
+}
+
 /** A recorded experiment, as the member surface reads it. */
 export interface QuantExperiment {
   id: string;
@@ -472,6 +524,8 @@ export interface QuantExperiment {
   dataFingerprint: string;
   createdAt: string | null;
   completedAt: string | null;
+  /** Absent when the engine predates the forensic assessment. */
+  forensics?: QuantForensics | null;
 }
 
 export interface QuantExperimentFeed {

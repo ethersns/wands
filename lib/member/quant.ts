@@ -106,6 +106,35 @@ export function evaluationTone(status: string | undefined): QuantTone {
   return "neutral";
 }
 
+/**
+ * The tone for a forensic check.
+ *
+ * Only a check that actually passed reads as a clean result. `cannot_assess` is
+ * neutral rather than a warning, because it is a statement about the record, not
+ * a finding against the experiment — but it is never green either, since a check
+ * that was not performed is not a check that held.
+ */
+export function forensicTone(status: string | undefined): QuantTone {
+  if (status === "verified") return "emerald";
+  if (status === "not_verified") return "warn";
+  return "neutral";
+}
+
+export function forensicLabel(status: string | undefined): string {
+  switch (status) {
+    case "verified":
+      return "Verified";
+    case "not_verified":
+      return "Not verified";
+    case "cannot_assess":
+      return "Cannot assess";
+    case "not_applicable":
+      return "Not applicable";
+    default:
+      return "Not assessed";
+  }
+}
+
 export function studyLabel(study: string | undefined): string {
   switch (study) {
     case "strategy_baseline":

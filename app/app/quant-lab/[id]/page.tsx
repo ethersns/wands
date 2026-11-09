@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { QuantForensicsPanel } from "@/components/member/quant-forensics";
 import { QuantSeriesExplorer } from "@/components/member/quant-series-explorer";
 import {
   Badge,
@@ -145,6 +146,8 @@ export default async function ExperimentPage({
         warnings={envelope.warnings}
         unreachable={envelope.unreachable}
       />
+
+      <QuantForensicsPanel forensics={experiment.forensics} />
 
       {study === "strategy_baseline" && summary ? (
         <>

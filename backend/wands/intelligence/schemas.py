@@ -278,6 +278,10 @@ class IntelExperimentOut(CamelModel):
     data_fingerprint: str
     created_at: datetime
     completed_at: datetime | None = None
+    # A read-only assessment of whether the stored evidence supports the result.
+    # Absent on the operator run response, which reports what was just recorded
+    # rather than how far it can be trusted.
+    forensics: dict[str, Any] | None = None
 
 
 class IntelExperimentFeedOut(CamelModel):
