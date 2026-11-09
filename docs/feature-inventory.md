@@ -86,6 +86,64 @@ else.
 | Membership and billing | `lib/billing/` | `/api/billing/*` | `/app/membership` | Membership | `local-verified` |
 | Account | `lib/member/account.ts` | `/api/member/account` | `/app/account` | Account | `local-verified` |
 | Opportunity Desk | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Opportunity Desk (founder only) | `blocked` |
+| Money (manual trade journal) | `lib/money/`, `db/migrations/0007_money_journal.sql` | `/v1/opportunity/*`, `/v1/markets/{symbol}/quote`, `/v1/markets/health` | `/app/money` | Money (founder only) | `local-verified` |
+
+### Money
+
+FEATURE NAME: Money
+STATUS: `local-verified`
+
+BACKEND IMPLEMENTATION:
+`lib/money/journal.ts` (user-scoped reads and writes), `lib/money/calc.ts`
+(fixed-point P&L), `lib/money/validation.ts` (form parsing), `lib/money/view.ts`
+(server-side view models), `lib/money/actions.ts` (founder-gated server
+actions). Storage is `member_money_trade` in
+`db/migrations/0007_money_journal.sql`.
+
+API CONTRACT:
+No new engine endpoint. Money reads the existing
+`POST /v1/opportunity/scan`, `GET /v1/opportunity/candidates`,
+`GET /v1/opportunity/budget`, `GET /v1/markets/{symbol}/quote` and
+`GET /v1/markets/health`. Writes go to the app database through server actions,
+not to the engine.
+
+MEMBER ROUTE AND NAVIGATION:
+`/app/money`, with a `founderOnly` entry in `components/member/member-shell.tsx`.
+
+PUBLIC WEBSITE LOCATION:
+None. This is a founder-only operator surface and is deliberately not described
+on the marketing site.
+
+AVAILABILITY STATUS:
+`local-verified`. The journal, the P&L arithmetic, the founder gate and the
+engine read path were exercised against a locally-run engine on SQLite with live
+Kraken data. Two things are **not** verified and are not claimed:
+
+- The deployed engine is still unreachable. `WANDS_ENGINE_URL` points at
+  `127.0.0.1:8000`, which inside the Vercel runtime is the function itself, not
+  the engine. Until the engine is deployed and that variable points at it, the
+  opportunity and quote reads fail in production and the page reports the
+  failure rather than inventing a candidate or a price.
+- `WANDS_FOUNDER_USER_IDS` is not set in the project environment, so the founder
+  gate fails closed and `/app/money` returns 404 for every account. This is the
+  intended behaviour of an unconfigured allowlist, not a bug, and it is resolved
+  by setting the variable to the founder's Better Auth user id.
+
+Equities are unavailable: `GET /v1/markets/health` reports `alpaca`
+`configured: false`, so the engine cannot price a stock. The page states this
+and shows no equity opportunity.
+
+TEST COVERAGE:
+`tests/money/calc.test.ts` (fixed-point arithmetic, rounding, risk/reward),
+`tests/money/validation.test.ts` (form parsing and rejection),
+`tests/money/authorization.test.ts` (every action refuses a non-founder without
+touching the database or the engine),
+`tests/money/page-authorization.test.ts` (the page reads nothing before the
+grant is checked).
+
+REMAINING BLOCKERS:
+Deployed engine endpoint; `WANDS_FOUNDER_USER_IDS`; an equity market-data
+credential if stocks are ever to be supported.
 
 ### Research read-path performance
 

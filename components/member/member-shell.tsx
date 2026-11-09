@@ -19,6 +19,7 @@ import {
   Settings,
   Sparkles,
   Target,
+  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -49,6 +50,7 @@ export const MEMBER_NAV: MemberNavItem[] = [
   { href: "/app/catalysts", label: "Catalyst Radar", icon: CalendarClock },
   { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
   { href: "/app/opportunity", label: "Opportunity Desk", icon: Target, founderOnly: true },
+  { href: "/app/money", label: "Money", icon: Wallet, founderOnly: true },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
   { href: "/app/alerts", label: "Alerts", icon: BellRing },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
