@@ -69,6 +69,7 @@ else.
 | Insider Radar | `intelligence/ingest.py`, `forms.py`, `classify.py` | `GET /v1/intelligence/insiders`, `/insiders/{symbol}` | `/app/insiders` | Insiders | `local-verified` |
 | Insider filing detail | `intelligence/member.py` | `GET /v1/intelligence/insiders/transactions/{id}` | `/app/insiders/[id]` | via Insiders | `local-verified` |
 | Institutional Radar | `intelligence/institutions.py` | `GET /v1/intelligence/institutions` | `/app/institutions` | Institutions | `local-verified` |
+| Institution holdings detail | `intelligence/institutions.py` | `GET /v1/intelligence/institutions/{cik}/changes` | `/app/institutions/[cik]` | via Institutions | `local-verified` |
 | Research signals | `intelligence/signals.py`, `fusion.py` | `GET /v1/intelligence/signals`, `/signals/{id}` | `/app/signals`, `/app/signals/[id]` | Signals | `local-verified` |
 | Signal validation | `intelligence/validation.py` | `GET /v1/intelligence/signals/{id}/validation` | `/app/signals/[id]` | via Signals | `local-verified` |
 | Source provenance | `intelligence/member.py` | `GET /v1/intelligence/sources` | `/app/assets/[symbol]`, `/app/signals/[id]` | — | `local-verified` |
@@ -156,11 +157,35 @@ capability the member workspace did not expose.
 Added: `app/app/institutions/page.tsx`, `components/member/institution-row.tsx`,
 and an `Institutions` entry in `MEMBER_NAV`.
 
+**Institutional Radar had no drill-down.** The engine served
+`GET /v1/intelligence/institutions/{cik}/changes`, but `lib/api/research.ts` had
+no member-safe binding for it and no member page consumed it, so a member could
+see a filer's reported value and position count and go no further. The signup
+page promised "13F position changes" that the workspace could not show.
+
+Added: `getInstitutionChanges` in `lib/api/research.ts` (re-exported as
+`memberResearch.institutionChanges`), `institutionHref` in
+`lib/member/links.ts`, `app/app/institutions/[cik]/page.tsx`,
+`components/member/institution-holdings.tsx`, and a link from every
+`InstitutionRow`.
+
+**An exit was dated to the filing that still reported the position.** In
+`InstitutionalRadar.changes`, an exited CUSIP took its `public_available_at` and
+`source_url` from the prior quarter's row, because that was the only row that
+existed for it. The prior filing reported the position as still held, so the
+exit appeared to have become public up to a quarter before it could have been
+observed, and its source link pointed at a document that contradicted the claim.
+Both now come from the current quarter's filing, which is the document that
+omits the CUSIP. Covered by
+`test_an_exit_becomes_public_with_the_filing_that_omitted_it`.
+
 ### Open
 
 | Gap | Detail | Status |
 | --- | --- | --- |
-| Institution drill-down | `GET /v1/intelligence/institutions/{cik}/changes` is served by the engine, but there is no member-safe client function and no member detail page. The list shows reported value, position count and public-availability date only. | `missing-frontend` |
+| No single-institution summary endpoint | `GET /v1/intelligence/institutions/{cik}` does not exist. The detail page derives reported value, position count and public-availability time from the change set it already has, and labels them as sums of reported lines. A first-party summary would remove the derivation. | `partial` |
+| No stored-quarter enumeration | `GET /v1/intelligence/institutions/{cik}/changes` accepts `period`, but nothing lists a filer's stored quarters. `periods` appears only on a feed row, inside a name-ordered paginated feed, so a period selector cannot be built without inventing the list. The detail page therefore shows the latest quarter only and passes `period` through when a link supplies it. | `partial` |
+| No search, sort or filter on the institution feed | `GET /v1/intelligence/institutions` accepts only `page` and `limit`, and orders by name. The member list offers no search box, sort control or filter, because none would reach the engine. | `partial` |
 | Engine not deployed | No `WANDS_ENGINE_URL` or `WANDS_RESEARCH_TOKEN` is configured, so every member research page renders the `unavailable` state. The engine itself now runs and answers correctly; it has no public host. See `docs/railway-deployment.md`. | `blocked` |
 | Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with all 8 migrations applied (45 tables, at head `a7c4e2b91f38`). No engine is connected to it yet. | `local-verified` |
 | Development shares the production database | The engine is isolated in `wands_engine`. The Next.js app still shares `neondb` between development and production. | `blocked` |
@@ -193,15 +218,22 @@ FRONTEND TASK REQUIRED: None
 ```
 FEATURE NAME: Institutional Radar
 BACKEND LOCATION: backend/wands/intelligence/institutions.py
-API ENDPOINT: GET /v1/intelligence/institutions
-DATA CONTRACT: InstitutionFeed, Institution (lib/api/contracts.ts)
-MEMBER PAGE: /app/institutions
-NAVIGATION LOCATION: MEMBER_NAV -> "Institutions"
+API ENDPOINT: GET /v1/intelligence/institutions,
+              GET /v1/intelligence/institutions/{cik}/changes
+DATA CONTRACT: InstitutionFeed, Institution, InstitutionChanges,
+               InstitutionalHoldingChange (lib/api/contracts.ts)
+MEMBER PAGE: /app/institutions, /app/institutions/[cik]
+NAVIGATION LOCATION: MEMBER_NAV -> "Institutions"; every feed row links to its
+  detail page by CIK
 PRODUCTION STATUS: local-verified
 PUBLIC WEBSITE DESCRIPTION: "Institutional Radar and 13F position changes" (signup page)
-CURRENT LIMITATION: List only. No drill-down to /institutions/{cik}/changes.
-FRONTEND TASK REQUIRED: Add a member detail page for 13F position changes once a
-  member-safe client function exists for GET /v1/intelligence/institutions/{cik}/changes.
+CURRENT LIMITATION: The detail page shows the latest stored quarter only. The
+  engine accepts a `period` parameter but exposes no list of a filer's stored
+  quarters, so no period selector is offered. The feed has no search, sort or
+  filter because the endpoint accepts only page and limit.
+FRONTEND TASK REQUIRED: None. A period selector needs either
+  GET /v1/intelligence/institutions/{cik} returning `periods`, or a `periods`
+  field on InstitutionChanges.
 ```
 
 ### Asset Research

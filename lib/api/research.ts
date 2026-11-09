@@ -8,6 +8,7 @@ import type {
   InsiderFeed,
   InsiderSymbolSummary,
   InsiderTransaction,
+  InstitutionChanges,
   InstitutionFeed,
   ResearchSignal,
   ResearchSignalCategory,
@@ -328,6 +329,43 @@ export const getInstitutionFeed = cache((page = 1, limit = 50) =>
   loadResearch<InstitutionFeed>(
     `/v1/intelligence/institutions?page=${page}&limit=${limit}`,
     () => emptyInstitutionFeed,
+  ),
+);
+
+/**
+ * The path for one filer's quarter-over-quarter holdings changes.
+ *
+ * Exported so the contract can be asserted without a live engine: the engine
+ * serves `GET /v1/intelligence/institutions/{cik}/changes` and accepts an
+ * optional `period` (the quarter end). It does not accept paging, search or a
+ * sort order, so the member surface must not offer them.
+ */
+export function institutionChangesPath(cik: string, period?: string): string {
+  const query = period ? `?period=${encodeURIComponent(period)}` : "";
+  return `/v1/intelligence/institutions/${encodeURIComponent(cik)}/changes${query}`;
+}
+
+function emptyInstitutionChanges(cik: string): InstitutionChanges {
+  return {
+    cik,
+    name: "",
+    periodOfReport: null,
+    priorPeriodOfReport: null,
+    changes: [],
+    caveats: [],
+  };
+}
+
+/**
+ * One filer's reported holdings, compared with the previous quarter.
+ *
+ * The engine returns the complete change set for the quarter — there is no
+ * paging on this endpoint — so a caller may filter and sort the returned rows
+ * without implying a server-side query it did not make.
+ */
+export const getInstitutionChanges = cache((cik: string, period?: string) =>
+  loadResearch<InstitutionChanges>(institutionChangesPath(cik, period), () =>
+    emptyInstitutionChanges(cik),
   ),
 );
 

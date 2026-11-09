@@ -59,15 +59,25 @@ export function StatTile({
   label,
   value,
   hint,
+  valueClassName,
 }: {
   label: string;
   value: string | number;
   hint?: string;
+  /** Overrides the value size, for a figure that is longer than a headline number. */
+  valueClassName?: string;
 }) {
   return (
     <div className="rounded-xl border border-mk-line bg-mk-surface/60 px-4 py-3.5">
       <p className="font-marketing-mono text-[10px] uppercase tracking-[0.16em] text-mk-dim">{label}</p>
-      <p className="mt-1.5 font-display text-2xl font-semibold tabular-nums tracking-[-0.02em] text-mk-fg">{value}</p>
+      <p
+        className={cn(
+          "mt-1.5 font-display text-2xl font-semibold tabular-nums tracking-[-0.02em] text-mk-fg",
+          valueClassName,
+        )}
+      >
+        {value}
+      </p>
       {hint ? <p className="mt-0.5 text-xs text-mk-muted">{hint}</p> : null}
     </div>
   );

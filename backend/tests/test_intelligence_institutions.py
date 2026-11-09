@@ -188,6 +188,25 @@ def test_changes_classify_new_exited_increased_and_decreased(session):
     assert changes["DDD"].prior_shares is None
 
 
+def test_an_exit_becomes_public_with_the_filing_that_omitted_it(session):
+    """A position that disappears is knowable from the later filing, not the earlier one.
+
+    The prior filing reported the position as still held, so dating the exit to
+    that filing would place the change before anyone could have observed it.
+    """
+    _two_quarters(session)
+    changes = {item.cusip: item for item in _radar(session).changes(CIK)}
+
+    exited = changes["CCC"]
+    assert exited.change_type == CHANGE_EXITED
+    assert exited.public_available_at == Q2_FILED
+    assert exited.public_available_at > Q1_FILED
+
+    # The document that supports the absence is the current quarter's filing.
+    assert exited.source_url == changes["AAA"].source_url
+    assert exited.source_url != ""
+
+
 def test_changes_are_invisible_before_the_second_quarter_was_filed(session):
     _two_quarters(session)
     radar = _radar(session)
