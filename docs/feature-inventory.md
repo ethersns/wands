@@ -7,8 +7,8 @@ actually reach, and what is still missing. Governed by **WANDS RULE 001** in
 Update this file in the same change that adds or alters a customer-facing
 capability. A row that says `missing-frontend` is a defect, not a note.
 
-- **Last verified:** 2026-08-11
-- **Engine commit:** `2b412a5` (branch `main`)
+- **Last verified:** 2026-11-09
+- **Engine commit:** `480665a` (branch `main`)
 - **Verification method:** code inspection plus the test runs recorded in
   section 7. No engine was deployed and no production research request was made.
 
@@ -74,6 +74,7 @@ else.
 | Signal validation | `intelligence/validation.py` | `GET /v1/intelligence/signals/{id}/validation` | `/app/signals/[id]` | via Signals | `local-verified` |
 | Source provenance | `intelligence/member.py` | `GET /v1/intelligence/sources` | `/app/assets/[symbol]`, `/app/signals/[id]` | — | `local-verified` |
 | Data coverage | `intelligence/freshness.py` | `GET /v1/intelligence/coverage/public` | `/app/research` | Research | `local-verified` |
+| Founder Market Brief | `lib/member/brief.ts`, `lib/member/brief-model.ts` | composes `GET /v1/intelligence/{dashboard,coverage/public,catalysts,insiders,institutions,signals}` | `/app/research` | Research | `local-verified` |
 | Quant Lab | `intelligence/quant.py`, `experiments.py`, `studies.py` | `POST /v1/intelligence/quant-lab/run`, `GET /experiments`, `/experiments/{id}` | `/app/quant-lab`, `/app/quant-lab/[id]` | Quant Lab | `local-verified` |
 | Research Forensics | `intelligence/forensics.py` | `GET /v1/intelligence/experiments/{id}` (`forensics` block) | `/app/quant-lab/[id]` | via Quant Lab | `local-verified` |
 | Catalyst Radar | `intelligence/catalysts.py`, `catalyst_sources.py` | `GET /v1/intelligence/catalysts` | `/app/catalysts` | Catalyst Radar | `local-verified` |
@@ -185,6 +186,85 @@ Implemented end to end, but `WANDS_FOUNDER_USER_IDS` is unset, so
 `requireFounder()` grants nobody and the desk returns `unconfigured`. This is
 fail-closed by design. It becomes usable when the founder's Better Auth user id
 is set in the Vercel Production environment.
+
+### Founder Market Brief
+
+FEATURE NAME: Founder Market Brief
+STATUS: `local-verified`
+
+BACKEND IMPLEMENTATION:
+No new engine endpoint, no new table and no migration. `lib/member/brief-model.ts`
+is a pure composition over feeds the engine already serves; `lib/member/brief.ts`
+is the read layer. The brief adds no scoring, no collection, no inference and no
+LLM call.
+
+API CONTRACT:
+Composes six existing customer-safe reads, issued in parallel:
+`GET /v1/intelligence/dashboard`, `/coverage/public`, `/catalysts?window_days=30`,
+`/insiders?limit=12`, `/institutions?page=1&limit=8`, `/signals?limit=12`.
+No read is made per symbol, so the brief costs the same six requests for a
+one-symbol watchlist and a fifty-symbol one. `tests/member/market-brief-read.test.ts`
+asserts both the call count and the bounded limits.
+
+FRONTEND ROUTE AND NAVIGATION:
+`app/app/research/page.tsx`, composed from `components/member/market-brief.tsx`.
+The existing `/app/research` → "Research" navigation entry is reused. No new
+route and no new nav item were added, so the brief is the research landing
+surface rather than a second dashboard. Its sections summarize and link out to
+`/app/catalysts`, `/app/insiders`, `/app/institutions`, `/app/signals` and the
+asset pages.
+
+PUBLIC WEBSITE LOCATION:
+None. Authenticated research surface; no marketing claim is made about it.
+
+SELECTION RULES (deterministic, and stated in the UI under "How these items were
+selected"):
+
+1. `watched_disclosure` — a watched symbol has an open-market insider filing
+   published in the last 14 days.
+2. `watched_catalyst` — a watched symbol is tagged to a scheduled event within
+   30 days.
+3. `market_catalyst` — a market-wide scheduled event within 7 days.
+4. `watched_signal` — a watched symbol has a signal public in the last 14 days.
+5. `source_stale` — a source is stale, failing or never collected, or published
+   coverage is insufficient.
+
+Ordering is rule, then publication time, then symbol, then id; the list is capped
+at 8. No confidence percentage is computed, and no asset is ranked by an invented
+score.
+
+DATA INTEGRITY:
+Disclosure recency uses `acceptedAt` (publication), never `transactionDate`.
+Date-only catalysts are compared as calendar days and render no clock time. 13F
+holdings are labelled by `periodOfReport` and `publicAvailableAt` and are never
+described as live buying or selling. Missing market-wide price data is stated as
+a gap rather than shown as a flat market. An empty feed is reported as a
+collection state, not as "no activity".
+
+TEST COVERAGE:
+`tests/member/market-brief.test.ts` — 17 tests over deterministic fixtures:
+complete brief, source attribution, empty-but-healthy, unreachable engine, stale
+collection, missing market prices, date-only catalyst, disclosure availability
+time, 13F delay, missing watchlist, non-open-market exclusion, deterministic
+ordering, list cap, watchlist-first ordering, count passthrough, failed source,
+cancelled/published exclusion.
+`tests/member/market-brief-read.test.ts` — 8 tests: bounded reads, constant cost
+for a large watchlist, per-member scoping, bounded limits, unreachable
+propagation, warning dedupe, exported-surface boundary, member research surface
+boundary.
+`tests/member/market-brief-view.test.tsx` — 8 render tests, including that a
+date-only catalyst renders no clock time and that a null score renders "no
+research ranking" rather than 0.
+
+REAL VERSUS FIXTURE VERIFICATION:
+Every test above uses hand-built fixtures. No test reaches the network and no
+brief has been read against real engine data, because no engine is deployed.
+
+REMAINING BLOCKERS:
+The brief is only as complete as the feeds behind it. Earnings and non-FOMC
+macroeconomic calendars are still absent (blocker 7), so the brief states those
+gaps on every load. Until `WANDS_ENGINE_URL` and `WANDS_RESEARCH_TOKEN` are set
+(blocker 2), every section renders the truthful unavailable state.
 
 ---
 
