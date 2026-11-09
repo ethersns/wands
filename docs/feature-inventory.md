@@ -129,17 +129,20 @@ prices. The schema also refused a `closed` row with no exit price and a row
 whose `user_id` is not a real account. The verification rows were deleted
 afterwards, so the table holds no fabricated trade.
 
-Two things are **not** verified and are not claimed:
+`WANDS_FOUNDER_USER_IDS` is set on the project to the founder's Better Auth user
+id. The gate therefore admits that one account and still fails closed for every
+other account, for a blank allowlist and for an unauthenticated request. The
+sandbox environment mirror had not picked the variable up when this was written,
+so the preview keeps returning 404 until it refreshes; the deployed app reads it
+from the project environment.
+
+One thing is **not** verified and is not claimed:
 
 - The deployed engine is still unreachable. `WANDS_ENGINE_URL` points at
   `127.0.0.1:8000`, which inside the Vercel runtime is the function itself, not
   the engine. Until the engine is deployed and that variable points at it, the
   opportunity and quote reads fail in production and the page reports the
   failure rather than inventing a candidate or a price.
-- `WANDS_FOUNDER_USER_IDS` is not set in the project environment, so the founder
-  gate fails closed and `/app/money` returns 404 for every account. This is the
-  intended behaviour of an unconfigured allowlist, not a bug, and it is resolved
-  by setting the variable to the founder's Better Auth user id.
 
 Equities are unavailable: `GET /v1/markets/health` reports `alpaca`
 `configured: false`, so the engine cannot price a stock. The page states this
@@ -154,8 +157,8 @@ touching the database or the engine),
 grant is checked).
 
 REMAINING BLOCKERS:
-Deployed engine endpoint; `WANDS_FOUNDER_USER_IDS`; an equity market-data
-credential if stocks are ever to be supported.
+Deployed engine endpoint; an equity market-data credential if stocks are ever to
+be supported.
 
 ### Research read-path performance
 
