@@ -69,6 +69,11 @@ class Provider(KrakenPublicProvider):
         self.calls.append("catalog")
         return self.catalog or [{"symbol": "SOL/USD", "pair": "SOLUSD", "status": "online"}]
 
+    def rank_usd_pairs(self, markets, *, limit, min_usd_volume, max_spread_pct):
+        self.calls.append("rank")
+        active = [market for market in markets if market["status"] == "online"]
+        return active[:limit], len(active)
+
     def check_liquidity(self, *args, **kwargs):
         self.calls.append("ticker")
         if self.failure:
@@ -162,6 +167,42 @@ def test_liquidity_uses_rolling_volume_times_vwap_not_last_trade():
     )
 
 
+def test_bulk_ticker_ranking_selects_highest_turnover_with_stable_ties():
+    tickers = {
+        "SOLUSD": TICKER,
+        "XXBTZUSD": {**TICKER, "v": ["1", "2000"]},
+        "XDGUSD": TICKER,
+        "OLDUSD": {**TICKER, "v": ["1", "9000"]},
+    }
+    requests = []
+    provider = KrakenPublicProvider(
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: (
+                    requests.append(request)
+                    or httpx.Response(200, json={"error": [], "result": tickers})
+                )
+            )
+        )
+    )
+
+    selected, eligible = provider.rank_usd_pairs(
+        [
+            {"symbol": "SOL/USD", "pair": "SOLUSD", "status": "online"},
+            {"symbol": "BTC/USD", "pair": "XXBTZUSD", "status": "online"},
+            {"symbol": "DOGE/USD", "pair": "XDGUSD", "status": "online"},
+        ],
+        limit=1,
+        min_usd_volume=Decimal("100000"),
+        max_spread_pct=Decimal("1"),
+    )
+
+    assert eligible == 3
+    assert [market["symbol"] for market in selected] == ["BTC/USD"]
+    assert len(requests) == 1
+    assert "pair=" not in str(requests[0].url)
+
+
 def test_kraken_http_200_throttle_is_retryable():
     provider = KrakenPublicProvider(
         client=httpx.Client(
@@ -179,10 +220,12 @@ def test_hundreds_of_pairs_do_not_fan_out(session):
     clock, calls = Clock(), []
     catalog = [{"symbol": f"ASSET{i}/USD", "pair": f"ASSET{i}USD", "status": "online"} for i in range(800)]
     state = step(session, clock, calls, catalog=catalog)
-    assert state["total"] == 804
+    assert state["total"] == 44
     assert state["checked"] == 0
     assert state["activeUsdPairs"] == 800
-    assert calls == ["catalog"]
+    assert calls == ["catalog", "rank"]
+    assert "40 of 800 online Kraken USD spot pairs" in state["notes"][0]
+    assert "760 online pairs were not scanned" in state["notes"][0]
     assert "markets" not in state
     assert ScanCoordinator(session, clock=clock).status()["runId"] == state["runId"]
 
@@ -191,10 +234,10 @@ def test_restart_resume_separate_requests_and_duplicate_cursor_are_idempotent(se
     clock, calls = Clock(), []
     state = ready_crypto(session, clock, calls)
     assert state["checked"] == 4
-    assert calls == ["catalog"]
+    assert calls == ["catalog", "rank"]
     before = dict(state)
     state = step(session, clock, calls, state)
-    assert calls == ["catalog", "ticker"]
+    assert calls == ["catalog", "rank", "ticker"]
     assert state["checked"] == 4
     replay = ScanCoordinator(session, clock=clock).advance(
         service=source(session, calls),
@@ -203,14 +246,19 @@ def test_restart_resume_separate_requests_and_duplicate_cursor_are_idempotent(se
         cursor=before["cursor"],
     )
     assert replay["cursor"] == state["cursor"]
-    assert calls == ["catalog", "ticker"]
+    assert calls == ["catalog", "rank", "ticker"]
     clock.tick()
     before = dict(state)
     state = step(session, clock, calls, state)
     assert state["status"] == "complete"
     assert state["pairsChecked"] == 1
     assert state["qualified"] == 1
-    assert calls == ["catalog", "ticker", "candles"]
+    assert calls == ["catalog", "rank", "ticker", "candles"]
+    stored = session.scalar(select(OppCandidateRow))
+    assert stored.symbol == "SOL/USD"
+    assert state["candidates"] == [
+        {"id": str(stored.id), "symbol": stored.symbol, "observedAt": stored.observed_at.isoformat()}
+    ]
     replay = ScanCoordinator(session, clock=clock).advance(
         service=source(session, calls),
         store_report=_store_report,
@@ -247,8 +295,8 @@ def test_inactive_and_illiquid_pairs_never_request_candles(session):
     for _ in range(5):
         state = step(session, clock, calls, state)
     assert state["status"] == "complete"
-    assert "Inactive" in state["skipped"][-1]["reason"]
-    assert calls == ["catalog"]
+    assert any("Inactive" in item["reason"] for item in state["skipped"])
+    assert calls == ["catalog", "rank"]
 
 
 def test_stale_breakout_is_not_stored_as_opportunity(session):
@@ -292,7 +340,7 @@ def test_live_lease_blocks_overlap_expired_lease_can_resume(session):
     session.commit()
     result = step(session, clock, calls, state)
     assert result["busy"]
-    assert calls == ["catalog"]
+    assert calls == ["catalog", "rank"]
     clock.tick(31)
     assert step(session, clock, calls, state)["checked"] == 1
 
@@ -377,7 +425,7 @@ def test_delisted_market_after_pause_is_not_scanned(session):
     state = step(session, clock, calls, state)
     assert state["status"] == "complete"
     assert "Inactive" in state["skipped"][-1]["reason"]
-    assert calls == ["catalog", "catalog"]
+    assert calls == ["catalog", "rank", "catalog"]
 
 
 def test_upstream_retry_after_is_preserved():

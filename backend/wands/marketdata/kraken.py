@@ -63,6 +63,14 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _positive_number(data: dict[str, Any], field: str, index: int) -> Decimal | None:
+    values = data.get(field)
+    if not isinstance(values, list) or len(values) <= index:
+        return None
+    value = _decimal(values[index])
+    return value if value is not None and value > 0 else None
+
+
 class KrakenPublicProvider:
     name = "kraken"
     market_type = MarketType.CRYPTO
@@ -200,6 +208,41 @@ class KrakenPublicProvider:
         if not pairs:
             raise ProviderDataError("Kraken returned no identifiable USD spot markets.")
         return sorted(pairs.values(), key=lambda pair: pair["symbol"])
+
+    def rank_usd_pairs(
+        self,
+        markets: list[dict[str, Any]],
+        *,
+        limit: int,
+        min_usd_volume: Decimal,
+        max_spread_pct: Decimal,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Select liquid active USD pairs from Kraken's one-request ticker snapshot."""
+        payload = self._get("/0/public/Ticker", {})
+        tickers = payload.get("result")
+        if not isinstance(tickers, dict) or not tickers:
+            raise ProviderDataError("Kraken returned no ticker snapshot for USD market ranking.")
+
+        eligible: list[tuple[Decimal, str, dict[str, Any]]] = []
+        for market in markets:
+            ticker = tickers.get(market["pair"])
+            if not isinstance(ticker, dict):
+                continue
+
+            bid, ask = _positive_number(ticker, "b", 0), _positive_number(ticker, "a", 0)
+            volume = _positive_number(ticker, "v", 1)
+            vwap = _positive_number(ticker, "p", 1)
+            if bid is None or ask is None or ask < bid or volume is None or vwap is None:
+                continue
+            if volume * vwap < min_usd_volume:
+                continue
+            spread = (ask - bid) / ((ask + bid) / 2) * 100
+            if spread > max_spread_pct:
+                continue
+            eligible.append((volume * vwap, market["symbol"], market))
+
+        eligible.sort(key=lambda item: (-item[0], item[1]))
+        return [market for _, _, market in eligible[:limit]], len(eligible)
 
     def check_liquidity(self, pair: str, *, min_usd_volume: Decimal, max_spread_pct: Decimal) -> str | None:
         payload = self._get("/0/public/Ticker", {"pair": pair})

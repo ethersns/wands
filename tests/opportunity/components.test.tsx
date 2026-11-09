@@ -250,6 +250,35 @@ describe("Opportunity Desk manual controls", () => {
     );
   });
 
+  it("discloses how many active Kraken pairs were not scanned", async () => {
+    mocks.readScannerAction.mockResolvedValue({
+      runId: "run-1",
+      status: "complete",
+      generatedAt: "2026-11-09T15:00:00Z",
+      updatedAt: "2026-11-09T15:00:00Z",
+      interval: "5m",
+      cursor: 44,
+      checked: 44,
+      pairsChecked: 40,
+      total: 44,
+      activeUsdPairs: 800,
+      qualified: 0,
+      candidates: [],
+      skipped: [],
+      notes: ["Coverage: selected 40 of 800 online Kraken USD spot pairs; 760 online pairs were not scanned."],
+      lastError: null,
+      nextBatchAt: null,
+      busy: false,
+      liquidity: { minUsdVolume24h: "100000", maxSpreadPct: "1" },
+    });
+
+    renderDesk({ candidates: [] });
+
+    expect(
+      await screen.findByText(/selected 40 of 800 online Kraken USD spot pairs/),
+    ).toBeInTheDocument();
+  });
+
   it("says the engine is unreachable instead of showing an empty desk", () => {
     renderDesk({ candidates: [], candidatesError: "WANDS_ENGINE_URL is not set." });
 
