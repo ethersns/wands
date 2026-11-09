@@ -547,6 +547,99 @@ export interface QuantExperimentFeed {
   caveats: string[];
 }
 
+/* ------------------------------------------------------------------ */
+/* Catalysts                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A scheduled event is one that has not happened yet and whose date a source
+ * publishes. A disclosure is one that already happened and has since been
+ * published. They are never merged, because "the Fed meets on 27 January" and
+ * "an insider filed on 5 November" are different kinds of claim.
+ */
+export type CatalystKind = "scheduled" | "disclosure";
+
+export type CatalystCategory =
+  | "monetary_policy"
+  | "earnings"
+  | "economic_release"
+  | "insider_disclosure"
+  | "institutional_disclosure";
+
+/**
+ * How precisely the source stated the time. `date_only` is a different claim
+ * from `exact`, not a degraded one: the source published a day and no clock
+ * time, so the UI must not render a time.
+ */
+export type CatalystTimePrecision = "exact" | "approximate" | "date_only" | "unconfirmed";
+
+export type CatalystStatus =
+  | "scheduled"
+  | "confirmed"
+  | "tentative"
+  | "cancelled"
+  | "postponed"
+  | "published";
+
+/**
+ * One source-backed market event.
+ *
+ * The five timestamps are separate fields and are never collapsed into one
+ * "date": when the event happened (`occurredAt`), when it is scheduled
+ * (`scheduledDate`/`scheduledAt`), when it became public (`publishedAt`), when
+ * Wands collected it (`collectedAt`), and when the source last revised it
+ * (`sourceUpdatedAt`).
+ */
+export interface Catalyst {
+  id: string;
+  kind: CatalystKind;
+  category: CatalystCategory;
+  title: string;
+  symbols: string[];
+  market: string | null;
+  /** True when the event is not tagged to any single symbol. */
+  marketWide: boolean;
+  /** A calendar day in `timeZone`. Populated only when the source gave a date. */
+  scheduledDate: string | null;
+  /** A UTC instant. Populated only when the source gave a clock time. */
+  scheduledAt: string | null;
+  timePrecision: CatalystTimePrecision;
+  timeZone: string;
+  status: CatalystStatus;
+  occurredAt: string | null;
+  publishedAt: string | null;
+  sourceName: string;
+  sourceUrl: string;
+  sourceUpdatedAt: string | null;
+  collectedAt: string;
+  warnings: string[];
+  coverageLimitations: string[];
+}
+
+export type CatalystSourceStatus = "ok" | "unavailable" | "failed";
+
+/** What one scheduled-event source could say, including when it said nothing. */
+export interface CatalystSource {
+  source: string;
+  label: string;
+  status: CatalystSourceStatus;
+  detail: string;
+  eventCount: number;
+  sourceUrl: string | null;
+  fetchedAt: string | null;
+}
+
+export interface CatalystFeed {
+  items: Catalyst[];
+  sources: CatalystSource[];
+  windowStart: string;
+  windowEnd: string;
+  upcoming: number;
+  recent: number;
+  caveats: string[];
+  coverageLimitations: string[];
+}
+
 export const RESEARCH_ENDPOINTS = {
   dashboard: {
     method: "GET",
@@ -632,6 +725,13 @@ export const RESEARCH_ENDPOINTS = {
     status: "new",
     omit: ["jobs", "backfill", "leaseOwner", "lastError"],
   },
+  catalysts: {
+    method: "GET",
+    path: "/v1/intelligence/catalysts",
+    query: ["category", "symbol", "window_days", "past_days", "limit"],
+    status: "new",
+    omit: [],
+  },
 } as const;
 
 export type ResearchEndpointName = keyof typeof RESEARCH_ENDPOINTS;
@@ -649,6 +749,7 @@ export interface ResearchResponseMap {
   coverage: ResearchCoverageDisclosure;
   experiments: QuantExperimentFeed;
   experiment: QuantExperiment;
+  catalysts: CatalystFeed;
 }
 
 export type ResearchResponse<K extends ResearchEndpointName> =

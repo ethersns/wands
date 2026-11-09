@@ -133,6 +133,20 @@ class Settings(BaseSettings):
     intelligence_activity_baseline_days: int = 180
     intelligence_signal_engine_version: str = "1.0"
 
+    # --- intelligence: catalyst radar -------------------------------------
+    # Catalyst Radar pairs scheduled events from official sources with the
+    # disclosures already stored. The FOMC calendar is one small public page
+    # fetched at most once per TTL window, on read, with a hard timeout. There is
+    # no polling worker, so this is bounded by construction rather than by a
+    # schedule. Set ``catalyst_fomc_enabled`` false to stop the fetch entirely;
+    # the API then reports the source as unavailable instead of an empty calendar.
+    catalyst_fomc_enabled: bool = True
+    catalyst_fomc_ttl_seconds: int = 21600
+    catalyst_fomc_timeout_seconds: float = 10.0
+    catalyst_window_days: int = 90
+    catalyst_past_days: int = 30
+    catalyst_max_items: int = 200
+
     # --- intelligence: historical backfill --------------------------------
     # The recent-filings block in the submissions JSON only reaches back a few
     # hundred filings per issuer. Older history lives in the per-issuer archive

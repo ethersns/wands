@@ -76,6 +76,7 @@ else.
 | Data coverage | `intelligence/freshness.py` | `GET /v1/intelligence/coverage/public` | `/app/research` | Research | `local-verified` |
 | Quant Lab | `intelligence/quant.py`, `experiments.py`, `studies.py` | `POST /v1/intelligence/quant-lab/run`, `GET /experiments`, `/experiments/{id}` | `/app/quant-lab`, `/app/quant-lab/[id]` | Quant Lab | `local-verified` |
 | Research Forensics | `intelligence/forensics.py` | `GET /v1/intelligence/experiments/{id}` (`forensics` block) | `/app/quant-lab/[id]` | via Quant Lab | `local-verified` |
+| Catalyst Radar | `intelligence/catalysts.py`, `catalyst_sources.py` | `GET /v1/intelligence/catalysts` | `/app/catalysts` | Catalyst Radar | `local-verified` |
 | Member watchlists | `lib/member/watchlists.ts` | `/api/member/watchlists` | `/app/watchlists` | Watchlists | `local-verified` |
 | Saved research | `lib/member/saved.ts` | `/api/member/saved` | `/app/saved`, `/app/saved/[id]` | Saved | `local-verified` |
 | Member alerts | `lib/member/alerts.ts` | `/api/member/alerts`, `/alerts/run` | `/app/alerts` | Alerts | `local-verified` |
@@ -104,6 +105,79 @@ those reads was a sequential scan. Migration `b8d3f5a1c927` adds
 **not** been applied to production — the rows above are statement counts, not
 wall-clock timings, and the deployed latency is unverified until the migration
 runs and the endpoints are re-timed from the Vercel runtime.
+
+### Catalyst Radar
+
+FEATURE NAME: Catalyst Radar
+STATUS: `local-verified`
+
+BACKEND IMPLEMENTATION:
+`backend/wands/intelligence/catalysts.py` (contract, service, disclosure
+queries) and `backend/wands/intelligence/catalyst_sources.py` (provider protocol,
+FOMC calendar parser, TTL cache). No new table and no migration: scheduled events
+are read from the source on demand and cached in process; disclosures are read
+from the SEC rows the collectors already store.
+
+API CONTRACT:
+`GET /v1/intelligence/catalysts?category=&symbol=&window_days=&past_days=&limit=`
+gated on `research:read`. Returns `CatalystFeed`: `items`, per-source `sources`
+status, `windowStart`/`windowEnd`, `upcoming`/`recent` counts, `caveats`,
+`coverageLimitations`. Each `Catalyst` carries five separate timestamps —
+`occurredAt`, `scheduledDate`/`scheduledAt`, `publishedAt`, `collectedAt`,
+`sourceUpdatedAt` — plus `timePrecision` (`exact`/`approximate`/`date_only`/
+`unconfirmed`), `status`, `sourceName`, `sourceUrl`, `warnings`.
+
+FRONTEND ROUTE AND NAVIGATION:
+`app/app/catalysts/page.tsx`, composed from `components/member/catalyst-timeline.tsx`,
+`catalyst-filters.tsx` and `catalyst-sources.tsx`. Navigation entry
+`/app/catalysts` → "Catalyst Radar" in `components/member/member-shell.tsx`,
+placed with the other discovery feeds between Signals and Quant Lab. Reads go
+through `lib/member/research.ts` → `lib/api/research.ts`; the member surface
+gained exactly one key (`catalysts`), which the member-surface test asserts.
+
+PUBLIC WEBSITE LOCATION:
+None. This is an authenticated research surface and is not described on the
+marketing site. `components/marketing/next-chapter.tsx` names "Market Pulse" as a
+future product; that is marketing copy, not this feature, and no claim about
+Catalyst Radar is made there.
+
+AVAILABLE PROVIDERS (verified by live request on 2026-11-09):
+
+| Source | Reachable | Credential | Used |
+| --- | --- | --- | --- |
+| Federal Reserve FOMC calendar | HTTP 200 | none | **yes** |
+| BLS release schedule | HTTP 403 (blocks automated clients) | none | no |
+| FRED releases API | HTTP 400 without `api_key` | free key required | no |
+| Earnings-calendar vendors | — | paid or keyed | no |
+
+The FOMC page parsed to 56 meetings across 2021–2027 with **zero** mismatches
+between the derived decision date and the Fed's own statement filename for every
+meeting that has one. Out-of-cycle notation votes are excluded and the exclusion
+is stated in the payload.
+
+REAL VERSUS FIXTURE VERIFICATION:
+The parser was exercised against the live page during development (56 events, 0
+mismatches). The committed tests use a hand-built fixture and a fake HTTP client,
+so they prove the parser refuses to invent a time — they do **not** prove the
+live page still has this layout. No test reaches the network.
+
+TEST COVERAGE:
+`backend/tests/test_intelligence_catalysts.py` — 32 tests: confirmed event,
+derived date-only event, cross-month range, footnote asterisk, notation-vote
+exclusion, absolute source URL, empty page, disabled source, network failure,
+HTTP error, cache TTL, no invented time, cancelled status passthrough, window
+filtering, publication-vs-transaction time, collection lag, accession
+deduplication, amendment flag, 13F period-end labelling, symbol filter,
+category filter, spring and autumn DST boundaries, late-UTC previous-day
+conversion, 401, 403, envelope shape, all-sources-failed, empty window.
+`tests/member/catalyst-timeline.test.tsx` — 6 render tests, including that a
+date-only event renders no clock time.
+
+REMAINING BLOCKERS:
+Earnings dates and non-FOMC macroeconomic releases are **not** collected. No
+licensed, credential-free source exists for either, so the contract and the
+truthful unavailable state are implemented and no calendar is manufactured. See
+blocker 7.
 
 ### Opportunity Desk
 
@@ -145,6 +219,17 @@ it, because it carries the member research surface.
 ## 5. Backend-to-frontend gaps
 
 ### Closed in this change
+
+**No scheduled-event surface existed at all.** `marketdata/calendar.py` is a
+market *session* calendar: it answers "is the exchange open right now" and knows
+nothing about events. There was no event calendar, no earnings source and no
+economic-release source anywhere in the engine, and "Market Pulse" existed only
+as a product name in `components/marketing/next-chapter.tsx` with no code behind
+it. A member had no way to ask what was coming.
+
+Added: `intelligence/catalysts.py` and `intelligence/catalyst_sources.py`,
+`GET /v1/intelligence/catalysts`, `app/app/catalysts/page.tsx` with its three
+components, and a `Catalyst Radar` entry in `MEMBER_NAV`.
 
 **Institutional Radar had no member surface.** The engine served
 `GET /v1/intelligence/institutions`, `lib/api/research.ts` exposed
@@ -394,21 +479,26 @@ FRONTEND TASK REQUIRED: None. Do not add these to member navigation.
 
 ## 7. Verification evidence
 
-Run on 2026-08-11 against commit `2b412a5` plus this change.
+Run on 2026-11-09 against commit `2b412a5` plus this change.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Backend suite | `python -m pytest -q` in `backend/` (Python 3.13, venv) | **657 passed** |
-| Frontend suite | `pnpm exec vitest run` | **505 passed**, 40 files |
+| Backend suite | `python -m pytest -q` in `backend/` (Python 3.13, venv) | **746 passed** |
+| Frontend suite | `pnpm exec vitest run` | **551 passed**, 44 files |
 | Typecheck | `pnpm exec tsc --noEmit` | clean |
-| Production build | `pnpm build` | exit 0; `/app/institutions` registered as a dynamic route |
+| Lint | `pnpm exec eslint` on changed files | clean |
+| Production build | `pnpm build` | exit 0; `/app/catalysts` registered as a dynamic route |
 
 Not run, and therefore not claimed:
 
 - No engine was started, so `/healthz` and `/readyz` are unverified by execution.
+- `WANDS_ENGINE_URL` is unset in this environment, so `/app/catalysts` renders its
+  unavailable state in preview rather than a populated feed. The populated state
+  is covered by the backend contract tests and the timeline render tests, not by
+  a browser session against a live engine.
 - No production research request was made, so no member page was exercised
   against real data.
-- No migration was applied to any database.
+- No migration was applied to any database. Catalyst Radar adds no table.
 - No SEC ingestion was executed, so no filing counts are reported here.
 
 ---
@@ -430,3 +520,19 @@ Not run, and therefore not claimed:
 5. **Isolate the application database** between development and production.
 6. **Set `WANDS_SEC_USER_AGENT`** to a real operator contact before enabling SEC
    ingestion. The settings validator refuses to start on the placeholder.
+7. **Decide the earnings and economic-release provider.** Catalyst Radar collects
+   scheduled events from the Federal Reserve's FOMC calendar only, because it is
+   the one official source that is both credential-free and machine-readable.
+   Two categories are therefore absent, and the API says so rather than showing
+   an empty calendar:
+   - *Earnings announcement dates.* No credential-free, licensed source exists.
+     SEC EDGAR publishes filings after the fact and does not publish scheduled
+     earnings dates. A vendor (Alpha Vantage, Financial Modeling Prep, Polygon)
+     requires a key and a licence review before redistribution to members.
+   - *Non-FOMC macroeconomic releases* (CPI, employment, GDP). BLS returns HTTP
+     403 to automated clients. FRED's `releases/dates` endpoint is the right
+     source and needs a free `api_key`; it is a one-line addition to
+     `catalyst_sources.py` once the key is issued.
+   Until one of these is chosen, `WANDS_CATALYST_FOMC_ENABLED` governs the only
+   scheduled source, and the coverage-limitations block on `/app/catalysts`
+   states the gap to the member.
