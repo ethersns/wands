@@ -72,7 +72,7 @@ function notFoundResponse() {
   );
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public registration is closed.
@@ -161,8 +161,8 @@ export async function middleware(request: NextRequest) {
  * to be a static literal, so the two cannot share a value; a test asserts they
  * stay in step.
  *
- * `/api/:path*` is deliberately broad: the middleware is what denies API routes
- * that no list claims, so it has to see all of them, not just the known ones.
+ * `/api/:path*` is deliberately broad: the proxy is what denies API routes that
+ * no list claims, so it has to see all of them, not just the known ones.
  */
 export const config = {
   matcher: [

@@ -14,7 +14,7 @@ import {
 /**
  * Authoritative operator gate for the admin control centre.
  *
- * `middleware.ts` already refuses an operator path without a valid session, but
+ * `proxy.ts` already refuses an operator path without a valid session, but
  * middleware is a routing convenience: it can be skipped by a rewrite, a direct
  * server-side render, or a future config change. Every admin page and every
  * admin endpoint therefore re-validates the signed cookie here, against the

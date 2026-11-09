@@ -4,8 +4,9 @@ import { Pool } from "pg";
 import { isAccountSuspended } from "@/lib/admin/account-status";
 import { emailDeliveryConfigured, passwordResetEmail, sendTransactionalEmail, verificationEmail } from "@/lib/email/send";
 import { recordSignIn } from "@/lib/member/login-events";
+import { pgPoolConfig } from "@/lib/pg-config";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool(pgPoolConfig(process.env.DATABASE_URL));
 
 function resolveBaseURL(): string {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
