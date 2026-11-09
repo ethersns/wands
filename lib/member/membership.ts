@@ -61,6 +61,8 @@ export type Membership = {
   source: EntitlementSource;
   cancelAtPeriodEnd: boolean;
   stripeCustomerId: string | null;
+  /** True when access comes from an owner grant rather than a subscription. */
+  complimentary: boolean;
 };
 
 export function isBillingEnabled(): boolean {
@@ -96,6 +98,7 @@ export async function getMembership(userId: string): Promise<Membership> {
     source: entitlement.source,
     cancelAtPeriodEnd: entitlement.cancelAtPeriodEnd,
     stripeCustomerId: entitlement.stripeCustomerId,
+    complimentary: entitlement.source === "comp",
   };
 }
 
