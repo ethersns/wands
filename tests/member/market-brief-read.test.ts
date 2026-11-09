@@ -9,7 +9,7 @@ const reads = vi.hoisted(() => ({
   insiders: vi.fn(),
   institutions: vi.fn(),
   signals: vi.fn(),
-  trackedSymbols: vi.fn(),
+  watchlists: vi.fn(),
 }));
 
 vi.mock("@/lib/member/research", () => ({
@@ -23,9 +23,10 @@ vi.mock("@/lib/member/research", () => ({
   },
 }));
 
-vi.mock("@/lib/member/watchlists", () => ({
-  listTrackedSymbols: reads.trackedSymbols,
-}));
+vi.mock("@/lib/member/watchlists", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/member/watchlists")>();
+  return { ...actual, listWatchlists: reads.watchlists };
+});
 
 import * as briefModule from "@/lib/member/brief";
 import { getMarketBrief } from "@/lib/member/brief";
@@ -85,13 +86,29 @@ const catalystFeedData = () => ({
   coverageLimitations: [],
 });
 
-const insiderFeedData = () => ({ items: [], total: 0, page: 1, limit: 50, hasMore: false });
+const insiderFeedData = () => ({ items: [], total: 0, page: 1, limit: 200, hasMore: false });
 const institutionFeedData = () => ({ items: [], total: 0, page: 1, limit: 50, hasMore: false });
-const signalFeedData = () => ({ items: [], total: 0, page: 1, limit: 50, hasMore: false });
+const signalFeedData = () => ({ items: [], total: 0, page: 1, limit: 200, hasMore: false });
+
+function watchlist(name: string, symbols: string[], isDefault = false) {
+  return {
+    id: `wl-${name}`,
+    name,
+    isDefault,
+    createdAt: "2026-11-01T00:00:00Z",
+    items: symbols.map((symbol, index) => ({
+      id: `item-${name}-${index}`,
+      symbol,
+      marketType: "equity",
+      note: null,
+      createdAt: "2026-11-01T00:00:00Z",
+    })),
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  reads.trackedSymbols.mockResolvedValue(["AAPL"]);
+  reads.watchlists.mockResolvedValue([watchlist("My watchlist", ["AAPL"], true)]);
   reads.dashboard.mockResolvedValue(envelope(dashboardData()));
   reads.coverage.mockResolvedValue(envelope(coverageData()));
   reads.catalysts.mockResolvedValue(envelope(catalystFeedData()));
@@ -110,13 +127,17 @@ describe("market brief read layer", () => {
     expect(reads.insiders).toHaveBeenCalledTimes(1);
     expect(reads.institutions).toHaveBeenCalledTimes(1);
     expect(reads.signals).toHaveBeenCalledTimes(1);
-    expect(reads.trackedSymbols).toHaveBeenCalledTimes(1);
+    expect(reads.watchlists).toHaveBeenCalledTimes(1);
   });
 
   it("costs the same number of reads for a large watchlist", async () => {
-    reads.trackedSymbols.mockResolvedValue(
-      Array.from({ length: 50 }, (_, index) => `SYM${index}`),
-    );
+    reads.watchlists.mockResolvedValue([
+      watchlist(
+        "Big",
+        Array.from({ length: 50 }, (_, index) => `SYM${index}`),
+        true,
+      ),
+    ]);
 
     const brief = await getMarketBrief("user-1");
 
@@ -125,29 +146,72 @@ describe("market brief read layer", () => {
     expect(reads.insiders).toHaveBeenCalledTimes(1);
     expect(reads.signals).toHaveBeenCalledTimes(1);
     expect(reads.catalysts).toHaveBeenCalledTimes(1);
+    expect(reads.watchlists).toHaveBeenCalledTimes(1);
   });
 
   it("scopes the watchlist read to the signed-in member", async () => {
     await getMarketBrief("user-42");
 
-    expect(reads.trackedSymbols).toHaveBeenCalledWith("user-42");
+    expect(reads.watchlists).toHaveBeenCalledWith("user-42");
+  });
+
+  it("derives tracked symbols from the single watchlist read", async () => {
+    reads.watchlists.mockResolvedValue([
+      watchlist("Core", ["MSFT", "AAPL"], true),
+      watchlist("Speculative", ["AAPL", "NVDA"]),
+    ]);
+
+    const brief = await getMarketBrief("user-1");
+
+    expect(brief.watchlist).toEqual(["AAPL", "MSFT", "NVDA"]);
+    expect(brief.watchlistCount).toBe(2);
+    expect(reads.watchlists).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one member's symbols out of another member's brief", async () => {
+    reads.watchlists.mockImplementation(async (userId: string) =>
+      userId === "user-1" ? [watchlist("Mine", ["AAPL"], true)] : [watchlist("Theirs", ["TSLA"], true)],
+    );
+
+    const mine = await getMarketBrief("user-1");
+    const theirs = await getMarketBrief("user-2");
+
+    expect(mine.watchlist).toEqual(["AAPL"]);
+    expect(theirs.watchlist).toEqual(["TSLA"]);
+    expect(reads.watchlists).toHaveBeenNthCalledWith(1, "user-1");
+    expect(reads.watchlists).toHaveBeenNthCalledWith(2, "user-2");
   });
 
   it("passes bounded limits rather than asking for the whole universe", async () => {
     await getMarketBrief("user-1");
 
-    expect(reads.insiders).toHaveBeenCalledWith({ limit: 12 });
-    expect(reads.signals).toHaveBeenCalledWith({ limit: 12 });
+    expect(reads.insiders).toHaveBeenCalledWith({ limit: 200 });
+    expect(reads.signals).toHaveBeenCalledWith({ limit: 200 });
     expect(reads.institutions).toHaveBeenCalledWith(1, 8);
     expect(reads.catalysts).toHaveBeenCalledWith({ windowDays: 30 });
   });
 
-  it("reports the brief unreachable when any single source is unreachable", async () => {
+  it("reports which sources were unreachable instead of one flat flag", async () => {
     reads.signals.mockResolvedValue(envelope(signalFeedData(), { unreachable: true }));
 
     const brief = await getMarketBrief("user-1");
 
-    expect(brief.unreachable).toBe(true);
+    expect(brief.availability).toBe("partial");
+    expect(brief.unreachable).toBe(false);
+    expect(brief.sources.find((source) => source.key === "signals")?.state).toBe("unavailable");
+    expect(brief.sources.find((source) => source.key === "insiders")?.state).toBe("empty");
+  });
+
+  it("does not pass a fabricated assessment time when the dashboard is unreachable", async () => {
+    // The unreachable payload is stamped with the current clock; the brief must
+    // not treat that as a real assessment time.
+    reads.dashboard.mockResolvedValue(envelope(dashboardData(), { unreachable: true }));
+
+    const brief = await getMarketBrief("user-1");
+
+    expect(brief.timeBasis).toBe("indeterminate");
+    expect(brief.asOf).toBeNull();
+    expect(brief.context.counts).toBeNull();
   });
 
   it("deduplicates warnings arriving from several envelopes", async () => {

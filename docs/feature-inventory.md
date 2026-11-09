@@ -201,10 +201,54 @@ LLM call.
 API CONTRACT:
 Composes six existing customer-safe reads, issued in parallel:
 `GET /v1/intelligence/dashboard`, `/coverage/public`, `/catalysts?window_days=30`,
-`/insiders?limit=12`, `/institutions?page=1&limit=8`, `/signals?limit=12`.
+`/insiders?limit=200`, `/institutions?page=1&limit=8`, `/signals?limit=200`.
 No read is made per symbol, so the brief costs the same six requests for a
 one-symbol watchlist and a fifty-symbol one. `tests/member/market-brief-read.test.ts`
 asserts both the call count and the bounded limits.
+
+READ COST (corrected):
+The page performs **seven** reads, not eight. Six are engine requests; one is a
+database read of the member's watchlists.
+
+| Read | Before | After |
+| --- | --- | --- |
+| `GET /v1/intelligence/dashboard` | 1 | 1 |
+| `GET /v1/intelligence/coverage/public` | 1 | 1 |
+| `GET /v1/intelligence/catalysts` | 1 | 1 |
+| `GET /v1/intelligence/insiders` | 1 | 1 |
+| `GET /v1/intelligence/institutions` | 1 | 1 |
+| `GET /v1/intelligence/signals` | 1 | 1 |
+| `listTrackedSymbols(userId)` | 1 | — |
+| `listWatchlists(userId)` (page) | 1 | — |
+| `listWatchlists(userId)` (brief) | — | 1 |
+| **Total** | **8** | **7** |
+
+`listTrackedSymbols` and the page's `listWatchlists` read the same two tables
+with the same `where w.user_id = $1` predicate. The brief now reads the
+watchlists once and derives the distinct symbols with `trackedSymbolsFrom`, so
+the page no longer reads them a second time. Authorization is unchanged: the
+single read is still scoped to the signed-in member, and the brief reports
+`watchlistCount` from that same result rather than from a second query.
+
+COVERAGE LIMITATIONS (watchlist bias):
+The engine serves the insider and signal feeds one page at a time and accepts a
+single `symbol` filter, not a list. There is therefore no bounded way to request
+"every record for these N watched symbols" in one call, and issuing one request
+per symbol is explicitly out of scope. Two things follow:
+
+1. The brief asks for the contract maximum of 200 rows per feed instead of 12,
+   which is the most complete single bounded read the existing contract allows.
+2. The brief reports the remainder. `insiderCoverage` and `signalCoverage` carry
+   `retrieved` against the feed's own `total`, and when the page was partial the
+   brief states it in "Known limitations", naming any watched symbol that has no
+   record in the retrieved page and saying that its absence is not evidence of
+   no activity.
+
+Full watchlist coverage needs an engine extension: a repeated `symbols=` filter
+(or equivalent) on `GET /v1/intelligence/insiders` and `/signals`, bounded to a
+maximum symbol count and gated on the same `research:read` scope. That is
+**not** implemented here — it is a backend contract change with its own tests,
+and the brief states its partial coverage instead of implying completeness.
 
 FRONTEND ROUTE AND NAVIGATION:
 `app/app/research/page.tsx`, composed from `components/member/market-brief.tsx`.
@@ -220,6 +264,8 @@ None. Authenticated research surface; no marketing claim is made about it.
 SELECTION RULES (deterministic, and stated in the UI under "How these items were
 selected"):
 
+0. `time_unknown` — the brief could not establish when it was assessed, so no
+   time-window rule was applied.
 1. `watched_disclosure` — a watched symbol has an open-market insider filing
    published in the last 14 days.
 2. `watched_catalyst` — a watched symbol is tagged to a scheduled event within
@@ -233,6 +279,20 @@ Ordering is rule, then publication time, then symbol, then id; the list is cappe
 at 8. No confidence percentage is computed, and no asset is ranked by an invented
 score.
 
+ASSESSMENT TIME (deterministic):
+The brief is a pure function of its inputs. It previously read
+`parseInstant(inputs.asOf) ?? Date.now()`, so a missing or malformed timestamp
+silently made the assessment depend on the wall clock and the same inputs could
+produce different briefs at different times. That fallback is gone.
+
+`asOf` is now parsed once. When it yields no instant, `timeBasis` is
+`indeterminate`, `asOf` and `context.asOf` are `null`, and rules 1-4 are not
+applied at all: the brief does not claim that any disclosure, event or signal is
+recent or upcoming, and `upcomingCatalysts`/`recentCatalysts` are empty rather
+than classified against an invented "now". The state is stated in the UI as a
+`time_unknown` investigation, a `time:unknown` limitation and a masthead badge.
+A future timestamp is used as given, not clamped to the present.
+
 DATA INTEGRITY:
 Disclosure recency uses `acceptedAt` (publication), never `transactionDate`.
 Date-only catalysts are compared as calendar days and render no clock time. 13F
@@ -241,30 +301,72 @@ described as live buying or selling. Missing market-wide price data is stated as
 a gap rather than shown as a flat market. An empty feed is reported as a
 collection state, not as "no activity".
 
+PROVENANCE ON PARTIAL FAILURE:
+The brief previously collapsed six sources into one `unreachable` boolean, so a
+single failed read was labelled "Engine unreachable" and a healthy brief was
+labelled "Live data" with nothing in between. It now carries one
+`BriefSourceStatus` per source and a derived `availability`:
+
+| State | Meaning | Top-level label |
+| --- | --- | --- |
+| `healthy` | Read, and the source reports itself healthy | `complete` |
+| `empty` | Read, and nothing is stored | `complete` |
+| `stale` | Read, but the source reports ageing or failed collection | `partial` |
+| `unavailable` | The engine could not be reached | `partial`, or `unavailable` when every source is down |
+
+`unreachable` is now true only when every source is unreachable. The four states
+are rendered separately in a "Source status" panel, and the per-source warnings
+are still concatenated and deduplicated into the provenance note.
+
+No missing value becomes an invented zero. When the dashboard could not be read,
+`context.counts` is `null` and the market-context panel says so instead of
+rendering four zeroes. The read layer also refuses the unreachable dashboard's
+own payload timestamp, which is stamped with the current clock, so an outage
+cannot masquerade as a valid assessment time.
+
 TEST COVERAGE:
-`tests/member/market-brief.test.ts` — 17 tests over deterministic fixtures:
+`tests/member/market-brief.test.ts` — 32 tests over deterministic fixtures:
 complete brief, source attribution, empty-but-healthy, unreachable engine, stale
 collection, missing market prices, date-only catalyst, disclosure availability
 time, 13F delay, missing watchlist, non-open-market exclusion, deterministic
 ordering, list cap, watchlist-first ordering, count passthrough, failed source,
-cancelled/published exclusion.
-`tests/member/market-brief-read.test.ts` — 8 tests: bounded reads, constant cost
-for a large watchlist, per-member scoping, bounded limits, unreachable
-propagation, warning dedupe, exported-surface boundary, member research surface
+cancelled/published exclusion; plus missing/malformed/future/valid assessment
+time, identical output for identical indeterminate inputs, historical event
+windows, a watched symbol outside the retrieved page, no partial-coverage claim
+when the feed was complete, watchlist count, single-source partial failure,
+all-sources-down, stale-as-partial, no invented zero count, and healthy-empty
+versus unavailable.
+`tests/member/market-brief-read.test.ts` — 11 tests: bounded reads, constant cost
+for a large watchlist, per-member scoping, symbols derived from the single
+watchlist read, member isolation across two members, bounded limits, per-source
+unreachable reporting, no fabricated assessment time from an unreachable
+dashboard, warning dedupe, exported-surface boundary, member research surface
 boundary.
-`tests/member/market-brief-view.test.tsx` — 8 render tests, including that a
-date-only catalyst renders no clock time and that a null score renders "no
-research ranking" rather than 0.
+`tests/member/market-brief-view.test.tsx` — 12 render tests, including that a
+date-only catalyst renders no clock time, that a null score renders "no research
+ranking" rather than 0, that a single failed source renders "partial data", that
+an indeterminate brief renders "no assessment time" instead of a quiet brief,
+that no count is shown when the dashboard could not be read, and that an
+unavailable source is distinguished from an empty one.
 
 REAL VERSUS FIXTURE VERIFICATION:
 Every test above uses hand-built fixtures. No test reaches the network and no
-brief has been read against real engine data, because no engine is deployed.
+brief has been read against real engine data, because no engine is deployed. The
+authenticated `/app/research` route was not exercised in a browser: it requires a
+member session, and creating one would write to the production database. The view
+is covered by the 12 render tests instead.
 
 REMAINING BLOCKERS:
 The brief is only as complete as the feeds behind it. Earnings and non-FOMC
 macroeconomic calendars are still absent (blocker 7), so the brief states those
 gaps on every load. Until `WANDS_ENGINE_URL` and `WANDS_RESEARCH_TOKEN` are set
 (blocker 2), every section renders the truthful unavailable state.
+
+Watchlist coverage is partial by contract, not by choice: the insider and signal
+feeds accept one `symbol` and one page, so a watched symbol can sit outside the
+200-row page the brief reads. The brief now says so and names the affected
+symbols. Closing the gap needs a bounded multi-symbol filter on those two
+endpoints, which is a backend contract change and is not part of this change.
 
 ---
 

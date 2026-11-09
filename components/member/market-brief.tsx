@@ -16,6 +16,7 @@ import {
   type BriefInvestigation,
   type BriefLimitation,
   type BriefReason,
+  type BriefSourceState,
   type MarketBrief,
 } from "@/lib/member/brief";
 import { assetHref, filingHref, institutionHref, signalHref } from "@/lib/member/links";
@@ -28,6 +29,7 @@ const PRECISION_LABEL: Record<CatalystTimePrecision, string> = {
 };
 
 const REASON_TONE: Record<BriefReason, "neutral" | "accent" | "warn" | "emerald"> = {
+  time_unknown: "warn",
   watched_disclosure: "accent",
   watched_catalyst: "emerald",
   market_catalyst: "neutral",
@@ -97,18 +99,26 @@ function SourceLink({ name, url }: { name: string | null; url: string | null }) 
 
 function MarketContextSection({ brief }: { brief: MarketBrief }) {
   const { context } = brief;
+  const counts = context.counts;
 
   return (
     <Panel
       title="Market context"
       action={<Badge tone={FRESHNESS_TONE[context.freshness] ?? "neutral"}>{context.freshness}</Badge>}
     >
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Filings stored" value={context.counts.filings} hint="SEC filings collected" />
-        <StatTile label="Transactions" value={context.counts.transactions} hint="insider lines parsed" />
-        <StatTile label="Signals" value={context.counts.signals} hint="engine-produced" />
-        <StatTile label="Symbols" value={context.counts.symbols} hint="with research coverage" />
-      </div>
+      {counts === null ? (
+        <p className="text-sm leading-relaxed text-mk-muted text-pretty">
+          The research dashboard could not be read, so no count is shown. A zero here would be an
+          invented figure rather than an empty collection.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Filings stored" value={counts.filings} hint="SEC filings collected" />
+          <StatTile label="Transactions" value={counts.transactions} hint="insider lines parsed" />
+          <StatTile label="Signals" value={counts.signals} hint="engine-produced" />
+          <StatTile label="Symbols" value={counts.symbols} hint="with research coverage" />
+        </div>
+      )}
 
       <dl className="mt-4 grid grid-cols-1 gap-3 border-t border-mk-line pt-4 sm:grid-cols-3">
         <div>
@@ -160,8 +170,16 @@ function CatalystSection({ brief }: { brief: MarketBrief }) {
     >
       {upcoming.length === 0 ? (
         <EmptyState
-          title="No scheduled event in the window"
-          description="Catalyst Radar returned no upcoming event for this window. That is an empty calendar, not a claim that nothing is scheduled."
+          title={
+            brief.timeBasis === "indeterminate"
+              ? "No assessment time"
+              : "No scheduled event in the window"
+          }
+          description={
+            brief.timeBasis === "indeterminate"
+              ? "The brief could not establish when it was assessed, so it cannot say which events are upcoming. Nothing is listed rather than guessed."
+              : "Catalyst Radar returned no upcoming event for this window. That is an empty calendar, not a claim that nothing is scheduled."
+          }
         />
       ) : (
         <ul className="flex flex-col divide-y divide-mk-line">
@@ -468,9 +486,11 @@ function InvestigationSection({ brief }: { brief: MarketBrief }) {
           <EmptyState
             title="Nothing crossed a rule"
             description={
-              brief.watchlist.length === 0
-                ? "No symbol is on a watchlist, so no watchlist rule can fire. Add a ticker and the brief will surface disclosures, events and signals for it."
-                : "No watched symbol had a new disclosure, an approaching event or a recent signal, and every source is healthy. That is a quiet brief, not a missing one."
+              brief.timeBasis === "indeterminate"
+                ? "The brief could not establish when it was assessed, so no time-window rule could be applied. That is an unknown state, not a quiet one."
+                : brief.watchlist.length === 0
+                  ? "No symbol is on a watchlist, so no watchlist rule can fire. Add a ticker and the brief will surface disclosures, events and signals for it."
+                  : "No watched symbol had a new disclosure, an approaching event or a recent signal, and every source is healthy. That is a quiet brief, not a missing one."
             }
             action={
               brief.watchlist.length === 0 ? (
@@ -509,6 +529,39 @@ function InvestigationSection({ brief }: { brief: MarketBrief }) {
         </details>
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* E2. Source status                                                   */
+/* ------------------------------------------------------------------ */
+
+const SOURCE_STATE_TONE: Record<BriefSourceState, "neutral" | "accent" | "warn" | "emerald"> = {
+  healthy: "emerald",
+  empty: "neutral",
+  stale: "warn",
+  unavailable: "warn",
+};
+
+function SourceStatusSection({ brief }: { brief: MarketBrief }) {
+  return (
+    <Panel title="Source status">
+      <ul className="flex flex-col divide-y divide-mk-line">
+        {brief.sources.map((source) => (
+          <li key={source.key} className="flex flex-col gap-1 py-2.5 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-mk-fg">{source.label}</span>
+              <Badge tone={SOURCE_STATE_TONE[source.state]}>{source.state}</Badge>
+            </div>
+            <p className="text-xs leading-relaxed text-mk-muted text-pretty">{source.detail}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 border-t border-mk-line pt-3 text-xs leading-relaxed text-mk-muted text-pretty">
+        An empty source was read and had nothing stored. A stale source answered but its data is
+        ageing. An unavailable source could not be reached at all. The three are never shown as one.
+      </p>
+    </Panel>
   );
 }
 
@@ -586,6 +639,8 @@ export function MarketBriefView({ brief }: { brief: MarketBrief }) {
         <span className="font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
           {brief.watchlist.length} watched symbol{brief.watchlist.length === 1 ? "" : "s"}
         </span>
+        {brief.timeBasis === "indeterminate" ? <Badge tone="warn">no assessment time</Badge> : null}
+        {brief.availability === "partial" ? <Badge tone="warn">partial data</Badge> : null}
         {brief.unreachable ? <Badge tone="warn">engine unreachable</Badge> : null}
       </div>
 
@@ -594,6 +649,7 @@ export function MarketBriefView({ brief }: { brief: MarketBrief }) {
       <DisclosureSection brief={brief} />
       <SignalSection brief={brief} />
       <InvestigationSection brief={brief} />
+      <SourceStatusSection brief={brief} />
       <LimitationSection brief={brief} />
     </div>
   );
