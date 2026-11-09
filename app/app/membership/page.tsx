@@ -109,18 +109,22 @@ export default async function MembershipPage({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="font-display text-xl font-semibold text-mk-fg">
-              {membership.label}
+              {membership.complimentary
+                ? `${membership.label} — Lifetime Complimentary`
+                : membership.label}
             </p>
             <p className="mt-1 text-sm text-mk-muted">
-              {membership.entitled
-                ? membership.cancelAtPeriodEnd
-                  ? `Access ends ${renewal}`
-                  : `Renews ${renewal}`
-                : "No payment method on file"}
+              {membership.complimentary
+                ? "Full access granted by the Wands team. No renewal, no payment method, no expiry."
+                : membership.entitled
+                  ? membership.cancelAtPeriodEnd
+                    ? `Access ends ${renewal}`
+                    : `Renews ${renewal}`
+                  : "No payment method on file"}
             </p>
           </div>
           <Badge tone={membership.entitled ? "emerald" : "warn"}>
-            {statusLabel(membership.status)}
+            {membership.complimentary ? "Active" : statusLabel(membership.status)}
           </Badge>
         </div>
 
@@ -165,7 +169,12 @@ export default async function MembershipPage({
       </Panel>
 
       <Panel title="Billing">
-        {membership.stripeCustomerId ? (
+        {membership.complimentary ? (
+          <p className="text-sm leading-relaxed text-mk-muted text-pretty">
+            This membership is complimentary and managed by the Wands team. There
+            is no billing account, no payment method and nothing to cancel.
+          </p>
+        ) : membership.stripeCustomerId ? (
           <>
             <p className="text-sm leading-relaxed text-mk-fg text-pretty">
               Update your payment method, cancel renewal or resume a cancelled
@@ -185,6 +194,12 @@ export default async function MembershipPage({
           </p>
         )}
       </Panel>
+
+      <p className="text-[11.5px] leading-relaxed text-mk-dim text-pretty">
+        Membership governs what your account may open. Research data itself comes
+        from the Wands engine, and the workspace reports separately when that
+        engine cannot be reached.
+      </p>
 
       <p className="text-[11.5px] leading-relaxed text-mk-dim text-pretty">
         Need something else?{" "}
