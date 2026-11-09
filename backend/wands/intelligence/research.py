@@ -40,6 +40,7 @@ from wands.intelligence.experiments import (
     ExperimentRunner,
     experiment_payload,
 )
+from wands.intelligence.forensics import report_for_row
 from wands.intelligence.identifiers import IdentifierResolver
 from wands.intelligence.jobs import JobScheduler, _job_payload
 from wands.intelligence.schemas import (
@@ -221,7 +222,16 @@ class ResearchService:
         row = ExperimentRunner(self.session, self.settings).get(key)
         if row is None:
             return None
-        return IntelExperimentOut(**experiment_payload(row))
+        payload = experiment_payload(row)
+        # The forensic report is computed on read, never stored: it is a statement
+        # about the evidence behind a result, and writing it back would let a later
+        # change to the checks silently rewrite what an old experiment claimed.
+        payload["forensics"] = report_for_row(
+            row,
+            session=self.session,
+            minimum_sample=int(self.settings.intelligence_validation_min_sample),
+        )
+        return IntelExperimentOut(**payload)
 
     # -- validation --------------------------------------------------------
 

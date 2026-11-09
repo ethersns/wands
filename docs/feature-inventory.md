@@ -75,6 +75,7 @@ else.
 | Source provenance | `intelligence/member.py` | `GET /v1/intelligence/sources` | `/app/assets/[symbol]`, `/app/signals/[id]` | — | `local-verified` |
 | Data coverage | `intelligence/freshness.py` | `GET /v1/intelligence/coverage/public` | `/app/research` | Research | `local-verified` |
 | Quant Lab | `intelligence/quant.py`, `experiments.py`, `studies.py` | `POST /v1/intelligence/quant-lab/run`, `GET /experiments`, `/experiments/{id}` | `/app/quant-lab`, `/app/quant-lab/[id]` | Quant Lab | `local-verified` |
+| Research Forensics | `intelligence/forensics.py` | `GET /v1/intelligence/experiments/{id}` (`forensics` block) | `/app/quant-lab/[id]` | via Quant Lab | `local-verified` |
 | Member watchlists | `lib/member/watchlists.ts` | `/api/member/watchlists` | `/app/watchlists` | Watchlists | `local-verified` |
 | Saved research | `lib/member/saved.ts` | `/api/member/saved` | `/app/saved`, `/app/saved/[id]` | Saved | `local-verified` |
 | Member alerts | `lib/member/alerts.ts` | `/api/member/alerts`, `/alerts/run` | `/app/alerts` | Alerts | `local-verified` |
@@ -295,6 +296,28 @@ PRODUCTION STATUS: local-verified
 PUBLIC WEBSITE DESCRIPTION: "Strategy Lab" on the features page
 CURRENT LIMITATION: Only persisted experiments are shown. Never present an
   in-sample result as a profitable strategy.
+FRONTEND TASK REQUIRED: None
+```
+
+### Research Forensics
+
+```
+FEATURE NAME: Research Forensics
+BACKEND LOCATION: backend/wands/intelligence/forensics.py
+API ENDPOINT: GET /v1/intelligence/experiments/{id} -> data.forensics
+DATA CONTRACT: QuantForensics, QuantForensicFinding
+MEMBER PAGE: /app/quant-lab/[id] -> "Research Forensics" panel
+NAVIGATION LOCATION: none (reached through an experiment, not a destination)
+PRODUCTION STATUS: local-verified
+PUBLIC WEBSITE DESCRIPTION: not separately advertised
+CURRENT LIMITATION: Twelve checks are assessed from the stored experiment and
+  the stored daily series. Four of them can never pass on current data and are
+  reported as unassessable rather than passed: parameter sensitivity (one
+  parameter set is recorded, no sweep), survivorship bias (the universe is a
+  present-day list), and price-series quality (coverage counts bars, it does not
+  validate them). The report is computed on read and never stored, so it cannot
+  rewrite what an old experiment claimed. It does not re-run a strategy and does
+  not estimate a probability that a result is real.
 FRONTEND TASK REQUIRED: None
 ```
 
