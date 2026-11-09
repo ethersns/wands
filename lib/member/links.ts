@@ -17,6 +17,16 @@ export function filingHref(id: string): string {
   return `/app/insiders/${encodeURIComponent(id)}`;
 }
 
+/**
+ * A filer's research page, addressed by SEC CIK.
+ *
+ * The CIK is the engine's own identifier for a filer, so the link survives a
+ * name change and cannot collide with a different manager that shares a name.
+ */
+export function institutionHref(cik: string): string {
+  return `/app/institutions/${encodeURIComponent(cik.trim())}`;
+}
+
 export function savedItemHref(id: string): string {
   return `/app/saved/${encodeURIComponent(id)}`;
 }

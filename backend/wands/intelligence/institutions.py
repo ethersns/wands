@@ -240,12 +240,26 @@ class InstitutionalRadar:
         current_by_cusip = _by_cusip(current)
         prior_by_cusip = _by_cusip(prior)
 
+        # An exit is only knowable from the filing that omitted the CUSIP, so the
+        # current quarter's acceptance time and document are what support it. The
+        # prior filing cannot: it reported the position as still held.
+        current_accepted = max((row.accepted_at for row in current), default=None)
+        current_source_url = next((row.source_url for row in current if row.source_url), "")
+
         changes: list[HoldingChange] = []
         for cusip in sorted(set(current_by_cusip) | set(prior_by_cusip)):
             now_row = current_by_cusip.get(cusip)
             then_row = prior_by_cusip.get(cusip)
             changes.append(
-                _change_for(cusip, now_row, then_row, current_period, prior_period)
+                _change_for(
+                    cusip,
+                    now_row,
+                    then_row,
+                    current_period,
+                    prior_period,
+                    current_accepted=current_accepted,
+                    current_source_url=current_source_url,
+                )
             )
         return changes
 
@@ -477,6 +491,9 @@ def _change_for(
     then_row: _Aggregate | None,
     current_period: datetime,
     prior_period: datetime | None,
+    *,
+    current_accepted: datetime | None = None,
+    current_source_url: str = "",
 ) -> HoldingChange:
     current_shares = now_row.shares if now_row else None
     prior_shares = then_row.shares if then_row else None
@@ -505,6 +522,22 @@ def _change_for(
             )
 
     source = now_row or then_row
+
+    if now_row is not None:
+        public_available_at = now_row.accepted_at
+        source_url = now_row.source_url
+    elif current_accepted is not None:
+        # The CUSIP is absent from the current filing. That absence became public
+        # when the current filing was accepted, not when the prior one was.
+        public_available_at = current_accepted
+        source_url = current_source_url or (then_row.source_url if then_row else "")
+    elif then_row is not None:
+        public_available_at = then_row.accepted_at
+        source_url = then_row.source_url
+    else:
+        public_available_at = current_period
+        source_url = ""
+
     return HoldingChange(
         cusip=cusip,
         issuer_name=(now_row.issuer_name if now_row else then_row.issuer_name) if source else "",
@@ -518,8 +551,8 @@ def _change_for(
         share_change_pct=share_change_pct,
         period_of_report=current_period,
         prior_period_of_report=prior_period,
-        public_available_at=source.accepted_at if source else current_period,
-        source_url=source.source_url if source else "",
+        public_available_at=public_available_at,
+        source_url=source_url,
     )
 
 

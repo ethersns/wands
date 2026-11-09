@@ -73,6 +73,7 @@ describe("member research permissions", () => {
       "experiments",
       "insiderTransaction",
       "insiders",
+      "institutionChanges",
       "institutions",
       "prices",
       "signal",
