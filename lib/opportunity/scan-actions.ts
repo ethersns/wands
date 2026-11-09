@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getOpportunityScan, getOpportunityScanStatus, type OpportunityScan, type ScanRequest } from "@/lib/api/opportunity";
+import { getOpportunityMarketPulse, getOpportunityScan, getOpportunityScanStatus, type MarketPulseSnapshot, type OpportunityScan, type ScanRequest } from "@/lib/api/opportunity";
 import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
 import { requireFounder } from "@/lib/auth/founder";
 
@@ -15,6 +15,14 @@ export async function readScannerAction(): Promise<OpportunityScan | null> {
   const access = await requireFounder();
   if (!access.ok) throw new Error("Not authorised");
   const result = await getOpportunityScanStatus();
+  if (!result.ok) throw new Error(result.error.message);
+  return result.envelope.data;
+}
+
+export async function readMarketPulseAction(): Promise<MarketPulseSnapshot> {
+  const access = await requireFounder();
+  if (!access.ok) throw new Error("Not authorised");
+  const result = await getOpportunityMarketPulse();
   if (!result.ok) throw new Error(result.error.message);
   return result.envelope.data;
 }

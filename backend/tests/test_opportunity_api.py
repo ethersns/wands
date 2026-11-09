@@ -77,6 +77,13 @@ def test_the_desk_rejects_an_unauthenticated_request(client) -> None:
     assert client.get("/v1/opportunity/decisions").status_code == 401
 
 
+def test_market_pulse_requires_an_admin(client) -> None:
+    key, _user, _secret = make_api_key("viewer")
+    headers = {"authorization": f"Bearer {key}"}
+    assert client.get("/v1/opportunity/market-pulse", headers=headers).status_code == 403
+    assert client.get("/v1/opportunity/market-pulse").status_code == 401
+
+
 def test_the_scan_is_not_reachable_as_a_get(client) -> None:
     """A scan writes candidates, so it must not be triggerable by a GET.
 
@@ -112,6 +119,49 @@ def test_status_is_read_only_and_admin_only(client, session) -> None:
     assert response.status_code == 200
     assert response.json()["data"] is None
     assert session.scalar(select(func.count()).select_from(OppScanStateRow)) == 0
+
+
+def test_market_pulse_returns_a_read_only_kraken_snapshot(client, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from wands.api.routes import opportunity
+    from wands.marketdata.kraken import KrakenPublicProvider
+
+    calls = []
+
+    class SnapshotProvider(KrakenPublicProvider):
+        def discover_usd_pairs(self):
+            calls.append("catalog")
+            return [
+                {"symbol": "BTC/USD", "pair": "XBTUSD", "status": "online"},
+                {"symbol": "OLD/USD", "pair": "OLDUSD", "status": "cancel_only"},
+            ]
+
+        def market_snapshot(self, markets):
+            calls.append([market["symbol"] for market in markets])
+            return {
+                "asOf": NOW.isoformat(),
+                "timestampSource": "provider",
+                "markets": [{"symbol": "BTC/USD", "tickerAvailable": True, "turnover24hUsd": "200000"}],
+            }
+
+        def close(self):
+            calls.append("closed")
+
+    provider = SnapshotProvider()
+    monkeypatch.setattr(
+        opportunity,
+        "_service",
+        lambda *_args: SimpleNamespace(provider_for=lambda _market: provider),
+    )
+
+    response = client.get("/v1/opportunity/market-pulse", headers=_admin())
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["activeMarkets"] == 1
+    assert payload["minimumTurnoverUsd"] == "100000"
+    assert payload["markets"][0]["turnover24hUsd"] == "200000"
+    assert calls == ["catalog", ["BTC/USD"], "closed"]
 
 
 # --- decisions ------------------------------------------------------------

@@ -12,6 +12,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   advanceScannerAction: vi.fn(),
   readScannerAction: vi.fn(),
+  readMarketPulseAction: vi.fn(),
   recordDecisionAction: vi.fn(),
   recordTestAction: vi.fn(),
   evaluateTestAction: vi.fn(),
@@ -117,6 +118,15 @@ function renderDesk({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.readScannerAction.mockResolvedValue(null);
+  mocks.readMarketPulseAction.mockResolvedValue({
+    asOf: "2026-11-09T15:00:00Z",
+    timestampSource: "provider",
+    source: "Kraken public AssetPairs and Ticker REST endpoints",
+    activeMarkets: 0,
+    minimumTurnoverUsd: "100000",
+    maxSpreadPct: "1",
+    markets: [],
+  });
 });
 
 describe("Opportunity Desk manual controls", () => {
@@ -248,6 +258,64 @@ describe("Opportunity Desk manual controls", () => {
     await waitFor(() =>
       expect(screen.getByText("Provider unavailable; progress saved.")).toBeInTheDocument(),
     );
+  });
+
+  it("requires explicit confirmation and a matching cursor before replacing a saved scan", async () => {
+    const savedScan = {
+      runId: "saved-run",
+      status: "paused" as const,
+      generatedAt: "2026-11-09T15:00:00Z",
+      updatedAt: "2026-11-09T15:00:00Z",
+      interval: "5m",
+      cursor: 7,
+      checked: 6,
+      pairsChecked: 2,
+      total: 664,
+      activeUsdPairs: 660,
+      qualified: 0,
+      candidates: [],
+      skipped: [],
+      notes: [],
+      lastError: null,
+      nextBatchAt: null,
+      busy: false,
+      liquidity: { minUsdVolume24h: "100000", maxSpreadPct: "1" },
+    };
+    mocks.readScannerAction.mockResolvedValue(savedScan);
+    mocks.advanceScannerAction.mockResolvedValue({
+      ok: true,
+      title: "Scan started",
+      message: "A new bounded scan has started.",
+      detail: [],
+      at: "2026-11-09T15:01:00Z",
+      scan: {
+        ...savedScan,
+        runId: "new-run",
+        status: "complete",
+        cursor: 45,
+        checked: 44,
+        total: 44,
+        replacedRun: {
+          runId: "saved-run",
+          status: "paused",
+          checked: 6,
+          total: 664,
+          qualified: 0,
+          updatedAt: savedScan.updatedAt,
+        },
+      },
+    });
+
+    renderDesk();
+    fireEvent.click(await screen.findByRole("button", { name: /Start new bounded scan/i }));
+    expect(screen.getByText(/only the current resumable checkpoint is replaced/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Confirm new bounded scan/i }));
+
+    await waitFor(() => expect(mocks.advanceScannerAction).toHaveBeenCalledWith({
+      restart: true,
+      replaceRunId: "saved-run",
+      replaceCursor: 7,
+    }));
   });
 
   it("discloses how many active Kraken pairs were not scanned", async () => {

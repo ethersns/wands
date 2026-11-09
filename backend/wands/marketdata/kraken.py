@@ -185,6 +185,90 @@ class KrakenPublicProvider:
             )
         return candles
 
+    def market_snapshot(self, markets: list[dict[str, Any]]) -> dict[str, Any]:
+        """Return one bounded-in-cost ticker snapshot for the supplied USD catalogue."""
+        payload = self._get("/0/public/Ticker", {})
+        tickers = payload.get("result")
+        if not isinstance(tickers, dict) or not tickers:
+            raise ProviderDataError("Kraken returned no ticker snapshot for USD market discovery.")
+
+        def non_negative(data: dict[str, Any], field: str, index: int) -> Decimal | None:
+            values = data.get(field)
+            if not isinstance(values, list) or len(values) <= index:
+                return None
+            value = _decimal(values[index])
+            return value if value is not None and value >= 0 else None
+
+        as_of, timestamp_source = self._quote_timestamp(payload)
+        observations: list[dict[str, Any]] = []
+        for market in markets:
+            ticker = tickers.get(market["pair"])
+            warnings: list[str] = []
+            if not isinstance(ticker, dict):
+                warnings.append("Kraken did not return a ticker for this market.")
+                ticker = {}
+
+            bid = _positive_number(ticker, "b", 0)
+            ask = _positive_number(ticker, "a", 0)
+            last = _positive_number(ticker, "c", 0)
+            volume = non_negative(ticker, "v", 1)
+            vwap = _positive_number(ticker, "p", 1)
+            high = _positive_number(ticker, "h", 1)
+            low = _positive_number(ticker, "l", 1)
+            raw_day_open = _decimal(ticker.get("o"))
+            day_open = raw_day_open if raw_day_open is not None and raw_day_open > 0 else None
+
+            turnover = volume * vwap if volume is not None and vwap is not None else None
+            midpoint = (bid + ask) / 2 if bid is not None and ask is not None and ask >= bid else None
+            spread = (ask - bid) / midpoint * 100 if midpoint is not None and midpoint > 0 else None
+            range_pct = (
+                (high - low) / ((high + low) / 2) * 100
+                if high is not None and low is not None and high >= low and high + low > 0
+                else None
+            )
+            day_change = (
+                (last - day_open) / day_open * 100
+                if last is not None and day_open is not None and day_open > 0
+                else None
+            )
+            if turnover is None:
+                warnings.append("24h USD turnover is unavailable because Kraken volume or VWAP is missing.")
+            if spread is None:
+                warnings.append("A valid two-sided bid/ask spread is unavailable.")
+            if day_change is None:
+                warnings.append("Change from Kraken's UTC day open is unavailable.")
+            if range_pct is None:
+                warnings.append("24h high-low range is unavailable.")
+
+            observations.append(
+                {
+                    "symbol": market["symbol"],
+                    "status": market["status"],
+                    "tickerAvailable": bool(ticker),
+                    "provider": self.name,
+                    "lastPrice": None if last is None else str(last),
+                    "bid": None if bid is None else str(bid),
+                    "ask": None if ask is None else str(ask),
+                    "baseVolume24h": None if volume is None else str(volume),
+                    "vwap24h": None if vwap is None else str(vwap),
+                    "turnover24hUsd": None if turnover is None else str(turnover),
+                    "high24h": None if high is None else str(high),
+                    "low24h": None if low is None else str(low),
+                    "dayOpen": None if day_open is None else str(day_open),
+                    "dayChangePct": None if day_change is None else str(day_change),
+                    "range24hPct": None if range_pct is None else str(range_pct),
+                    "spreadPct": None if spread is None else str(spread),
+                    "warnings": warnings,
+                }
+            )
+
+        observations.sort(key=lambda item: item["symbol"])
+        return {
+            "asOf": as_of.isoformat(),
+            "timestampSource": timestamp_source,
+            "markets": observations,
+        }
+
     def discover_usd_pairs(self) -> list[dict[str, Any]]:
         payload = self._get("/0/public/AssetPairs", {"aclass_base": "currency"})
         result = payload.get("result")

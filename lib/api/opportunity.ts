@@ -64,6 +64,14 @@ export interface OpportunityScan {
   nextBatchAt: string | null;
   busy: boolean;
   liquidity: { minUsdVolume24h: string; maxSpreadPct: string };
+  replacedRun?: {
+    runId: string;
+    status: string;
+    checked: number;
+    total: number | null;
+    qualified: number;
+    updatedAt: string | null;
+  };
 }
 
 export interface ScanRequest {
@@ -71,6 +79,38 @@ export interface ScanRequest {
   cursor?: number;
   interval?: string;
   restart?: boolean;
+  replaceRunId?: string;
+  replaceCursor?: number;
+}
+
+export interface MarketPulseMarket {
+  symbol: string;
+  status: string;
+  tickerAvailable: boolean;
+  provider: string;
+  lastPrice: string | null;
+  bid: string | null;
+  ask: string | null;
+  baseVolume24h: string | null;
+  vwap24h: string | null;
+  turnover24hUsd: string | null;
+  high24h: string | null;
+  low24h: string | null;
+  dayOpen: string | null;
+  dayChangePct: string | null;
+  range24hPct: string | null;
+  spreadPct: string | null;
+  warnings: string[];
+}
+
+export interface MarketPulseSnapshot {
+  asOf: string;
+  timestampSource: "provider" | "receipt";
+  source: string;
+  activeMarkets: number;
+  minimumTurnoverUsd: string;
+  maxSpreadPct: string;
+  markets: MarketPulseMarket[];
 }
 
 export interface OpportunityBudget {
@@ -131,10 +171,16 @@ export function getOpportunityScan(input: ScanRequest = {}): Promise<ApiResult<O
   if (input.cursor !== undefined) params.set("cursor", String(input.cursor));
   if (input.interval) params.set("interval", input.interval);
   if (input.restart) params.set("restart", "true");
+  if (input.replaceRunId) params.set("replace_run_id", input.replaceRunId);
+  if (input.replaceCursor !== undefined) params.set("replace_cursor", String(input.replaceCursor));
   return engineFetch<OpportunityScan | null>(`/v1/opportunity/scan?${params}`, {
     method: "POST",
     timeoutMs: 12_000,
   });
+}
+
+export function getOpportunityMarketPulse(): Promise<ApiResult<MarketPulseSnapshot>> {
+  return engineFetch<MarketPulseSnapshot>("/v1/opportunity/market-pulse");
 }
 
 export function getOpportunityScanStatus(): Promise<ApiResult<OpportunityScan | null>> {

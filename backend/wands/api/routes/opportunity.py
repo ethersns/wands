@@ -27,6 +27,8 @@ from wands.db.models import OppCandidateRow, OppDecisionRow, OppPaperTestRow
 from wands.db.session import get_session
 from wands.envelope import envelope
 from wands.errors import BadRequest, NotFound
+from wands.marketdata.base import ProviderDataError
+from wands.marketdata.kraken import KrakenPublicProvider
 from wands.marketdata.service import MarketDataService
 from wands.opportunity import (
     CANDIDATE_REJECTED,
@@ -36,7 +38,7 @@ from wands.opportunity import (
     evaluate_test,
     holding_deadline,
 )
-from wands.opportunity.scanner import ScanCoordinator
+from wands.opportunity.scanner import MIN_USD_VOLUME, ScanCoordinator
 from wands.opportunity.watchlist import entry_for
 from wands.schemas import CamelModel, CandleInterval, MarketType
 from wands.security.auth import Principal
@@ -216,6 +218,33 @@ def _store_report(session: Session, report) -> list[OppCandidateRow]:
     return stored
 
 
+@router.get("/market-pulse")
+def market_pulse(
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = _admin,
+) -> dict[str, Any]:
+    """Read one Kraken USD market snapshot; this route never starts a strategy scan."""
+    provider = _service(session, settings).provider_for(MarketType.CRYPTO)
+    if not isinstance(provider, KrakenPublicProvider):
+        raise ProviderDataError("Kraken public market data is not configured for Market Pulse.")
+    try:
+        active = [market for market in provider.discover_usd_pairs() if market["status"] == "online"]
+        snapshot = provider.market_snapshot(active)
+    finally:
+        provider.close()
+    return envelope(
+        {
+            **snapshot,
+            "source": "Kraken public AssetPairs and Ticker REST endpoints",
+            "activeMarkets": len(active),
+            "minimumTurnoverUsd": str(MIN_USD_VOLUME),
+            "maxSpreadPct": str(settings.max_spread_pct),
+        },
+        warnings=[DISCLOSURE],
+    )
+
+
 @router.get("/scan/status")
 def scan_status(
     session: Session = Depends(get_session),
@@ -230,6 +259,8 @@ def scan(
     run_id: str | None = Query(default=None, max_length=36),
     cursor: int | None = Query(default=None, ge=0),
     restart: bool = Query(default=False),
+    replace_run_id: str | None = Query(default=None, max_length=36),
+    replace_cursor: int | None = Query(default=None, ge=0),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
     principal: Principal = _admin,
@@ -242,6 +273,8 @@ def scan(
         run_id=run_id,
         cursor=cursor,
         restart=restart,
+        replace_run_id=replace_run_id,
+        replace_cursor=replace_cursor,
     )
     return envelope(result, warnings=[DISCLOSURE])
 

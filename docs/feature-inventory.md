@@ -264,7 +264,7 @@ each, before and after the batched read:
 `intel_institutional_holdings` had no index on `institution_id`, so each of
 those reads was a sequential scan. Migration `b8d3f5a1c927` adds
 `(institution_id, period_of_report)`. It is additive and reversible, and it has
-**not** been applied to production — the rows above are statement counts, not
+**not** been applied to production ��� the rows above are statement counts, not
 wall-clock timings, and the deployed latency is unverified until the migration
 runs and the endpoints are re-timed from the Vercel runtime.
 
@@ -870,17 +870,20 @@ FRONTEND TASK REQUIRED: None
 ### Opportunity Desk
 
 ```
-FEATURE NAME: Opportunity Desk
-BACKEND LOCATION: backend/wands/opportunity/
-API ENDPOINT: /v1/opportunity/{budget,scan,candidates,decisions,tests}
+FEATURE NAME: Opportunity Desk with Market Pulse
+BACKEND LOCATION: backend/wands/opportunity/ and backend/wands/marketdata/kraken.py
+API ENDPOINT: /v1/opportunity/{budget,market-pulse,scan,candidates,decisions,tests}
 DATA CONTRACT: lib/api/opportunity.ts
 MEMBER PAGE: /app/opportunity
 NAVIGATION LOCATION: MEMBER_NAV -> "Opportunity Desk" (founderOnly)
 PRODUCTION STATUS: blocked
 PUBLIC WEBSITE DESCRIPTION: internal, do not advertise
 CURRENT LIMITATION: WANDS_FOUNDER_USER_IDS is unset, so the desk returns
-  unconfigured and grants nobody.
-FRONTEND TASK REQUIRED: None. This is an owner configuration step.
+  unconfigured and grants nobody. Market Pulse uses one Kraken AssetPairs and
+  one public Ticker request per snapshot. Candle-dependent and external-attention
+  categories remain unavailable rather than being inferred from ticker data.
+FRONTEND TASK REQUIRED: Market discovery is part of the existing founder-only
+  Opportunity Desk; no new route or navigation entry is required.
 ```
 
 ### Paper Trading, Portfolio and Risk, Automated Trading
