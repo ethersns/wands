@@ -89,7 +89,7 @@ host for migrations and the pooled host for the running service if you prefer.
 
 ### Schema compatibility: verified
 
-The full migration chain was applied to `wands_engine` on PostgreSQL 18.6:
+The chain is linear with a single head, so there is no branch to reconcile:
 
 ```
 30aab3f55099  initial schema
@@ -100,11 +100,38 @@ d4a7b2c9e815  audit integrity: make audit_events append-only in the database
 e5b9c3d1f726  price history adjustment and coverage
 f1a2b3c4d5e6  performance lab evidence capture
 a7c4e2b91f38  opportunity desk research records
+b8d3f5a1c927  index institutional holdings by filer and quarter   <- head
 ```
 
-Result: 45 tables, `alembic_version` at `a7c4e2b91f38`, and the
-`audit_events_append_only` trigger present. The chain has a single head, so
-there is no branch to reconcile.
+### Verified state of both databases
+
+Read directly from the Neon project on PostgreSQL 18.6. The two databases do
+**not** agree, and the one holding the data is not the one this section
+recommends.
+
+| | `neondb` (application) | `wands_engine` |
+| --- | --- | --- |
+| `alembic_version` | `e5b9c3d1f726` | `a7c4e2b91f38` |
+| Engine tables | present | present (45) |
+| `ix_intel_institutional_holdings_institution_period` | absent | absent |
+| `audit_events_append_only` trigger | present | present |
+| `intel_institutional_holdings` | 80,684 rows | 0 |
+| `intel_institutions` | 4 filers | 0 |
+| `intel_signals` | 4 | 0 |
+| `market_candles` | 6,611 | 0 |
+| `intel_filings` | 0 | 0 |
+| `api_keys` | 2 (`research:read`) | 0 |
+| `perf_*` tables | absent | present (empty) |
+| Opportunity Desk tables | absent | present (empty) |
+
+So the isolation described above has not held in practice: `neondb` carries the
+engine schema, the only genuine research data, and the only research-scoped
+credentials. `wands_engine` is correctly migrated but empty.
+
+**Which database is the engine's system of record is an open owner decision.**
+Do not migrate either one until it is made. Against `neondb`, the Quant Lab,
+Forensics and Opportunity Desk endpoints cannot work, because `e5b9c3d1f726`
+predates the tables those revisions add.
 
 ---
 

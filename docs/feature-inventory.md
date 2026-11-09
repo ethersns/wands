@@ -455,8 +455,9 @@ omits the CUSIP. Covered by
 | No stored-quarter enumeration | `GET /v1/intelligence/institutions/{cik}/changes` accepts `period`, but nothing lists a filer's stored quarters. `periods` appears only on a feed row, inside a name-ordered paginated feed, so a period selector cannot be built without inventing the list. The detail page therefore shows the latest quarter only and passes `period` through when a link supplies it. | `partial` |
 | No search, sort or filter on the institution feed | `GET /v1/intelligence/institutions` accepts only `page` and `limit`, and orders by name. The member list offers no search box, sort control or filter, because none would reach the engine. | `partial` |
 | Engine not deployed | No `WANDS_ENGINE_URL` or `WANDS_RESEARCH_TOKEN` is configured, so every member research page renders the `unavailable` state. The engine itself now runs and answers correctly; it has no public host. See `docs/railway-deployment.md`. | `blocked` |
-| Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with all 8 migrations applied (45 tables, at head `a7c4e2b91f38`). No engine is connected to it yet. | `local-verified` |
-| Development shares the production database | The engine is isolated in `wands_engine`. The Next.js app still shares `neondb` between development and production. | `blocked` |
+| Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with 45 tables at `a7c4e2b91f38`, one revision behind the repository head `b8d3f5a1c927`. It holds no research data and no API keys. | `local-verified` |
+| Engine schema is not isolated | `neondb` also carries the engine schema, at `e5b9c3d1f726`, and it is the only database holding genuine research data (80,684 institutional holdings, 6,611 candles, 4 signals) and the only research-scoped credentials. `perf_*` and Opportunity Desk tables are absent there, so Quant Lab, Forensics and the Opportunity Desk cannot work against it. Which database is the engine's system of record is an open owner decision. | `blocked` |
+| Development shares the production database | The Next.js app shares `neondb` between development and production, and that same database carries the engine schema. | `blocked` |
 
 ---
 
