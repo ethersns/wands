@@ -32,7 +32,7 @@ const sections = [
   {
     title: "Access and audit",
     points: [
-      "Accounts are provisioned by invite during the private beta; there is no public sign-up.",
+      "Accounts are created only after Stripe confirms a paid subscription. There is no free sign-up and no free trial.",
       "Orders, signals and configuration changes are recorded with a timestamp and an actor.",
       "Sessions are server-validated on every request; the client never holds authority over identity.",
     ],
@@ -99,7 +99,7 @@ export default function SecurityPage() {
           <SectionHeading
             eyebrow="Status"
             title="What we do not claim."
-            description="Wands is an independent product in private beta. We do not hold third-party security certifications today. When that changes, the certificates and their scope will be published on this page rather than implied in marketing copy."
+            description="Wands is an independent product. We do not hold third-party security certifications today. When that changes, the certificates and their scope will be published on this page rather than implied in marketing copy."
             className="max-w-3xl"
           />
           <div className="mt-8 rounded-xl border border-mk-line bg-mk-surface p-5">

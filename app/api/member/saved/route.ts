@@ -1,18 +1,18 @@
-import { handleMemberRoute, MemberError, readJson, requireMemberApi } from "@/lib/member/api";
+import { handleMemberRoute, MemberError, readJson, requireEntitledMemberApi } from "@/lib/member/api";
 import { getMembership } from "@/lib/member/membership";
 import { countSaved, deleteSavedByRef, listSaved, saveItem } from "@/lib/member/saved";
 import { saveItemSchema } from "@/lib/member/validation";
 
 export async function GET() {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     return { items: await listSaved(userId) };
   });
 }
 
 export async function POST(request: Request) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const input = saveItemSchema.parse(await readJson(request));
 
     const [membership, existing] = await Promise.all([getMembership(userId), countSaved(userId)]);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind");
     const refId = url.searchParams.get("refId");

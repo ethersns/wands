@@ -384,9 +384,11 @@ class IntelligenceService:
             .limit(limit)
         ).all()
 
+        summaries = self.radar.summaries([row.cik for row in rows])
+
         items: list[InstitutionOut] = []
         for row in rows:
-            summary = self.radar.summary(row.cik)
+            summary = summaries.get(row.cik)
             if summary is None:
                 continue
             items.append(
@@ -413,7 +415,7 @@ class IntelligenceService:
         if institution is None:
             return None
 
-        changes = self.radar.changes(cik, period=period)
+        changes = self.radar.changes(cik, period=period, institution=institution)
         return InstitutionChangesOut(
             cik=institution.cik,
             name=institution.name,

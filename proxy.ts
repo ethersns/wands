@@ -1,0 +1,184 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+import { devBypassActive } from "@/lib/auth/dev-bypass";
+import {
+  ENTITLEMENT_EXEMPT_HEADER,
+  hasMemberSessionCookie,
+  isApiPath,
+  isBillingSurface,
+  isMemberPage,
+  routeTier,
+} from "@/lib/auth/routes";
+import {
+  SESSION_COOKIE,
+  gateConfigured,
+  verifySessionToken,
+} from "@/lib/auth/session";
+
+/**
+ * Operator gate.
+ *
+ * The console and every route that reaches the engine require a signed operator
+ * session. `/api/wands/*`, `/api/research` and `/api/markets/*` all forward to
+ * the engine with a server-side admin token, so an unauthenticated request to
+ * any of them is an unauthenticated admin request to the engine.
+ *
+ * Public and customer paths never consult the gate. A marketing page must not
+ * depend on an operator secret being set, and must not start returning 503
+ * because the operator password is missing.
+ *
+ * When the gate is unconfigured the operator tier fails closed in every
+ * environment. A development server is not a safe place to relax that: it can
+ * be pointed at the production database, and then "not a production build"
+ * would mean "unauthenticated access to production records". Local work is
+ * served instead by the explicit, isolated bypass in `lib/auth/dev-bypass.ts`,
+ * which requires the operator to declare the database non-production.
+ */
+
+function unconfiguredResponse() {
+  return NextResponse.json(
+    {
+      error: {
+        code: "operator_gate_unconfigured",
+        message:
+          "Set WANDS_OPERATOR_PASSWORD and WANDS_SESSION_SECRET on the server to enable engine actions.",
+      },
+    },
+    { status: 503 },
+  );
+}
+
+function unauthorizedResponse() {
+  return NextResponse.json(
+    {
+      error: {
+        code: "unauthorized",
+        message: "Sign in to perform engine actions.",
+      },
+    },
+    { status: 401 },
+  );
+}
+
+/**
+ * An API route that no list in `lib/auth/routes.ts` claims. Answering 404 keeps
+ * it from confirming that the endpoint exists, and keeps a forgotten private
+ * route from becoming an anonymous one.
+ */
+function notFoundResponse() {
+  return NextResponse.json(
+    { error: { code: "not_found", message: "Not found." } },
+    { status: 404 },
+  );
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Public registration is closed.
+  //
+  // Wands has no free accounts, so the only way an account is created is the
+  // activation route, after a verified payment. That route calls Better Auth's
+  // server API in-process rather than over HTTP, so closing this endpoint does
+  // not affect it — but it does stop anyone from creating a free account by
+  // posting to the auth handler directly, which would otherwise be a way around
+  // the paid signup entirely.
+  if (pathname === "/api/auth/sign-up" || pathname.startsWith("/api/auth/sign-up/")) {
+    return notFoundResponse();
+  }
+
+  const tier = routeTier(pathname);
+
+  if (tier === "denied") {
+    return notFoundResponse();
+  }
+
+  // Customer pages get an optimistic cookie check so a signed-out visitor is
+  // sent to the sign-in form without rendering the workspace first. This is a
+  // convenience, not the security boundary: the member layout and every member
+  // API route re-validate the session against the database.
+  if (tier === "customer" && isMemberPage(pathname)) {
+    if (!hasMemberSessionCookie(request.cookies)) {
+      const signIn = new URL("/signin", request.url);
+      signIn.searchParams.set("next", pathname);
+      return NextResponse.redirect(signIn);
+    }
+
+    // The workspace layout enforces the paid entitlement, but it cannot read
+    // the pathname. The billing surface is the one part of `/app` an unpaid
+    // member must still reach, so the classification is passed down here.
+    const headers = new Headers(request.headers);
+    headers.set(ENTITLEMENT_EXEMPT_HEADER, isBillingSurface(pathname) ? "1" : "0");
+
+    return NextResponse.next({ request: { headers } });
+  }
+
+  if (tier !== "operator") {
+    return NextResponse.next();
+  }
+
+  const configured = gateConfigured();
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+
+  if (configured && (await verifySessionToken(token))) {
+    return NextResponse.next();
+  }
+
+  // A member session is a different credential and never authorises the
+  // operator tier. This is checked before the development affordance below, so
+  // a signed-in customer cannot reach trading functions even where an
+  // unconfigured gate leaves the console open for the operator.
+  if (hasMemberSessionCookie(request.cookies)) {
+    if (!isApiPath(pathname)) {
+      const signIn = new URL("/login", request.url);
+      signIn.searchParams.set("next", pathname);
+      return NextResponse.redirect(signIn);
+    }
+    return unauthorizedResponse();
+  }
+
+  // An unconfigured gate cannot be signed into, so it fails closed. The only
+  // way through is the explicit development bypass, which refuses to activate
+  // unless the operator has declared this process a non-production environment
+  // backed by a non-production database.
+  if (!configured && devBypassActive()) {
+    return NextResponse.next();
+  }
+
+  // A page sends the operator to the sign-in form; an API call gets a status it
+  // can act on. Neither is served without a session.
+  if (!isApiPath(pathname)) {
+    const signIn = new URL("/login", request.url);
+    signIn.searchParams.set("next", pathname);
+    return NextResponse.redirect(signIn);
+  }
+
+  return configured ? unauthorizedResponse() : unconfiguredResponse();
+}
+
+/**
+ * Must cover every prefix in `lib/auth/routes.ts`. Next.js requires the matcher
+ * to be a static literal, so the two cannot share a value; a test asserts they
+ * stay in step.
+ *
+ * `/api/:path*` is deliberately broad: the proxy is what denies API routes that
+ * no list claims, so it has to see all of them, not just the known ones.
+ */
+export const config = {
+  matcher: [
+    "/api/:path*",
+    "/app/:path*",
+    "/onboarding",
+    "/dashboard/:path*",
+    "/portfolio/:path*",
+    "/markets/:path*",
+    "/bots/:path*",
+    "/orders/:path*",
+    "/intelligence/:path*",
+    "/strategy-lab/:path*",
+    "/research/:path*",
+    "/risk/:path*",
+    "/connections/:path*",
+    "/settings/:path*",
+  ],
+};

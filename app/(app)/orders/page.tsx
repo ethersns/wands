@@ -6,6 +6,7 @@ import { ModeBadge } from "@/components/shared/mode-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { Stat } from "@/components/shared/stat";
+import { requireOperator } from "@/lib/admin/guard";
 import {
   getEngineStatus,
   getFills,
@@ -19,6 +20,8 @@ export const metadata: Metadata = {
 };
 
 export default async function OrdersPage() {
+  await requireOperator("/orders");
+
   const [orders, fills, portfolio, engine] = await Promise.all([
     getOrders(),
     getFills(),

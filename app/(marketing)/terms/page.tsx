@@ -34,10 +34,12 @@ export default function TermsPage() {
 
       <LegalSection heading="3. Your account">
         <p>
-          Access is granted by invite during the private beta. You are responsible
-          for keeping your credentials confidential and for all activity under
-          your account. Tell us promptly if you believe your account has been
-          compromised.
+          Access requires an active paid subscription. Your account is created
+          after Stripe confirms your first payment, and you activate it by opening
+          the single-use link we email to the address you paid with. You are
+          responsible for keeping your credentials confidential and for all
+          activity under your account. Tell us promptly if you believe your
+          account has been compromised.
         </p>
         <p>
           You are responsible for the accuracy of the information you provide and
@@ -84,10 +86,25 @@ export default function TermsPage() {
 
       <LegalSection heading="7. Fees and billing">
         <p>
-          Billing is not enabled during the private beta and no payment is
-          currently taken. Published prices indicate what plans will cost when
-          billing opens. We will give notice before any charge is introduced, and
-          you will be able to cancel before it applies.
+          Wands is a paid membership. Access requires an active subscription, and
+          there is no free tier and no free trial.
+        </p>
+        <p>
+          Subscriptions are billed monthly in advance through Stripe and renew
+          automatically on the same date each month until cancelled. The amount,
+          currency and billing interval are shown on the pricing page and again at
+          checkout before you pay; the figure you see is read from the live Stripe
+          price rather than a marketing placeholder.
+        </p>
+        <p>
+          You can cancel at any time from the billing portal in your account. You
+          keep access until the end of the period you have already paid for, and
+          nothing further is charged. Cancelling does not refund a period already
+          used, except where the law requires it.
+        </p>
+        <p>
+          Card details are handled by Stripe and are never stored by Wands. If a
+          payment fails, access may be suspended until the balance is settled.
         </p>
       </LegalSection>
 

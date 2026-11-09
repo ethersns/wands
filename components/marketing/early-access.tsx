@@ -1,3 +1,6 @@
+import { checkoutAvailableFor } from "@/lib/billing/config";
+
+import { ButtonLink } from "./button-link";
 import { Container } from "./container";
 import { EditorialHeadline, SectionLabel } from "./editorial";
 import { Reveal } from "./reveal";
@@ -5,20 +8,29 @@ import { WaitlistForm } from "./waitlist-form";
 
 const steps = [
   {
-    title: "Join the list",
-    body: "One email address. No card, no questionnaire.",
+    title: "Pay through Stripe",
+    body: "One membership, billed monthly. No free tier and no free trial.",
   },
   {
-    title: "We open seats in order",
-    body: "Invites go out as the workspace is ready for more people.",
+    title: "Activate your account",
+    body: "We email a single-use link to the address you paid with.",
   },
   {
-    title: "You get a workspace",
-    body: "Filings, holdings and research in one place, evidence attached.",
+    title: "Open the workspace",
+    body: "Set your password and the filings, holdings and research open.",
   },
 ];
 
+/**
+ * The home page access section.
+ *
+ * The order of the steps is the product's actual order: payment, then
+ * activation, then the workspace. The waitlist form only appears when checkout
+ * is closed, so the page never advertises a free way in while billing is live.
+ */
 export function EarlyAccess() {
+  const checkoutAvailable = checkoutAvailableFor("founding");
+
   return (
     <section
       id="access"
@@ -37,7 +49,7 @@ export function EarlyAccess() {
         <div className="grid gap-10 py-16 sm:py-24 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-center lg:gap-16">
           <div>
             <Reveal>
-              <SectionLabel>Early access</SectionLabel>
+              <SectionLabel>Membership</SectionLabel>
             </Reveal>
             <Reveal variant="lines" delay={60}>
               <EditorialHeadline
@@ -53,21 +65,43 @@ export function EarlyAccess() {
             </Reveal>
             <Reveal delay={140}>
               <p className="mt-5 max-w-md text-pretty text-[14px] leading-relaxed text-mk-muted">
-                Wands is being built for independent thinkers who want more than
-                market noise. Join the early-access list and follow what&apos;s
-                coming next.
+                Wands is a paid research membership. One subscription opens the whole
+                workspace — insider filings, institutional holdings and the research
+                built on them.
               </p>
             </Reveal>
           </div>
 
           <Reveal delay={200}>
             <div className="rounded-xl border border-mk-line bg-mk-surface/60 p-6 sm:p-7">
-              <p className="font-marketing-mono text-[9px] tracking-[0.2em] text-mk-dim uppercase">
-                Join the early access list
-              </p>
-              <div className="mt-4">
-                <WaitlistForm source="landing" />
-              </div>
+              {checkoutAvailable ? (
+                <div className="flex flex-col gap-3">
+                  <p className="font-marketing-mono text-[9px] tracking-[0.2em] text-mk-dim uppercase">
+                    Founding membership
+                  </p>
+                  <p className="text-[13px] leading-relaxed text-mk-muted">
+                    Billed monthly. The exact amount is shown on the pricing page and
+                    again at checkout before you pay.
+                  </p>
+                  <ButtonLink
+                    href="/pricing"
+                    variant="primary"
+                    size="md"
+                    className="w-full"
+                  >
+                    See pricing and get access
+                  </ButtonLink>
+                </div>
+              ) : (
+                <>
+                  <p className="font-marketing-mono text-[9px] tracking-[0.2em] text-mk-dim uppercase">
+                    Join the early access list
+                  </p>
+                  <div className="mt-4">
+                    <WaitlistForm source="landing" />
+                  </div>
+                </>
+              )}
             </div>
           </Reveal>
         </div>

@@ -2,10 +2,12 @@ import "server-only";
 
 import {
   getAssetResearch,
+  getCatalystFeed,
   getExperiment,
   getExperiments,
   getInsiderFeed,
   getInsiderTransaction,
+  getInstitutionChanges,
   getInstitutionFeed,
   getPriceSeries,
   getPublicCoverage,
@@ -37,10 +39,12 @@ export const memberResearch = {
   signals: getSignalFeed,
   signal: getSignal,
   institutions: getInstitutionFeed,
+  institutionChanges: getInstitutionChanges,
   sources: getResearchSources,
   coverage: getPublicCoverage,
   experiments: getExperiments,
   experiment: getExperiment,
+  catalysts: getCatalystFeed,
 } as const;
 
 export type MemberResearch = typeof memberResearch;

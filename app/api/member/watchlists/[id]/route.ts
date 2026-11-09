@@ -1,4 +1,4 @@
-import { handleMemberRoute, readJson, requireMemberApi } from "@/lib/member/api";
+import { handleMemberRoute, readJson, requireEntitledMemberApi } from "@/lib/member/api";
 import { renameWatchlistSchema } from "@/lib/member/validation";
 import { deleteWatchlist, renameWatchlist } from "@/lib/member/watchlists";
 
@@ -6,7 +6,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Context) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const { id } = await params;
     const { name } = renameWatchlistSchema.parse(await readJson(request));
 
@@ -18,7 +18,7 @@ export async function PATCH(request: Request, { params }: Context) {
 
 export async function DELETE(_request: Request, { params }: Context) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const { id } = await params;
 
     const deleted = await deleteWatchlist(userId, id);

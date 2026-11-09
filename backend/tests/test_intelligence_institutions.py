@@ -14,7 +14,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 
 from wands.config import get_settings
-from wands.db.models import IntelInstitutionalHoldingRow
+from wands.db.models import IntelInstitutionalHoldingRow, IntelInstitutionRow
 from wands.intelligence.base import SignalCategory
 from wands.intelligence.ingest import InstitutionalIngestor
 from wands.intelligence.institutions import (
@@ -188,6 +188,25 @@ def test_changes_classify_new_exited_increased_and_decreased(session):
     assert changes["DDD"].prior_shares is None
 
 
+def test_an_exit_becomes_public_with_the_filing_that_omitted_it(session):
+    """A position that disappears is knowable from the later filing, not the earlier one.
+
+    The prior filing reported the position as still held, so dating the exit to
+    that filing would place the change before anyone could have observed it.
+    """
+    _two_quarters(session)
+    changes = {item.cusip: item for item in _radar(session).changes(CIK)}
+
+    exited = changes["CCC"]
+    assert exited.change_type == CHANGE_EXITED
+    assert exited.public_available_at == Q2_FILED
+    assert exited.public_available_at > Q1_FILED
+
+    # The document that supports the absence is the current quarter's filing.
+    assert exited.source_url == changes["AAA"].source_url
+    assert exited.source_url != ""
+
+
 def test_changes_are_invisible_before_the_second_quarter_was_filed(session):
     _two_quarters(session)
     radar = _radar(session)
@@ -242,6 +261,106 @@ def test_duplicate_cusip_lines_are_aggregated(session):
     assert summary is not None
     assert summary.position_count == 1
     assert summary.reported_value_usd == Decimal("150")
+
+
+# --------------------------------------------------------------------------
+# Read cost
+# --------------------------------------------------------------------------
+
+
+def _seed_filers(session, count: int, *, offset: int = 0) -> list[str]:
+    """Create ``count`` filers, each with two quarters of holdings."""
+    ciks: list[str] = []
+    for index in range(offset, offset + count):
+        cik = f"000000{index:04d}"
+        institution = IntelInstitutionRow(cik=cik, name=f"Filer {index:02d}")
+        session.add(institution)
+        session.flush()
+        for period, accepted, shares in ((Q1_END, Q1_FILED, 100), (Q2_END, Q2_FILED, 150)):
+            session.add(
+                IntelInstitutionalHoldingRow(
+                    institution_id=institution.id,
+                    accession_number=f"{cik}-24-{period.month:02d}",
+                    ordinal=0,
+                    period_of_report=period,
+                    accepted_at=accepted,
+                    cusip="AAA",
+                    issuer_name="ALPHA",
+                    value_usd=Decimal(shares),
+                    shares=Decimal(shares),
+                    source_url="https://www.sec.gov/Archives/edgar/data/1/x.xml",
+                )
+            )
+        ciks.append(cik)
+    session.flush()
+    return ciks
+
+
+def _count_queries(session, action) -> int:
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        action()
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+    return len(statements)
+
+
+def test_institution_feed_query_count_does_not_grow_with_filers(session):
+    """The feed used to issue five round-trips per filer.
+
+    On a remote database each round-trip is the dominant cost, so the endpoint's
+    latency scaled with the number of filers rather than with the amount of data.
+    The batched path must stay flat as filers are added.
+    """
+    from wands.intelligence.service import IntelligenceService
+
+    _seed_filers(session, 2)
+    service = IntelligenceService(session, get_settings())
+    small = _count_queries(session, lambda: service.institutions())
+
+    _seed_filers(session, 6, offset=2)
+    large = _count_queries(session, lambda: service.institutions())
+
+    assert small == large, (
+        f"query count grew from {small} to {large} when the filer count grew; "
+        "the feed is still issuing per-filer queries"
+    )
+    assert large <= 5, f"expected a bounded query count, got {large}"
+
+
+def test_batched_summaries_match_the_single_filer_path(session):
+    """The batched read must report the same figures as the per-filer read."""
+    ciks = _seed_filers(session, 3)
+    radar = _radar(session)
+
+    batched = radar.summaries(ciks)
+
+    assert set(batched) == set(ciks)
+    for cik in ciks:
+        single = radar.summary(cik)
+        assert single is not None
+        assert batched[cik] == single
+
+
+def test_batched_summaries_respect_the_point_in_time_rule(session):
+    """A quarter is invisible until the filing that reported it was accepted."""
+    ciks = _seed_filers(session, 1)
+    radar = _radar(session)
+
+    before = radar.summaries(ciks, as_of=Q2_FILED - timedelta(seconds=1))[ciks[0]]
+    after = radar.summaries(ciks, as_of=Q2_FILED)[ciks[0]]
+
+    assert before.latest_period == Q1_END
+    assert after.latest_period == Q2_END
+    assert after.position_count == 1
 
 
 # --------------------------------------------------------------------------

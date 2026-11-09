@@ -2,7 +2,22 @@ import "server-only";
 
 import type { ApiError, ApiResult, Envelope } from "./contracts";
 
-const DEFAULT_TIMEOUT_MS = 4_000;
+const DEFAULT_TIMEOUT_MS = 12_000;
+const MIN_TIMEOUT_MS = 1_000;
+const MAX_TIMEOUT_MS = 30_000;
+
+/**
+ * The engine's research aggregates are not uniformly fast. Measured from the
+ * Vercel runtime against a warm engine, `institutions` takes ~5.7s and
+ * `dashboard` ~3.8s, so the previous 4s ceiling reported healthy responses as
+ * outages. The ceiling is configurable but clamped, so a bad value cannot turn
+ * a dead engine into an unbounded wait.
+ */
+export function engineTimeoutMs(): number {
+  const configured = Number(process.env.WANDS_ENGINE_TIMEOUT_MS);
+  if (!Number.isFinite(configured) || configured <= 0) return DEFAULT_TIMEOUT_MS;
+  return Math.min(Math.max(Math.round(configured), MIN_TIMEOUT_MS), MAX_TIMEOUT_MS);
+}
 
 export interface EngineConfig {
   baseUrl: string | null;
@@ -76,7 +91,7 @@ export async function engineFetch<T>(
   path: string,
   init: RequestInit & { timeoutMs?: number; config?: EngineConfig } = {},
 ): Promise<ApiResult<T>> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, headers, config, ...rest } = init;
+  const { timeoutMs = engineTimeoutMs(), headers, config, ...rest } = init;
   const { baseUrl, token, configured } = config ?? engineConfig();
 
   if (!configured || !baseUrl) {

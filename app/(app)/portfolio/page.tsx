@@ -6,6 +6,7 @@ import { DataNotice } from "@/components/shared/data-notice";
 import { ModeBadge } from "@/components/shared/mode-badge";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
+import { requireOperator } from "@/lib/admin/guard";
 import {
   getEngineStatus,
   getPaperAccounts,
@@ -17,6 +18,8 @@ export const metadata: Metadata = {
 };
 
 export default async function PortfolioPage() {
+  await requireOperator("/portfolio");
+
   const [portfolio, engine, paperAccounts] = await Promise.all([
     getPortfolio(),
     getEngineStatus(),

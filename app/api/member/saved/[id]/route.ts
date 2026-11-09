@@ -1,4 +1,4 @@
-import { handleMemberRoute, MemberError, readJson, requireMemberApi } from "@/lib/member/api";
+import { handleMemberRoute, MemberError, readJson, requireEntitledMemberApi } from "@/lib/member/api";
 import { deleteSaved, updateSavedNote } from "@/lib/member/saved";
 import { updateSavedNoteSchema } from "@/lib/member/validation";
 
@@ -6,7 +6,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Context) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const { id } = await params;
     const { note } = updateSavedNoteSchema.parse(await readJson(request));
 
@@ -18,7 +18,7 @@ export async function PATCH(request: Request, { params }: Context) {
 
 export async function DELETE(_request: Request, { params }: Context) {
   return handleMemberRoute(async () => {
-    const { userId } = await requireMemberApi();
+    const { userId } = await requireEntitledMemberApi();
     const { id } = await params;
 
     const removed = await deleteSaved(userId, id);

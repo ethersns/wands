@@ -450,6 +450,71 @@ export interface QuantStudyResult {
   limitations?: string[];
 }
 
+/**
+ * How a forensic check came out.
+ *
+ * `verified` means the stored record contains the evidence that directly
+ * establishes the claim as stated. `declared` means the record asserts the claim
+ * but contains nothing that corroborates it — a held-out label, a pair of
+ * hashes, a study name. It is not a pass and must never be rendered as one.
+ *
+ * `cannot_assess` is not a soft failure. It is the honest answer when the stored
+ * record does not contain the evidence a check needs, and it must never be
+ * rendered as a pass. `not_applicable` is narrower still: the check does not
+ * apply to this kind of study at all.
+ */
+export type QuantForensicStatus =
+  | "verified"
+  | "declared"
+  | "not_verified"
+  | "cannot_assess"
+  | "not_applicable";
+
+/**
+ * One check on whether the evidence behind a result supports it.
+ *
+ * `evidence` names the stored fields the check read, so a status is never an
+ * opinion. `limitation` is the part of the question the check could not close,
+ * and `nextStep` is what would close it.
+ */
+export interface QuantForensicFinding {
+  id: string;
+  title: string;
+  status: QuantForensicStatus;
+  explanation: string;
+  evidence: string[];
+  limitation: string | null;
+  nextStep: string | null;
+}
+
+/**
+ * A read-only assessment of a recorded experiment.
+ *
+ * There is deliberately no confidence score: a single number summarising
+ * "trustworthiness" would be a fabricated metric. The report counts what it
+ * verified and states what it could not.
+ */
+export interface QuantForensics {
+  /**
+   * The assessment rules that produced this report. The report is computed on
+   * read and never stored, so without this a member cannot tell that the rules
+   * behind the statuses changed underneath them.
+   */
+  version?: string;
+  findings: QuantForensicFinding[];
+  counts: {
+    total: number;
+    verified: number;
+    declared?: number;
+    notVerified: number;
+    cannotAssess: number;
+    notApplicable: number;
+  };
+  verdict: string;
+  nextSteps: string[];
+  note: string;
+}
+
 /** A recorded experiment, as the member surface reads it. */
 export interface QuantExperiment {
   id: string;
@@ -472,12 +537,107 @@ export interface QuantExperiment {
   dataFingerprint: string;
   createdAt: string | null;
   completedAt: string | null;
+  /** Absent when the engine predates the forensic assessment. */
+  forensics?: QuantForensics | null;
 }
 
 export interface QuantExperimentFeed {
   items: QuantExperiment[];
   total: number;
   caveats: string[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Catalysts                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A scheduled event is one that has not happened yet and whose date a source
+ * publishes. A disclosure is one that already happened and has since been
+ * published. They are never merged, because "the Fed meets on 27 January" and
+ * "an insider filed on 5 November" are different kinds of claim.
+ */
+export type CatalystKind = "scheduled" | "disclosure";
+
+export type CatalystCategory =
+  | "monetary_policy"
+  | "earnings"
+  | "economic_release"
+  | "insider_disclosure"
+  | "institutional_disclosure";
+
+/**
+ * How precisely the source stated the time. `date_only` is a different claim
+ * from `exact`, not a degraded one: the source published a day and no clock
+ * time, so the UI must not render a time.
+ */
+export type CatalystTimePrecision = "exact" | "approximate" | "date_only" | "unconfirmed";
+
+export type CatalystStatus =
+  | "scheduled"
+  | "confirmed"
+  | "tentative"
+  | "cancelled"
+  | "postponed"
+  | "published";
+
+/**
+ * One source-backed market event.
+ *
+ * The five timestamps are separate fields and are never collapsed into one
+ * "date": when the event happened (`occurredAt`), when it is scheduled
+ * (`scheduledDate`/`scheduledAt`), when it became public (`publishedAt`), when
+ * Wands collected it (`collectedAt`), and when the source last revised it
+ * (`sourceUpdatedAt`).
+ */
+export interface Catalyst {
+  id: string;
+  kind: CatalystKind;
+  category: CatalystCategory;
+  title: string;
+  symbols: string[];
+  market: string | null;
+  /** True when the event is not tagged to any single symbol. */
+  marketWide: boolean;
+  /** A calendar day in `timeZone`. Populated only when the source gave a date. */
+  scheduledDate: string | null;
+  /** A UTC instant. Populated only when the source gave a clock time. */
+  scheduledAt: string | null;
+  timePrecision: CatalystTimePrecision;
+  timeZone: string;
+  status: CatalystStatus;
+  occurredAt: string | null;
+  publishedAt: string | null;
+  sourceName: string;
+  sourceUrl: string;
+  sourceUpdatedAt: string | null;
+  collectedAt: string;
+  warnings: string[];
+  coverageLimitations: string[];
+}
+
+export type CatalystSourceStatus = "ok" | "unavailable" | "failed";
+
+/** What one scheduled-event source could say, including when it said nothing. */
+export interface CatalystSource {
+  source: string;
+  label: string;
+  status: CatalystSourceStatus;
+  detail: string;
+  eventCount: number;
+  sourceUrl: string | null;
+  fetchedAt: string | null;
+}
+
+export interface CatalystFeed {
+  items: Catalyst[];
+  sources: CatalystSource[];
+  windowStart: string;
+  windowEnd: string;
+  upcoming: number;
+  recent: number;
+  caveats: string[];
+  coverageLimitations: string[];
 }
 
 export const RESEARCH_ENDPOINTS = {
@@ -565,6 +725,13 @@ export const RESEARCH_ENDPOINTS = {
     status: "new",
     omit: ["jobs", "backfill", "leaseOwner", "lastError"],
   },
+  catalysts: {
+    method: "GET",
+    path: "/v1/intelligence/catalysts",
+    query: ["category", "symbol", "window_days", "past_days", "limit"],
+    status: "new",
+    omit: [],
+  },
 } as const;
 
 export type ResearchEndpointName = keyof typeof RESEARCH_ENDPOINTS;
@@ -582,6 +749,7 @@ export interface ResearchResponseMap {
   coverage: ResearchCoverageDisclosure;
   experiments: QuantExperimentFeed;
   experiment: QuantExperiment;
+  catalysts: CatalystFeed;
 }
 
 export type ResearchResponse<K extends ResearchEndpointName> =

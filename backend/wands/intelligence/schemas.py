@@ -278,6 +278,10 @@ class IntelExperimentOut(CamelModel):
     data_fingerprint: str
     created_at: datetime
     completed_at: datetime | None = None
+    # A read-only assessment of whether the stored evidence supports the result.
+    # Absent on the operator run response, which reports what was just recorded
+    # rather than how far it can be trusted.
+    forensics: dict[str, Any] | None = None
 
 
 class IntelExperimentFeedOut(CamelModel):
@@ -517,11 +521,74 @@ class AssetResearchOut(CamelModel):
     caveats: list[str] = Field(default_factory=list)
 
 
+class CatalystOut(CamelModel):
+    """One source-backed market event.
+
+    The five timestamps a reader is entitled to tell apart are separate fields
+    and are never collapsed into one "date":
+
+    * ``occurred_at`` — when the underlying event happened.
+    * ``scheduled_date`` / ``scheduled_at`` — when the event is scheduled. A
+      source that published a date and no time yields ``scheduled_date`` with
+      ``time_precision="date_only"``, so a date is never read as a time.
+    * ``published_at`` — when the information became public.
+    * ``collected_at`` — when Wands collected it.
+    * ``source_updated_at`` — when the source last revised the record.
+    """
+
+    id: str
+    kind: str
+    category: str
+    title: str
+    symbols: list[str] = Field(default_factory=list)
+    market: str | None = None
+    market_wide: bool = False
+    scheduled_date: date | None = None
+    scheduled_at: datetime | None = None
+    time_precision: str
+    time_zone: str
+    status: str
+    occurred_at: datetime | None = None
+    published_at: datetime | None = None
+    source_name: str
+    source_url: str
+    source_updated_at: datetime | None = None
+    collected_at: datetime
+    warnings: list[str] = Field(default_factory=list)
+    coverage_limitations: list[str] = Field(default_factory=list)
+
+
+class CatalystSourceStatusOut(CamelModel):
+    """What one scheduled-event source could say, including when it said nothing."""
+
+    source: str
+    label: str
+    status: str
+    detail: str
+    event_count: int
+    source_url: str | None = None
+    fetched_at: datetime | None = None
+
+
+class CatalystFeedOut(CamelModel):
+    items: list[CatalystOut] = Field(default_factory=list)
+    sources: list[CatalystSourceStatusOut] = Field(default_factory=list)
+    window_start: date
+    window_end: date
+    upcoming: int
+    recent: int
+    caveats: list[str] = Field(default_factory=list)
+    coverage_limitations: list[str] = Field(default_factory=list)
+
+
 __all__ = [
     "AssetHoldingOut",
     "AssetIdentifierOut",
     "AssetInstitutionalOut",
     "AssetResearchOut",
+    "CatalystFeedOut",
+    "CatalystOut",
+    "CatalystSourceStatusOut",
     "PriceBarOut",
     "PriceSeriesOut",
     "FusionComponentOut",

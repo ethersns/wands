@@ -6,6 +6,7 @@ import { DataNotice } from "@/components/shared/data-notice";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProvenanceBadge } from "@/components/shared/provenance-badge";
 import { SectionCard } from "@/components/shared/section-card";
+import { requireOperator } from "@/lib/admin/guard";
 import { getPortfolio, getRisk } from "@/lib/api/endpoints";
 import { formatCurrency, formatPercent } from "@/lib/format";
 
@@ -22,6 +23,8 @@ const GUARDRAILS = [
 ];
 
 export default async function ResearchPage() {
+  await requireOperator("/research");
+
   const [portfolio, risk] = await Promise.all([getPortfolio(), getRisk()]);
 
   const p = portfolio.data;

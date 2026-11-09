@@ -1,0 +1,407 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { Download, Search, Users } from "lucide-react";
+
+import { AccountStatusBadge, MembershipStatusBadge } from "@/components/admin/account-status-badge";
+import { ActionFlash } from "@/components/admin/action-flash";
+import { MemberActions } from "@/components/admin/member-actions";
+import { MemberTabs } from "@/components/admin/member-tabs";
+import { AdminPagination } from "@/components/admin/pagination";
+import { EmptyState } from "@/components/shared/empty-state";
+import { PageHeader } from "@/components/shared/page-header";
+import { SectionCard } from "@/components/shared/section-card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { requireOperator } from "@/lib/admin/guard";
+import {
+  listMembers,
+  listPlans,
+  listStatuses,
+  type MemberFilters,
+} from "@/lib/admin/members";
+import { formatDate, formatRelative } from "@/lib/format";
+
+export const metadata: Metadata = {
+  title: "Members",
+};
+
+export const dynamic = "force-dynamic";
+
+interface SearchParams {
+  search?: string;
+  plan?: string;
+  status?: string;
+  verified?: string;
+  accountStatus?: string;
+  from?: string;
+  to?: string;
+  page?: string;
+  reactivated?: string;
+}
+
+const inputClass =
+  "h-8 rounded-md border border-border bg-surface px-2 text-[12px] text-foreground placeholder:text-muted-foreground/70";
+const labelClass = "text-[10px] font-medium tracking-[0.05em] text-muted-foreground uppercase";
+
+export default async function MembersPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  await requireOperator("/dashboard/members");
+
+  const params = await searchParams;
+  const page = Number(params.page ?? "1");
+
+  const filters: MemberFilters = {
+    search: params.search?.trim() || undefined,
+    plan: params.plan || undefined,
+    status: params.status || undefined,
+    verified:
+      params.verified === "yes" || params.verified === "no" ? params.verified : undefined,
+    accountStatus:
+      params.accountStatus === "active" || params.accountStatus === "suspended"
+        ? params.accountStatus
+        : undefined,
+    from: params.from || undefined,
+    to: params.to || undefined,
+    page: Number.isFinite(page) ? page : 1,
+  };
+
+  const [result, plans, statuses] = await Promise.all([
+    listMembers(filters),
+    listPlans(),
+    listStatuses(),
+  ]);
+
+  const filtered = Boolean(
+    filters.search ||
+      filters.plan ||
+      filters.status ||
+      filters.verified ||
+      filters.accountStatus ||
+      filters.from ||
+      filters.to,
+  );
+
+  const exportParams = new URLSearchParams();
+  if (filters.search) exportParams.set("search", filters.search);
+  if (filters.plan) exportParams.set("plan", filters.plan);
+  if (filters.status) exportParams.set("status", filters.status);
+  if (filters.verified) exportParams.set("verified", filters.verified);
+  if (filters.accountStatus) exportParams.set("accountStatus", filters.accountStatus);
+  if (filters.from) exportParams.set("from", filters.from);
+  if (filters.to) exportParams.set("to", filters.to);
+  const exportHref = `/api/admin/members/export${
+    exportParams.size > 0 ? `?${exportParams.toString()}` : ""
+  }`;
+
+  // A reactivated account leaves a suspended-filtered list, so the confirmation
+  // is carried in the URL and rendered above the table rather than inside the
+  // row that is about to disappear.
+  const reactivated = typeof params.reactivated === "string" ? params.reactivated : null;
+  const reactivatedEmail = reactivated && reactivated !== "1" ? reactivated : null;
+
+  const dismissParams = new URLSearchParams(exportParams);
+  if (result.page > 1) dismissParams.set("page", String(result.page));
+  const dismissHref = `/dashboard/members${
+    dismissParams.size > 0 ? `?${dismissParams.toString()}` : ""
+  }`;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title="Members"
+        description="Every registered account, with its membership, account status and last recorded sign-in. Suspending or deleting an account takes effect on the server immediately."
+        actions={
+          <a
+            href={exportHref}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <Download className="size-3" aria-hidden />
+            Export CSV
+          </a>
+        }
+      />
+
+      <MemberTabs />
+
+      {reactivated ? (
+        <ActionFlash
+          dismissHref={dismissHref}
+          message={`${
+            reactivatedEmail ? `${reactivatedEmail} was` : "The account was"
+          } reactivated and can sign in again. It no longer matches a suspended filter.`}
+        />
+      ) : null}
+
+      <SectionCard
+        title="Search and filter"
+        description="Filters are applied server-side and every result set is paginated."
+        bodyClassName="px-4 pb-4 sm:px-5"
+      >
+        <form method="get" className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-[180px] flex-1 flex-col gap-1">
+            <label htmlFor="member-search" className={labelClass}>
+              Email, name or account ID
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <input
+                id="member-search"
+                type="search"
+                name="search"
+                defaultValue={params.search ?? ""}
+                placeholder="name@example.com"
+                className={`${inputClass} w-full pl-7`}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-account-status" className={labelClass}>
+              Account
+            </label>
+            <select
+              id="member-account-status"
+              name="accountStatus"
+              defaultValue={params.accountStatus ?? ""}
+              className={`${inputClass} min-w-[110px]`}
+            >
+              <option value="">Any</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-plan" className={labelClass}>
+              Tier
+            </label>
+            <select
+              id="member-plan"
+              name="plan"
+              defaultValue={params.plan ?? ""}
+              className={`${inputClass} min-w-[110px]`}
+            >
+              <option value="">Any tier</option>
+              {plans.map((plan) => (
+                <option key={plan} value={plan}>
+                  {plan}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-status" className={labelClass}>
+              Subscription
+            </label>
+            <select
+              id="member-status"
+              name="status"
+              defaultValue={params.status ?? ""}
+              className={`${inputClass} min-w-[110px]`}
+            >
+              <option value="">Any status</option>
+              {statuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-verified" className={labelClass}>
+              Email verified
+            </label>
+            <select
+              id="member-verified"
+              name="verified"
+              defaultValue={params.verified ?? ""}
+              className={`${inputClass} min-w-[100px]`}
+            >
+              <option value="">Any</option>
+              <option value="yes">Verified</option>
+              <option value="no">Unverified</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-from" className={labelClass}>
+              Registered from
+            </label>
+            <input
+              id="member-from"
+              type="date"
+              name="from"
+              defaultValue={params.from ?? ""}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="member-to" className={labelClass}>
+              to
+            </label>
+            <input
+              id="member-to"
+              type="date"
+              name="to"
+              defaultValue={params.to ?? ""}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="h-8 rounded-md border border-primary/40 bg-primary/10 px-3 text-[12px] font-medium text-primary transition-colors hover:bg-primary/15"
+          >
+            Apply
+          </button>
+
+          {filtered ? (
+            <Link
+              href="/dashboard/members"
+              className="h-8 rounded-md border border-border px-3 text-[12px] leading-8 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Clear
+            </Link>
+          ) : null}
+        </form>
+      </SectionCard>
+
+      <SectionCard
+        title={`${result.total} member${result.total === 1 ? "" : "s"}`}
+        description="Select a member to see their profile, security activity and account controls."
+        bodyClassName="px-0 pb-0 sm:px-0"
+        footer={
+          <AdminPagination
+            page={result.page}
+            pageCount={result.pageCount}
+            total={result.total}
+            pageSize={result.pageSize}
+            basePath="/dashboard/members"
+            params={{
+              search: filters.search,
+              plan: filters.plan,
+              status: filters.status,
+              verified: filters.verified,
+              accountStatus: filters.accountStatus,
+              from: filters.from,
+              to: filters.to,
+            }}
+          />
+        }
+      >
+        {result.rows.length === 0 ? (
+          <div className="px-4 pb-4 sm:px-5">
+            <EmptyState
+              icon={Users}
+              title={filtered ? "No members match these filters" : "No members yet"}
+              description={
+                filtered
+                  ? "Try widening the date range or clearing the search."
+                  : "Member accounts will appear here as soon as someone registers."
+              }
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Member</TableHead>
+                  <TableHead>Account ID</TableHead>
+                  <TableHead>Registered</TableHead>
+                  <TableHead>Verified</TableHead>
+                  <TableHead>Tier</TableHead>
+                  <TableHead>Subscription</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Last sign-in</TableHead>
+                  <TableHead className="sticky right-0 z-10 border-l border-border bg-card text-right">
+                    Controls
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result.rows.map((member) => (
+                  <TableRow key={member.id}>
+                    <TableCell>
+                      <Link
+                        href={`/dashboard/members/${member.id}`}
+                        className="flex flex-col gap-0.5 hover:underline"
+                      >
+                        <span className="text-[12px] font-medium text-foreground">
+                          {member.display_name || member.name || member.email}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {member.email}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-[10px] text-muted-foreground">
+                      {member.id.slice(0, 10)}…
+                    </TableCell>
+                    <TableCell className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+                      {formatDate(member.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          member.email_verified
+                            ? "text-[11px] text-profit"
+                            : "text-[11px] text-muted-foreground"
+                        }
+                      >
+                        {member.email_verified ? "Verified" : "Unverified"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-foreground">
+                      {member.plan ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      <MembershipStatusBadge status={member.status} />
+                    </TableCell>
+                    <TableCell>
+                      <AccountStatusBadge status={member.account_status} />
+                    </TableCell>
+                    <TableCell className="text-[11px] whitespace-nowrap text-muted-foreground">
+                      {member.last_login_at ? formatRelative(member.last_login_at) : "Not recorded"}
+                    </TableCell>
+                    <TableCell className="sticky right-0 z-10 border-l border-border bg-card">
+                      <div className="flex justify-end">
+                        <MemberActions
+                          userId={member.id}
+                          email={member.email}
+                          status={member.account_status}
+                          returnTo="/dashboard/members"
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+
+      <p className="text-[10px] leading-relaxed text-muted-foreground">
+        Password hashes, session tokens and reset tokens are never selected by this view. A
+        suspension revokes the account&apos;s sessions and is enforced at sign-in; a deletion
+        removes the account and retains billing records.
+      </p>
+    </div>
+  );
+}

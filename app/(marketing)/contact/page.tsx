@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 
 const expectations = [
   {
-    title: "Access and waitlist",
-    body: "Invites go out weekly, in order. If you have already joined, you do not need to ask again — you will hear from us.",
+    title: "Access and billing",
+    body: "Membership is billed monthly through Stripe. If a payment, an activation link or a cancellation is not behaving, tell us the email you paid with and we will look it up.",
   },
   {
     title: "Data and coverage",

@@ -2,12 +2,47 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { isAccountSuspended } from "@/lib/admin/account-status";
+import {
+  entitlementMessage,
+  getEntitlement,
+  type EntitlementReason,
+} from "@/lib/billing/entitlement";
 import { getMemberSession } from "./session";
 import { firstIssue } from "./validation";
 
 export class UnauthorizedError extends Error {
   constructor() {
     super("Sign in to continue.");
+  }
+}
+
+/**
+ * A suspended account is authenticated but not authorised.
+ *
+ * Kept distinct from `UnauthorizedError` so the response is 403 rather than
+ * 401: the member's session is real, and telling them to sign in again would
+ * send them into a loop the sign-in hook will refuse.
+ */
+export class SuspendedError extends Error {
+  constructor() {
+    super("This account is suspended. Contact support if you believe this is a mistake.");
+  }
+}
+
+/**
+ * A signed-in account with no eligible subscription.
+ *
+ * 402 rather than 403: the request is well-formed and the caller is who they
+ * say they are, they simply have not paid for this. The reason travels with it
+ * so the client can say "your payment failed" instead of a generic refusal.
+ */
+export class MembershipRequiredError extends Error {
+  reason: EntitlementReason;
+
+  constructor(reason: EntitlementReason) {
+    super(entitlementMessage(reason));
+    this.reason = reason;
   }
 }
 
@@ -26,11 +61,40 @@ export async function requireMemberApi(): Promise<MemberActor> {
   const session = await getMemberSession();
   if (!session) throw new UnauthorizedError();
 
+  // Every member endpoint funnels through here, so a suspension blocks the
+  // research, watchlist, saved-item and notification APIs in one place rather
+  // than in each route. A session that survived the suspension — because it was
+  // issued before the operator acted — is refused here.
+  if (await isAccountSuspended(session.user.id)) throw new SuspendedError();
+
   return {
     userId: session.user.id,
     email: session.user.email,
     name: session.user.name,
   };
+}
+
+/**
+ * The paid gate for APIs.
+ *
+ * Used by every endpoint that returns research, watchlists, saved items or
+ * notifications. Hiding a navigation link is not access control: a member with
+ * a valid session and no subscription can still call these routes directly, so
+ * the entitlement is checked on the server for each one.
+ *
+ * Account, preferences and onboarding deliberately use `requireMemberApi`
+ * instead — an unpaid member must be able to finish setting up and see their
+ * own account.
+ */
+export async function requireEntitledMemberApi(): Promise<MemberActor> {
+  const actor = await requireMemberApi();
+  const entitlement = await getEntitlement(actor.userId);
+
+  if (!entitlement.allowed) {
+    throw new MembershipRequiredError(entitlement.reason);
+  }
+
+  return actor;
 }
 
 export async function handleMemberRoute(fn: () => Promise<unknown>): Promise<NextResponse> {
@@ -40,6 +104,15 @@ export async function handleMemberRoute(fn: () => Promise<unknown>): Promise<Nex
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof SuspendedError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    if (error instanceof MembershipRequiredError) {
+      return NextResponse.json(
+        { error: error.message, code: "membership_required", reason: error.reason },
+        { status: 402 },
+      );
     }
     if (error instanceof ZodError) {
       return NextResponse.json({ error: firstIssue(error) }, { status: 400 });

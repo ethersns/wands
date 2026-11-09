@@ -59,15 +59,25 @@ export function StatTile({
   label,
   value,
   hint,
+  valueClassName,
 }: {
   label: string;
   value: string | number;
   hint?: string;
+  /** Overrides the value size, for a figure that is longer than a headline number. */
+  valueClassName?: string;
 }) {
   return (
     <div className="rounded-xl border border-mk-line bg-mk-surface/60 px-4 py-3.5">
       <p className="font-marketing-mono text-[10px] uppercase tracking-[0.16em] text-mk-dim">{label}</p>
-      <p className="mt-1.5 font-display text-2xl font-semibold tabular-nums tracking-[-0.02em] text-mk-fg">{value}</p>
+      <p
+        className={cn(
+          "mt-1.5 font-display text-2xl font-semibold tabular-nums tracking-[-0.02em] text-mk-fg",
+          valueClassName,
+        )}
+      >
+        {value}
+      </p>
       {hint ? <p className="mt-0.5 text-xs text-mk-muted">{hint}</p> : null}
     </div>
   );
@@ -124,14 +134,22 @@ export function ProvenanceNote({
   unreachable = false,
 }: {
   provenance: string;
-  generatedAt: string;
+  /** `null` when the caller could not establish when the data was read. */
+  generatedAt: string | null;
   warnings: string[];
   /** The engine could not be reached, as opposed to answering with nothing stored. */
   unreachable?: boolean;
 }) {
-  const live = provenance !== "unavailable";
-  const label = live ? "Live data" : unreachable ? "Engine unreachable" : "Unavailable";
-  const stamp = new Date(generatedAt);
+  const partial = provenance === "partial";
+  const live = provenance !== "unavailable" && !partial;
+  const label = partial
+    ? "Partial data"
+    : live
+      ? "Live data"
+      : unreachable
+        ? "Engine unreachable"
+        : "Unavailable";
+  const stamp = generatedAt === null ? null : new Date(generatedAt);
   // Callers concatenate warnings from several envelopes, so the same reason can
   // arrive twice. Dedupe before keying the list on the message itself.
   const unique = [...new Set(warnings)];
@@ -141,7 +159,9 @@ export function ProvenanceNote({
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={live ? "emerald" : "warn"}>{label}</Badge>
         <span className="font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
-          {Number.isNaN(stamp.getTime()) ? "unknown time" : stamp.toISOString().replace("T", " ").slice(0, 16)} UTC
+          {stamp === null || Number.isNaN(stamp.getTime())
+            ? "unknown time"
+            : `${stamp.toISOString().replace("T", " ").slice(0, 16)} UTC`}
         </span>
       </div>
       {unique.length > 0 ? (

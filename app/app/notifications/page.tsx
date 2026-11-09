@@ -19,14 +19,22 @@ export default async function NotificationsPage() {
       <PageHeader
         eyebrow="Alerts"
         title="Notifications"
-        description="In-app alerts about the tickers you track. Email delivery is not enabled, so nothing is sent to your inbox."
+        description="In-app alerts produced by your alert rules. Email delivery is not enabled, so nothing is sent to your inbox."
         actions={
-          <Link
-            href="/app/account"
-            className="rounded-lg border border-mk-line px-3 py-2 text-sm text-mk-fg transition-colors hover:border-mk-line-strong"
-          >
-            Preferences
-          </Link>
+          <>
+            <Link
+              href="/app/alerts"
+              className="rounded-lg border border-mk-line px-3 py-2 text-sm text-mk-fg transition-colors hover:border-mk-line-strong"
+            >
+              Alert rules
+            </Link>
+            <Link
+              href="/app/account"
+              className="rounded-lg border border-mk-line px-3 py-2 text-sm text-mk-fg transition-colors hover:border-mk-line-strong"
+            >
+              Preferences
+            </Link>
+          </>
         }
       />
       <NotificationList initial={{ items, unread }} />

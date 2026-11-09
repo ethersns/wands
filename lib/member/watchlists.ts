@@ -185,3 +185,17 @@ export async function listTrackedSymbols(userId: string): Promise<TrackedSymbol[
   );
   return rows.map((row) => ({ symbol: row.symbol, marketType: toMarketType(row.market_type) }));
 }
+
+/**
+ * The distinct symbols across watchlists that were already read for this member.
+ *
+ * Same result as `listTrackedSymbols` — distinct, ascending — without a second
+ * query, for a caller that needs the watchlists themselves as well.
+ */
+export function trackedSymbolsFrom(watchlists: Watchlist[]): string[] {
+  const symbols = new Set<string>();
+  for (const watchlist of watchlists) {
+    for (const item of watchlist.items) symbols.add(item.symbol);
+  }
+  return [...symbols].sort();
+}

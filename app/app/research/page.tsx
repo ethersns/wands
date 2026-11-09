@@ -1,49 +1,48 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { MarketBriefView } from "@/components/member/market-brief";
 import { SymbolSearch } from "@/components/member/symbol-search";
-import { Badge, EmptyState, PageHeader, Panel, ProvenanceNote, formatDate } from "@/components/member/ui";
-import type { ResearchCoverageStatus } from "@/lib/api/research-contract";
+import { EmptyState, PageHeader, Panel, ProvenanceNote } from "@/components/member/ui";
+import { getMarketBrief } from "@/lib/member/brief";
 import { assetHref } from "@/lib/member/links";
-import { memberResearch } from "@/lib/member/research";
 import { requireMember } from "@/lib/member/session";
-import { listTrackedSymbols, listWatchlists } from "@/lib/member/watchlists";
 
-export const metadata: Metadata = { title: "Research" };
-
-const COVERAGE_TONE: Record<ResearchCoverageStatus, "neutral" | "accent" | "warn" | "emerald"> = {
-  complete: "emerald",
-  partial: "accent",
-  insufficient: "warn",
-  unavailable: "warn",
-};
+export const metadata: Metadata = { title: "Market brief" };
 
 export default async function ResearchIndexPage() {
   const session = await requireMember("/app/research");
 
-  const [tracked, watchlists, coverage] = await Promise.all([
-    listTrackedSymbols(session.user.id),
-    listWatchlists(session.user.id),
-    memberResearch.coverage(),
-  ]);
-
-  const disclosure = coverage.data;
-  const window =
-    disclosure.windowStart && disclosure.windowEnd
-      ? `${formatDate(disclosure.windowStart)} to ${formatDate(disclosure.windowEnd)}`
-      : null;
+  // The brief reads the member's watchlists itself, so the page does not read
+  // them a second time. Seven reads total: six engine, one database.
+  const brief = await getMarketBrief(session.user.id);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         eyebrow="Research"
-        title="Asset research"
-        description="Open any ticker to read its insider activity, signals, evidence and coverage. Every view is the same customer-safe research the rest of the workspace uses."
+        title="Market brief"
+        description="One read-only briefing assembled from the research Wands already holds: what was disclosed, what is approaching, what the signal engine found, and what is missing. Every item links to the record behind it."
       />
 
       <div className="max-w-xl">
         <SymbolSearch placeholder="Open research for a ticker, e.g. AAPL" />
       </div>
+
+      <MarketBriefView brief={brief} />
+
+      <ProvenanceNote
+        provenance={
+          brief.availability === "unavailable"
+            ? "unavailable"
+            : brief.availability === "partial"
+              ? "partial"
+              : "live"
+        }
+        generatedAt={brief.asOf}
+        warnings={brief.warnings}
+        unreachable={brief.unreachable}
+      />
 
       <Panel
         title="Your tracked symbols"
@@ -56,10 +55,10 @@ export default async function ResearchIndexPage() {
           </Link>
         }
       >
-        {tracked.length === 0 ? (
+        {brief.watchlist.length === 0 ? (
           <EmptyState
             title="No symbols tracked yet"
-            description="Add a ticker to a watchlist and it will appear here as a direct link into its research page."
+            description="Add a ticker to a watchlist and the brief will surface its disclosures, approaching events and signals, with a direct link into its research page."
             action={
               <Link
                 href="/app/watchlists"
@@ -71,64 +70,24 @@ export default async function ResearchIndexPage() {
           />
         ) : (
           <ul className="flex flex-wrap gap-2">
-            {tracked.map((entry) => (
-              <li key={`${entry.marketType}:${entry.symbol}`}>
+            {brief.watchlist.map((symbol) => (
+              <li key={symbol}>
                 <Link
-                  href={assetHref(entry.symbol)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-mk-line bg-mk-raised px-2.5 py-1.5 font-marketing-mono text-xs text-mk-fg transition-colors hover:border-mk-accent/40 hover:text-mk-accent"
+                  href={assetHref(symbol)}
+                  className="inline-flex items-center rounded-md border border-mk-line bg-mk-raised px-2.5 py-1.5 font-marketing-mono text-xs text-mk-fg transition-colors hover:border-mk-accent/40 hover:text-mk-accent"
                 >
-                  {entry.symbol}
-                  {entry.marketType === "crypto" ? (
-                    <span className="rounded border border-mk-line px-1 text-[9px] uppercase tracking-[0.1em] text-mk-dim">
-                      Crypto
-                    </span>
-                  ) : null}
+                  {symbol}
                 </Link>
               </li>
             ))}
           </ul>
         )}
-        {watchlists.length > 0 ? (
+        {brief.watchlistCount > 0 ? (
           <p className="mt-3 font-marketing-mono text-[11px] text-mk-dim">
-            across {watchlists.length} watchlist{watchlists.length === 1 ? "" : "s"}
+            across {brief.watchlistCount} watchlist{brief.watchlistCount === 1 ? "" : "s"}
           </p>
         ) : null}
       </Panel>
-
-      <Panel
-        title="Published coverage"
-        action={<Badge tone={COVERAGE_TONE[disclosure.status]}>{disclosure.status}</Badge>}
-      >
-        <p className="text-sm leading-relaxed text-mk-fg text-pretty">
-          {disclosure.symbolsCovered} of {disclosure.symbolsRequested} requested symbols covered
-          {window ? ` · ${window}` : " · window not reported"}
-        </p>
-        {disclosure.gaps.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-1.5 border-t border-mk-line pt-3">
-            {disclosure.gaps.map((gap) => (
-              <li key={gap.key} className="text-xs leading-relaxed text-mk-muted text-pretty">
-                <span className="text-mk-fg">{gap.label}</span> — {gap.detail}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {disclosure.caveats.length > 0 ? (
-          <ul className="mt-3 flex flex-col gap-1">
-            {disclosure.caveats.map((caveat) => (
-              <li key={caveat} className="text-xs leading-relaxed text-mk-muted text-pretty">
-                {caveat}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </Panel>
-
-      <ProvenanceNote
-        provenance={coverage.provenance}
-        generatedAt={coverage.generatedAt}
-        warnings={coverage.warnings}
-        unreachable={coverage.unreachable}
-      />
     </div>
   );
 }

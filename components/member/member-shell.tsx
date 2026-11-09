@@ -5,9 +5,12 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   Bell,
+  BellRing,
   Bookmark,
+  CalendarClock,
   CreditCard,
   FlaskConical,
+  Landmark,
   LayoutGrid,
   ListChecks,
   Menu,
@@ -41,10 +44,13 @@ export const MEMBER_NAV: MemberNavItem[] = [
   { href: "/app/research", label: "Research", icon: Search },
   { href: "/app/watchlists", label: "Watchlists", icon: ListChecks },
   { href: "/app/insiders", label: "Insiders", icon: Radar },
+  { href: "/app/institutions", label: "Institutions", icon: Landmark },
   { href: "/app/signals", label: "Signals", icon: Sparkles },
+  { href: "/app/catalysts", label: "Catalyst Radar", icon: CalendarClock },
   { href: "/app/quant-lab", label: "Quant Lab", icon: FlaskConical },
   { href: "/app/opportunity", label: "Opportunity Desk", icon: Target, founderOnly: true },
   { href: "/app/saved", label: "Saved", icon: Bookmark },
+  { href: "/app/alerts", label: "Alerts", icon: BellRing },
   { href: "/app/notifications", label: "Notifications", icon: Bell },
 ];
 

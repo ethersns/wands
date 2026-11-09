@@ -15,6 +15,11 @@ import { listTrackedSymbols, listWatchlists } from "@/lib/member/watchlists";
 
 export const metadata: Metadata = { title: "Overview" };
 
+// The overview fans out to the engine's slowest aggregates. The function budget
+// must exceed the engine timeout so a slow engine degrades to the unreachable
+// state instead of the whole page failing.
+export const maxDuration = 30;
+
 export default async function OverviewPage() {
   const session = await requireMember();
   const userId = session.user.id;

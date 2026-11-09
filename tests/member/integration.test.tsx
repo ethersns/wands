@@ -35,6 +35,13 @@ describe("member navigation", () => {
     expect(research?.label).toBe("Research");
   });
 
+  it("exposes Catalyst Radar from the member nav", () => {
+    const catalysts = MEMBER_NAV.find((item) => item.href === "/app/catalysts");
+    expect(catalysts).toBeDefined();
+    expect(catalysts?.label).toBe("Catalyst Radar");
+    expect(routeTier("/app/catalysts")).toBe("customer");
+  });
+
   it("keeps every member destination inside the member workspace", () => {
     for (const item of ALL_NAV) {
       expect(item.href.startsWith("/app"), item.href).toBe(true);
@@ -67,12 +74,14 @@ describe("member research permissions", () => {
   it("exposes only customer-safe research reads", () => {
     expect(Object.keys(memberResearch).sort()).toEqual([
       "asset",
+      "catalysts",
       "coverage",
       "dashboard",
       "experiment",
       "experiments",
       "insiderTransaction",
       "insiders",
+      "institutionChanges",
       "institutions",
       "prices",
       "signal",
