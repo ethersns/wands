@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { MarketBriefView } from "@/components/member/market-brief";
 import type { Catalyst, CatalystFeed, ResearchDashboard } from "@/lib/api/research-contract";
-import { buildMarketBrief, type MarketBriefInputs } from "@/lib/member/brief-model";
+import {
+  buildMarketBrief,
+  type BriefSourceKey,
+  type MarketBriefInputs,
+} from "@/lib/member/brief-model";
 
 const AS_OF = "2026-11-09T15:00:00Z";
 
@@ -78,10 +82,20 @@ function dashboard(): ResearchDashboard {
   };
 }
 
+const ALL_SOURCES: BriefSourceKey[] = [
+  "dashboard",
+  "coverage",
+  "catalysts",
+  "insiders",
+  "institutions",
+  "signals",
+];
+
 function brief(overrides: Partial<MarketBriefInputs> = {}) {
   return buildMarketBrief({
     asOf: AS_OF,
     watchlist: [],
+    watchlistCount: 0,
     dashboard: dashboard(),
     coverage: {
       status: "complete",
@@ -93,10 +107,10 @@ function brief(overrides: Partial<MarketBriefInputs> = {}) {
       caveats: [],
     },
     catalysts: catalystFeed(),
-    insiders: { items: [], total: 0, page: 1, limit: 50, hasMore: false },
+    insiders: { items: [], total: 0, page: 1, limit: 200, hasMore: false },
     institutions: { items: [], total: 0, page: 1, limit: 50, hasMore: false },
-    signals: { items: [], total: 0, page: 1, limit: 50, hasMore: false },
-    unreachable: false,
+    signals: { items: [], total: 0, page: 1, limit: 200, hasMore: false },
+    unreachableSources: [],
     warnings: [],
     ...overrides,
   });
@@ -112,6 +126,7 @@ describe("market brief view", () => {
     expect(screen.getByText("Institutional filings")).toBeDefined();
     expect(screen.getByText("Research signals")).toBeDefined();
     expect(screen.getByText("What deserves investigation")).toBeDefined();
+    expect(screen.getByText("Source status")).toBeDefined();
     expect(screen.getByText("Known limitations")).toBeDefined();
   });
 
@@ -221,8 +236,43 @@ describe("market brief view", () => {
   });
 
   it("marks an unreachable engine in the masthead", () => {
-    render(<MarketBriefView brief={brief({ unreachable: true })} />);
+    render(<MarketBriefView brief={brief({ unreachableSources: ALL_SOURCES })} />);
 
     expect(screen.getByText("engine unreachable")).toBeDefined();
+  });
+
+  it("marks a single failed source as partial rather than live", () => {
+    render(<MarketBriefView brief={brief({ unreachableSources: ["signals"] })} />);
+
+    expect(screen.getByText("partial data")).toBeDefined();
+    expect(screen.queryByText("engine unreachable")).toBeNull();
+  });
+
+  it("says no assessment time was established instead of showing a quiet brief", () => {
+    render(<MarketBriefView brief={brief({ asOf: "", catalysts: catalystFeed([catalyst()]) })} />);
+
+    expect(screen.getByText("no assessment time")).toBeDefined();
+
+    const catalystPanel = screen.getByText("Upcoming catalysts").closest("section");
+    expect(within(catalystPanel as HTMLElement).getByText("No assessment time")).toBeDefined();
+    expect(screen.queryByText("FOMC policy decision")).toBeNull();
+  });
+
+  it("shows no count when the dashboard could not be read", () => {
+    render(<MarketBriefView brief={brief({ unreachableSources: ["dashboard"] })} />);
+
+    expect(screen.getByText(/could not be read, so no count is shown/)).toBeDefined();
+    expect(screen.queryByText("Filings stored")).toBeNull();
+  });
+
+  it("distinguishes an unavailable source from an empty one", () => {
+    render(<MarketBriefView brief={brief({ unreachableSources: ["signals"] })} />);
+
+    const panel = screen.getByText("Source status").closest("section");
+    const signals = within(panel as HTMLElement).getByText("Signal engine").closest("li");
+    const insiders = within(panel as HTMLElement).getByText("Insider Radar").closest("li");
+
+    expect(signals?.textContent).toContain("unavailable");
+    expect(insiders?.textContent).toContain("empty");
   });
 });

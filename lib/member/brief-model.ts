@@ -45,6 +45,7 @@ const MARKET_CATALYST_WINDOW_DAYS = 7;
 const MAX_INVESTIGATIONS = 8;
 
 export type BriefReason =
+  | "time_unknown"
   | "watched_disclosure"
   | "watched_catalyst"
   | "market_catalyst"
@@ -56,6 +57,11 @@ export type BriefReason =
  * cannot see why an item was surfaced cannot judge whether to trust it.
  */
 export const BRIEF_RULES: ReadonlyArray<{ reason: BriefReason; label: string; rule: string }> = [
+  {
+    reason: "time_unknown",
+    label: "Assessment time unknown",
+    rule: "The brief could not establish when it was assessed, so no time-window rule was applied and nothing is called recent or upcoming.",
+  },
   {
     reason: "watched_disclosure",
     label: "New disclosure",
@@ -84,11 +90,12 @@ export const BRIEF_RULES: ReadonlyArray<{ reason: BriefReason; label: string; ru
 ];
 
 const REASON_ORDER: Record<BriefReason, number> = {
-  watched_disclosure: 0,
-  watched_catalyst: 1,
-  market_catalyst: 2,
-  watched_signal: 3,
-  source_stale: 4,
+  time_unknown: 0,
+  watched_disclosure: 1,
+  watched_catalyst: 2,
+  market_catalyst: 3,
+  watched_signal: 4,
+  source_stale: 5,
 };
 
 const CLASSIFICATION_LABEL: Record<InsiderTransactionClass, string> = {
@@ -123,10 +130,59 @@ export interface BriefLimitation {
   severity: "gap" | "caveat";
 }
 
+/**
+ * Whether the brief could establish when it was assessed.
+ *
+ * `indeterminate` means the dashboard returned no usable timestamp. The brief
+ * then refuses to classify anything by time rather than measuring against the
+ * current clock, so the same inputs always produce the same brief.
+ */
+export type BriefTimeBasis = "established" | "indeterminate";
+
+/** What the brief as a whole can claim about the research behind it. */
+export type BriefAvailability = "complete" | "partial" | "unavailable";
+
+export type BriefSourceKey =
+  | "dashboard"
+  | "coverage"
+  | "catalysts"
+  | "insiders"
+  | "institutions"
+  | "signals";
+
+/**
+ * The four states a source can be in. They are kept apart because they mean
+ * different things: an empty healthy feed is a collection state, a stale one is
+ * an ageing read, and an unavailable one is an outage.
+ */
+export type BriefSourceState = "healthy" | "empty" | "stale" | "unavailable";
+
+export interface BriefSourceStatus {
+  key: BriefSourceKey;
+  label: string;
+  state: BriefSourceState;
+  detail: string;
+}
+
+/**
+ * How much of a paged feed one bounded read actually returned.
+ *
+ * The engine serves these feeds one page at a time and has no multi-symbol
+ * filter, so a single request cannot retrieve every stored record. Reporting
+ * `retrieved` against `total` is what lets the brief say its watchlist coverage
+ * is partial instead of implying it is complete.
+ */
+export interface BriefFeedCoverage {
+  retrieved: number;
+  total: number;
+  complete: boolean;
+}
+
 export interface BriefMarketContext {
-  asOf: string;
+  asOf: string | null;
   freshness: IntelFreshness;
-  counts: ResearchDashboard["counts"];
+  /** `null` when the dashboard could not be read, so no count is invented. */
+  counts: ResearchDashboard["counts"] | null;
   latestFilingAt: string | null;
   latestSignalAt: string | null;
   coverageStatus: ResearchCoverageStatus;
@@ -137,20 +193,29 @@ export interface BriefMarketContext {
 export interface MarketBriefInputs {
   asOf: string;
   watchlist: string[];
+  /** How many watchlists the symbols came from, read alongside them. */
+  watchlistCount: number;
   dashboard: ResearchDashboard;
   coverage: ResearchCoverageDisclosure;
   catalysts: CatalystFeed;
   insiders: InsiderFeed;
   institutions: InstitutionFeed;
   signals: SignalFeed;
-  unreachable: boolean;
+  /** Sources the engine could not be reached for. Never inferred from emptiness. */
+  unreachableSources: BriefSourceKey[];
   warnings: string[];
 }
 
 export interface MarketBrief {
-  asOf: string;
+  /** The validated assessment instant, or `null` when none could be established. */
+  asOf: string | null;
+  timeBasis: BriefTimeBasis;
   watchlist: string[];
+  watchlistCount: number;
+  availability: BriefAvailability;
+  /** True only when every source is unreachable, not when one of them is. */
   unreachable: boolean;
+  sources: BriefSourceStatus[];
   warnings: string[];
   context: BriefMarketContext;
   upcomingCatalysts: Catalyst[];
@@ -160,6 +225,8 @@ export interface MarketBrief {
   insiderDisclosures: InsiderTransaction[];
   institutionalFilings: Institution[];
   signals: ResearchSignal[];
+  insiderCoverage: BriefFeedCoverage;
+  signalCoverage: BriefFeedCoverage;
   investigations: BriefInvestigation[];
   limitations: BriefLimitation[];
 }
@@ -257,52 +324,144 @@ function catalystDetail(catalyst: Catalyst): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Source availability                                                 */
+/* ------------------------------------------------------------------ */
+
+const SOURCE_LABELS: Record<BriefSourceKey, string> = {
+  dashboard: "Research dashboard",
+  coverage: "Published coverage",
+  catalysts: "Catalyst Radar",
+  insiders: "Insider Radar",
+  institutions: "Institutional Radar",
+  signals: "Signal engine",
+};
+
+function feedCoverage(retrieved: number, total: number, unreachable: boolean): BriefFeedCoverage {
+  return { retrieved, total, complete: !unreachable && retrieved >= total };
+}
+
+/**
+ * One status per source, so a single failed read cannot be reported as a
+ * complete brief and an empty healthy feed cannot be reported as an outage.
+ */
+function buildSourceStatuses(inputs: MarketBriefInputs): BriefSourceStatus[] {
+  const down = new Set(inputs.unreachableSources);
+
+  const entry = (
+    key: BriefSourceKey,
+    state: BriefSourceState,
+    detail: string,
+  ): BriefSourceStatus => ({
+    key,
+    label: SOURCE_LABELS[key],
+    state: down.has(key) ? "unavailable" : state,
+    detail: down.has(key)
+      ? "The engine could not be reached, so nothing was read from this source."
+      : detail,
+  });
+
+  const failedCalendars = inputs.catalysts.sources.filter((source) => source.status !== "ok");
+  const catalystCount = inputs.catalysts.items.length;
+
+  return [
+    entry(
+      "dashboard",
+      inputs.dashboard.freshness === "fresh" ? "healthy" : "stale",
+      inputs.dashboard.freshness === "fresh"
+        ? "Collection completed cleanly. Counts and timestamps are the engine's own."
+        : `Collection is ${inputs.dashboard.freshness}. Counts and timestamps may be older than they appear.`,
+    ),
+    entry(
+      "coverage",
+      inputs.coverage.status === "complete" ? "healthy" : "stale",
+      `${inputs.coverage.symbolsCovered} of ${inputs.coverage.symbolsRequested} requested symbols are covered (${inputs.coverage.status}).`,
+    ),
+    entry(
+      "catalysts",
+      failedCalendars.length > 0 ? "stale" : catalystCount === 0 ? "empty" : "healthy",
+      failedCalendars.length > 0
+        ? `${failedCalendars.length} of ${inputs.catalysts.sources.length} calendar sources could not be read.`
+        : `${catalystCount} event${catalystCount === 1 ? "" : "s"} read from ${inputs.catalysts.sources.length} source${inputs.catalysts.sources.length === 1 ? "" : "s"}.`,
+    ),
+    entry(
+      "insiders",
+      inputs.insiders.items.length === 0 ? "empty" : "healthy",
+      `${inputs.insiders.items.length} of ${inputs.insiders.total} stored filings retrieved.`,
+    ),
+    entry(
+      "institutions",
+      inputs.institutions.items.length === 0 ? "empty" : "healthy",
+      `${inputs.institutions.items.length} of ${inputs.institutions.total} stored filers retrieved.`,
+    ),
+    entry(
+      "signals",
+      inputs.signals.items.length === 0 ? "empty" : "healthy",
+      `${inputs.signals.items.length} of ${inputs.signals.total} stored signals retrieved.`,
+    ),
+  ];
+}
+
+function availabilityOf(sources: BriefSourceStatus[]): BriefAvailability {
+  const unavailable = sources.filter((source) => source.state === "unavailable").length;
+  if (unavailable === sources.length) return "unavailable";
+  if (unavailable > 0) return "partial";
+  if (sources.some((source) => source.state === "stale")) return "partial";
+  return "complete";
+}
+
+/**
+ * States that a paged feed was read as one bounded page.
+ *
+ * The engine serves these feeds one page at a time and has no multi-symbol
+ * filter, so a single request cannot retrieve every stored record. Without this
+ * the brief would imply that a watched symbol with no item in the retrieved
+ * page has no activity at all.
+ */
+function addFeedCoverageLimitation(
+  add: (limitation: BriefLimitation) => void,
+  key: string,
+  label: string,
+  noun: string,
+  coverage: BriefFeedCoverage,
+  watched: Set<string>,
+  coveredSymbols: Set<string>,
+): void {
+  if (coverage.complete) return;
+  // An unreachable feed returns an empty payload; the source status already says so.
+  if (coverage.total === 0 && coverage.retrieved === 0) return;
+
+  const missing = [...watched].filter((symbol) => !coveredSymbols.has(symbol)).sort();
+  const absence =
+    missing.length === 0
+      ? ""
+      : ` ${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} no ${noun} in that page, which is not evidence of no activity.`;
+
+  add({
+    key: `coverage:${key}`,
+    label,
+    detail: `The brief read the most recent ${coverage.retrieved} of ${coverage.total} stored ${noun} in one bounded request.${absence}`,
+    severity: "gap",
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /* Builder                                                             */
 /* ------------------------------------------------------------------ */
 
-export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
-  const asOfMs = parseInstant(inputs.asOf) ?? Date.now();
-  const asOfDay = new Date(asOfMs).toISOString().slice(0, 10);
-  const watched = new Set(inputs.watchlist.map((symbol) => symbol.trim().toUpperCase()));
-
-  const upcomingCatalysts = inputs.catalysts.items
-    .filter((catalyst) => isUpcoming(catalyst, asOfDay))
-    .sort((a, b) => {
-      const left = catalystDay(a) ?? "9999-12-31";
-      const right = catalystDay(b) ?? "9999-12-31";
-      if (left !== right) return left.localeCompare(right);
-      return a.id.localeCompare(b.id);
-    });
-
-  const recentCatalysts = inputs.catalysts.items
-    .filter((catalyst) => !isUpcoming(catalyst, asOfDay))
-    .sort((a, b) => byRecencyDesc(a.publishedAt ?? a.occurredAt, b.publishedAt ?? b.occurredAt));
-
-  const insiderDisclosures = [...inputs.insiders.items].sort((a, b) => {
-    const watchedRank = Number(watched.has(b.symbol)) - Number(watched.has(a.symbol));
-    if (watchedRank !== 0) return watchedRank;
-    return byRecencyDesc(a.acceptedAt, b.acceptedAt);
-  });
-
-  const institutionalFilings = [...inputs.institutions.items].sort((a, b) =>
-    byRecencyDesc(a.latestPublicAvailableAt, b.latestPublicAvailableAt),
-  );
-
-  const signals = [...inputs.signals.items].sort((a, b) => {
-    const watchedRank = Number(watched.has(b.symbol)) - Number(watched.has(a.symbol));
-    if (watchedRank !== 0) return watchedRank;
-    return byRecencyDesc(a.publicAvailableAt, b.publicAvailableAt);
-  });
-
-  const investigations: BriefInvestigation[] = [];
-  const seen = new Set<string>();
-
-  const push = (item: BriefInvestigation) => {
-    if (seen.has(item.id)) return;
-    seen.add(item.id);
-    investigations.push(item);
-  };
-
+/**
+ * Rules 1-4 all measure against the assessment instant, so they are only
+ * applied when one was established. Without it the brief cannot tell a filing
+ * from last week from one from last year, and guessing would be worse than
+ * saying so.
+ */
+function pushTimeWindowInvestigations(
+  push: (item: BriefInvestigation) => void,
+  inputs: MarketBriefInputs,
+  watched: Set<string>,
+  upcomingCatalysts: Catalyst[],
+  asOfMs: number,
+  asOfDay: string,
+): void {
   // 1. A watched symbol has a newly published open-market disclosure.
   for (const tx of inputs.insiders.items) {
     if (!watched.has(tx.symbol) || !tx.isOpenMarket) continue;
@@ -390,6 +549,82 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
       dataQuality: signal.dataQuality,
     });
   }
+}
+
+export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
+  const asOfMs = parseInstant(inputs.asOf);
+  const timeBasis: BriefTimeBasis = asOfMs === null ? "indeterminate" : "established";
+  const asOfDay = asOfMs === null ? null : new Date(asOfMs).toISOString().slice(0, 10);
+  const watched = new Set(inputs.watchlist.map((symbol) => symbol.trim().toUpperCase()));
+
+  const sources = buildSourceStatuses(inputs);
+  const availability = availabilityOf(sources);
+  const dashboardDown = inputs.unreachableSources.includes("dashboard");
+
+  const upcomingCatalysts =
+    asOfDay === null
+      ? []
+      : inputs.catalysts.items
+          .filter((catalyst) => isUpcoming(catalyst, asOfDay))
+          .sort((a, b) => {
+            const left = catalystDay(a) ?? "9999-12-31";
+            const right = catalystDay(b) ?? "9999-12-31";
+            if (left !== right) return left.localeCompare(right);
+            return a.id.localeCompare(b.id);
+          });
+
+  const recentCatalysts =
+    asOfDay === null
+      ? []
+      : inputs.catalysts.items
+          .filter((catalyst) => !isUpcoming(catalyst, asOfDay))
+          .sort((a, b) =>
+            byRecencyDesc(a.publishedAt ?? a.occurredAt, b.publishedAt ?? b.occurredAt),
+          );
+
+  const insiderDisclosures = [...inputs.insiders.items].sort((a, b) => {
+    const watchedRank = Number(watched.has(b.symbol)) - Number(watched.has(a.symbol));
+    if (watchedRank !== 0) return watchedRank;
+    return byRecencyDesc(a.acceptedAt, b.acceptedAt);
+  });
+
+  const institutionalFilings = [...inputs.institutions.items].sort((a, b) =>
+    byRecencyDesc(a.latestPublicAvailableAt, b.latestPublicAvailableAt),
+  );
+
+  const signals = [...inputs.signals.items].sort((a, b) => {
+    const watchedRank = Number(watched.has(b.symbol)) - Number(watched.has(a.symbol));
+    if (watchedRank !== 0) return watchedRank;
+    return byRecencyDesc(a.publicAvailableAt, b.publicAvailableAt);
+  });
+
+  const investigations: BriefInvestigation[] = [];
+  const seen = new Set<string>();
+
+  const push = (item: BriefInvestigation) => {
+    if (seen.has(item.id)) return;
+    seen.add(item.id);
+    investigations.push(item);
+  };
+
+  // 0. The brief could not establish when it was assessed.
+  if (asOfMs === null || asOfDay === null) {
+    push({
+      id: "time:unknown",
+      reason: "time_unknown",
+      symbol: null,
+      title: "Assessment time could not be established",
+      detail:
+        "The research dashboard returned no usable assessment timestamp, so no time-window rule was applied. Records below are listed as stored; none is classified as recent or upcoming.",
+      href: "/app/research",
+      sourceName: "Wands research dashboard",
+      sourceUrl: null,
+      observedAt: null,
+      dataQuality: "indeterminate",
+    });
+  } else {
+    pushTimeWindowInvestigations(push, inputs, watched, upcomingCatalysts, asOfMs, asOfDay);
+  }
 
   // 5. A source the brief depends on is not healthy.
   if (inputs.dashboard.freshness !== "fresh") {
@@ -443,6 +678,17 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
 
   const ordered = investigations.sort(compareInvestigations).slice(0, MAX_INVESTIGATIONS);
 
+  const insiderCoverage = feedCoverage(
+    inputs.insiders.items.length,
+    inputs.insiders.total,
+    inputs.unreachableSources.includes("insiders"),
+  );
+  const signalCoverage = feedCoverage(
+    inputs.signals.items.length,
+    inputs.signals.total,
+    inputs.unreachableSources.includes("signals"),
+  );
+
   /* -- limitations ------------------------------------------------- */
 
   const limitations: BriefLimitation[] = [];
@@ -453,6 +699,35 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
     limitationKeys.add(limitation.key);
     limitations.push(limitation);
   };
+
+  if (timeBasis === "indeterminate") {
+    addLimitation({
+      key: "time:unknown",
+      label: "No assessment time",
+      detail:
+        "The brief could not establish when it was assessed, so it does not claim that any disclosure, event or signal is recent or upcoming. Nothing here is measured against the current clock.",
+      severity: "gap",
+    });
+  }
+
+  addFeedCoverageLimitation(
+    addLimitation,
+    "insiders",
+    "Insider feed read is partial",
+    "filings",
+    insiderCoverage,
+    watched,
+    new Set(inputs.insiders.items.map((tx) => tx.symbol)),
+  );
+  addFeedCoverageLimitation(
+    addLimitation,
+    "signals",
+    "Signal feed read is partial",
+    "signals",
+    signalCoverage,
+    watched,
+    new Set(inputs.signals.items.map((signal) => signal.symbol)),
+  );
 
   for (const gap of inputs.coverage.gaps) {
     addLimitation({
@@ -545,14 +820,18 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
   }
 
   return {
-    asOf: inputs.asOf,
+    asOf: asOfMs === null ? null : inputs.asOf,
+    timeBasis,
     watchlist: [...watched].sort(),
-    unreachable: inputs.unreachable,
+    watchlistCount: inputs.watchlistCount,
+    availability,
+    unreachable: availability === "unavailable",
+    sources,
     warnings: [...new Set(inputs.warnings)],
     context: {
-      asOf: inputs.asOf,
+      asOf: asOfMs === null ? null : inputs.asOf,
       freshness: inputs.dashboard.freshness,
-      counts: inputs.dashboard.counts,
+      counts: dashboardDown ? null : inputs.dashboard.counts,
       latestFilingAt: inputs.dashboard.latestFilingAt,
       latestSignalAt: inputs.dashboard.latestSignalAt,
       coverageStatus: inputs.coverage.status,
@@ -566,6 +845,8 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
     insiderDisclosures,
     institutionalFilings,
     signals,
+    insiderCoverage,
+    signalCoverage,
     investigations: ordered,
     limitations,
   };

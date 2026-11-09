@@ -134,14 +134,22 @@ export function ProvenanceNote({
   unreachable = false,
 }: {
   provenance: string;
-  generatedAt: string;
+  /** `null` when the caller could not establish when the data was read. */
+  generatedAt: string | null;
   warnings: string[];
   /** The engine could not be reached, as opposed to answering with nothing stored. */
   unreachable?: boolean;
 }) {
-  const live = provenance !== "unavailable";
-  const label = live ? "Live data" : unreachable ? "Engine unreachable" : "Unavailable";
-  const stamp = new Date(generatedAt);
+  const partial = provenance === "partial";
+  const live = provenance !== "unavailable" && !partial;
+  const label = partial
+    ? "Partial data"
+    : live
+      ? "Live data"
+      : unreachable
+        ? "Engine unreachable"
+        : "Unavailable";
+  const stamp = generatedAt === null ? null : new Date(generatedAt);
   // Callers concatenate warnings from several envelopes, so the same reason can
   // arrive twice. Dedupe before keying the list on the message itself.
   const unique = [...new Set(warnings)];
@@ -151,7 +159,9 @@ export function ProvenanceNote({
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={live ? "emerald" : "warn"}>{label}</Badge>
         <span className="font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
-          {Number.isNaN(stamp.getTime()) ? "unknown time" : stamp.toISOString().replace("T", " ").slice(0, 16)} UTC
+          {stamp === null || Number.isNaN(stamp.getTime())
+            ? "unknown time"
+            : `${stamp.toISOString().replace("T", " ").slice(0, 16)} UTC`}
         </span>
       </div>
       {unique.length > 0 ? (

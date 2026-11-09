@@ -14,7 +14,11 @@ import type {
   ResearchCoverageDisclosure,
   ResearchDashboard,
 } from "@/lib/api/research-contract";
-import { buildMarketBrief, type MarketBriefInputs } from "@/lib/member/brief-model";
+import {
+  buildMarketBrief,
+  type BriefSourceKey,
+  type MarketBriefInputs,
+} from "@/lib/member/brief-model";
 
 /**
  * Deterministic fixtures. These are not live data: they exercise the selection
@@ -183,17 +187,27 @@ function signalFeed(items: ResearchSignal[] = []): SignalFeed {
   return { items, total: items.length, page: 1, limit: 50, hasMore: false };
 }
 
+const ALL_SOURCES: BriefSourceKey[] = [
+  "dashboard",
+  "coverage",
+  "catalysts",
+  "insiders",
+  "institutions",
+  "signals",
+];
+
 function inputs(overrides: Partial<MarketBriefInputs> = {}): MarketBriefInputs {
   return {
     asOf: AS_OF,
     watchlist: [],
+    watchlistCount: 0,
     dashboard: dashboard(),
     coverage: coverage(),
     catalysts: catalystFeed(),
     insiders: insiderFeed(),
     institutions: institutionFeed(),
     signals: signalFeed(),
-    unreachable: false,
+    unreachableSources: [],
     warnings: [],
     ...overrides,
   };
@@ -257,13 +271,14 @@ describe("founder market brief", () => {
   it("surfaces an unreachable engine instead of a zero", () => {
     const brief = buildMarketBrief(
       inputs({
-        unreachable: true,
+        unreachableSources: ALL_SOURCES,
         dashboard: dashboard({ freshness: "never", latestFilingAt: null, latestSignalAt: null }),
         warnings: ["engine unreachable"],
       }),
     );
 
     expect(brief.unreachable).toBe(true);
+    expect(brief.availability).toBe("unavailable");
     expect(brief.warnings).toContain("engine unreachable");
     const stale = brief.investigations.find((item) => item.reason === "source_stale");
     expect(stale).toBeDefined();
@@ -463,5 +478,180 @@ describe("founder market brief", () => {
 
     expect(brief.upcomingCatalysts).toEqual([]);
     expect(brief.recentCatalysts).toHaveLength(2);
+  });
+
+  describe("assessment time", () => {
+    it("does not fall back to the wall clock when asOf is missing", () => {
+      const brief = buildMarketBrief(
+        inputs({
+          asOf: "",
+          watchlist: ["AAPL"],
+          catalysts: catalystFeed([catalyst()]),
+          insiders: insiderFeed([insider()]),
+          signals: signalFeed([signal()]),
+        }),
+      );
+
+      expect(brief.timeBasis).toBe("indeterminate");
+      expect(brief.asOf).toBeNull();
+      expect(brief.context.asOf).toBeNull();
+
+      // No time-window rule may fire without an assessment time.
+      expect(brief.investigations.some((item) => item.reason === "watched_disclosure")).toBe(false);
+      expect(brief.investigations.some((item) => item.reason === "watched_signal")).toBe(false);
+      expect(brief.investigations.some((item) => item.reason === "market_catalyst")).toBe(false);
+      expect(brief.upcomingCatalysts).toEqual([]);
+      expect(brief.recentCatalysts).toEqual([]);
+
+      // The state is stated, not silent.
+      expect(brief.investigations.some((item) => item.reason === "time_unknown")).toBe(true);
+      expect(brief.limitations.some((item) => item.key === "time:unknown")).toBe(true);
+    });
+
+    it("treats a malformed timestamp as no timestamp", () => {
+      const brief = buildMarketBrief(inputs({ asOf: "not-a-date" }));
+
+      expect(brief.timeBasis).toBe("indeterminate");
+      expect(brief.asOf).toBeNull();
+      expect(brief.investigations.some((item) => item.reason === "time_unknown")).toBe(true);
+    });
+
+    it("produces identical output for identical indeterminate inputs", () => {
+      const build = () =>
+        buildMarketBrief(
+          inputs({ asOf: "", watchlist: ["AAPL"], insiders: insiderFeed([insider()]) }),
+        );
+
+      expect(build()).toEqual(build());
+    });
+
+    it("keeps a future assessment time as given and measures against it", () => {
+      const brief = buildMarketBrief(
+        inputs({
+          asOf: "2027-01-01T00:00:00Z",
+          watchlist: ["AAPL"],
+          insiders: insiderFeed([insider({ acceptedAt: "2026-11-07T21:30:00Z" })]),
+        }),
+      );
+
+      expect(brief.timeBasis).toBe("established");
+      expect(brief.asOf).toBe("2027-01-01T00:00:00Z");
+      // 55 days before the assessment, so outside the 14-day disclosure window.
+      expect(brief.investigations.some((item) => item.reason === "watched_disclosure")).toBe(false);
+    });
+
+    it("accepts a valid timestamp and classifies against it", () => {
+      const brief = buildMarketBrief(
+        inputs({ asOf: AS_OF, watchlist: ["AAPL"], insiders: insiderFeed([insider()]) }),
+      );
+
+      expect(brief.timeBasis).toBe("established");
+      expect(brief.asOf).toBe(AS_OF);
+      expect(brief.investigations.some((item) => item.reason === "watched_disclosure")).toBe(true);
+    });
+  });
+
+  describe("historical event windows", () => {
+    it("classifies the same event differently as the assessment time moves", () => {
+      const before = buildMarketBrief(
+        inputs({ asOf: "2026-11-09T15:00:00Z", catalysts: catalystFeed([catalyst()]) }),
+      );
+      expect(before.upcomingCatalysts).toHaveLength(1);
+      expect(before.recentCatalysts).toEqual([]);
+
+      const after = buildMarketBrief(
+        inputs({ asOf: "2026-12-01T15:00:00Z", catalysts: catalystFeed([catalyst()]) }),
+      );
+      expect(after.upcomingCatalysts).toEqual([]);
+      expect(after.recentCatalysts).toHaveLength(1);
+    });
+  });
+
+  describe("watchlist coverage", () => {
+    it("states that a watched symbol outside the retrieved page is not evidence of no activity", () => {
+      const brief = buildMarketBrief(
+        inputs({
+          watchlist: ["AAPL", "MSFT"],
+          insiders: {
+            items: [insider({ id: "a", symbol: "AAPL" })],
+            total: 400,
+            page: 1,
+            limit: 200,
+            hasMore: true,
+          },
+        }),
+      );
+
+      expect(brief.insiderCoverage).toEqual({ retrieved: 1, total: 400, complete: false });
+      const gap = brief.limitations.find((item) => item.key === "coverage:insiders");
+      expect(gap?.severity).toBe("gap");
+      expect(gap?.detail).toContain("1 of 400");
+      expect(gap?.detail).toContain("MSFT");
+      expect(gap?.detail).toContain("not evidence of no activity");
+    });
+
+    it("does not claim partial coverage when the whole feed was retrieved", () => {
+      const brief = buildMarketBrief(
+        inputs({ watchlist: ["AAPL"], insiders: insiderFeed([insider()]) }),
+      );
+
+      expect(brief.insiderCoverage.complete).toBe(true);
+      expect(brief.limitations.some((item) => item.key === "coverage:insiders")).toBe(false);
+    });
+
+    it("reports how many watchlists the symbols came from", () => {
+      const brief = buildMarketBrief(
+        inputs({ watchlist: ["AAPL", "MSFT"], watchlistCount: 2 }),
+      );
+
+      expect(brief.watchlistCount).toBe(2);
+    });
+  });
+
+  describe("provenance on partial failure", () => {
+    it("reports a single failed source as partial, not as a complete brief", () => {
+      const brief = buildMarketBrief(inputs({ unreachableSources: ["signals"] }));
+
+      expect(brief.availability).toBe("partial");
+      expect(brief.unreachable).toBe(false);
+      expect(brief.sources.find((source) => source.key === "signals")?.state).toBe("unavailable");
+      expect(brief.sources.find((source) => source.key === "dashboard")?.state).toBe("healthy");
+    });
+
+    it("reports every source down as unavailable", () => {
+      const brief = buildMarketBrief(inputs({ unreachableSources: ALL_SOURCES }));
+
+      expect(brief.availability).toBe("unavailable");
+      expect(brief.unreachable).toBe(true);
+    });
+
+    it("reports a stale source as partial rather than complete", () => {
+      const brief = buildMarketBrief(inputs({ dashboard: dashboard({ freshness: "stale" }) }));
+
+      expect(brief.sources.find((source) => source.key === "dashboard")?.state).toBe("stale");
+      expect(brief.availability).toBe("partial");
+    });
+
+    it("does not invent a zero count when the dashboard could not be read", () => {
+      const brief = buildMarketBrief(inputs({ unreachableSources: ["dashboard"] }));
+
+      expect(brief.context.counts).toBeNull();
+    });
+
+    it("keeps the engine's own counts when the dashboard was read", () => {
+      const brief = buildMarketBrief(inputs());
+
+      expect(brief.context.counts).toEqual(dashboard().counts);
+    });
+
+    it("distinguishes a healthy empty feed from an unavailable one", () => {
+      const healthy = buildMarketBrief(inputs());
+      expect(healthy.sources.find((source) => source.key === "insiders")?.state).toBe("empty");
+      expect(healthy.availability).toBe("complete");
+
+      const down = buildMarketBrief(inputs({ unreachableSources: ["insiders"] }));
+      expect(down.sources.find((source) => source.key === "insiders")?.state).toBe("unavailable");
+      expect(down.availability).toBe("partial");
+    });
   });
 });

@@ -7,17 +7,15 @@ import { EmptyState, PageHeader, Panel, ProvenanceNote } from "@/components/memb
 import { getMarketBrief } from "@/lib/member/brief";
 import { assetHref } from "@/lib/member/links";
 import { requireMember } from "@/lib/member/session";
-import { listWatchlists } from "@/lib/member/watchlists";
 
 export const metadata: Metadata = { title: "Market brief" };
 
 export default async function ResearchIndexPage() {
   const session = await requireMember("/app/research");
 
-  const [brief, watchlists] = await Promise.all([
-    getMarketBrief(session.user.id),
-    listWatchlists(session.user.id),
-  ]);
+  // The brief reads the member's watchlists itself, so the page does not read
+  // them a second time. Seven reads total: six engine, one database.
+  const brief = await getMarketBrief(session.user.id);
 
   return (
     <div className="flex flex-col gap-6">
@@ -34,7 +32,13 @@ export default async function ResearchIndexPage() {
       <MarketBriefView brief={brief} />
 
       <ProvenanceNote
-        provenance={brief.unreachable ? "unavailable" : "live"}
+        provenance={
+          brief.availability === "unavailable"
+            ? "unavailable"
+            : brief.availability === "partial"
+              ? "partial"
+              : "live"
+        }
         generatedAt={brief.asOf}
         warnings={brief.warnings}
         unreachable={brief.unreachable}
@@ -78,9 +82,9 @@ export default async function ResearchIndexPage() {
             ))}
           </ul>
         )}
-        {watchlists.length > 0 ? (
+        {brief.watchlistCount > 0 ? (
           <p className="mt-3 font-marketing-mono text-[11px] text-mk-dim">
-            across {watchlists.length} watchlist{watchlists.length === 1 ? "" : "s"}
+            across {brief.watchlistCount} watchlist{brief.watchlistCount === 1 ? "" : "s"}
           </p>
         ) : null}
       </Panel>
