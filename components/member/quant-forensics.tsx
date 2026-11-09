@@ -4,14 +4,16 @@ import { forensicLabel, forensicTone } from "@/lib/member/quant";
 import { Badge, EmptyState, Panel } from "./ui";
 
 /**
- * The order a reader needs: what failed, then what could not be checked, then
- * what does not apply. A check that could not be performed is not a failure, but
- * it is not a pass either, so it sits between the two.
+ * The order a reader needs: what failed, then what the record only asserts, then
+ * what could not be checked, then what does not apply. A declaration sits above
+ * an unassessable check because it is the more misleading of the two: it looks
+ * like a result until the reader is told nothing corroborates it.
  */
 const SEVERITY: Record<string, number> = {
   not_verified: 0,
-  cannot_assess: 1,
-  not_applicable: 2,
+  declared: 1,
+  cannot_assess: 2,
+  not_applicable: 3,
 };
 
 function FindingRow({ finding }: { finding: QuantForensicFinding }) {
@@ -95,8 +97,9 @@ export function QuantForensicsPanel({ forensics }: { forensics: QuantForensics |
     >
       <p className="text-sm leading-relaxed text-mk-fg text-pretty">{forensics.verdict}</p>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-mk-line py-3 sm:grid-cols-4">
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-mk-line py-3 sm:grid-cols-5">
         <Count label="Verified" value={forensics.counts.verified} />
+        <Count label="Declared" value={forensics.counts.declared ?? 0} />
         <Count label="Not verified" value={forensics.counts.notVerified} />
         <Count label="Cannot assess" value={forensics.counts.cannotAssess} />
         <Count label="Not applicable" value={forensics.counts.notApplicable} />
@@ -143,7 +146,13 @@ export function QuantForensicsPanel({ forensics }: { forensics: QuantForensics |
         </div>
       ) : null}
 
-      <p className="mt-4 text-[11px] leading-relaxed text-mk-dim text-pretty">{forensics.note}</p>
+      {forensics.version ? (
+        <p className="mt-4 font-marketing-mono text-[10px] uppercase tracking-[0.14em] text-mk-dim">
+          Assessment rules v{forensics.version}
+        </p>
+      ) : null}
+
+      <p className="mt-1.5 text-[11px] leading-relaxed text-mk-dim text-pretty">{forensics.note}</p>
     </Panel>
   );
 }

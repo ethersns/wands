@@ -311,13 +311,20 @@ NAVIGATION LOCATION: none (reached through an experiment, not a destination)
 PRODUCTION STATUS: local-verified
 PUBLIC WEBSITE DESCRIPTION: not separately advertised
 CURRENT LIMITATION: Twelve checks are assessed from the stored experiment and
-  the stored daily series. Four of them can never pass on current data and are
-  reported as unassessable rather than passed: parameter sensitivity (one
-  parameter set is recorded, no sweep), survivorship bias (the universe is a
-  present-day list), and price-series quality (coverage counts bars, it does not
-  validate them). The report is computed on read and never stored, so it cannot
-  rewrite what an old experiment claimed. It does not re-run a strategy and does
-  not estimate a probability that a result is real.
+  the stored daily series. A check is reported as verified only when the stored
+  record contains the evidence that directly establishes the claim as stated. A
+  property the record merely asserts — a held-out label, a pair of reproducibility
+  hashes, a study that dates events by publication — is reported as declared, not
+  verified, because nothing in the record corroborates it. Two checks can never
+  pass on current data and are reported as unassessable rather than passed:
+  parameter sensitivity (one parameter set is recorded, no sweep) and survivorship
+  bias (the universe is a present-day list). Price coverage counts bars; it does
+  not validate them. The temporal-boundary check verifies the two recorded dates,
+  not the vintage of every underlying input. The report is computed on read and
+  never stored, so it cannot rewrite what an old experiment claimed; it carries
+  the assessment-rules version (currently 1.0.1) so a member can tell when the
+  rules behind a status changed. It does not re-run a strategy and does not
+  estimate a probability that a result is real.
 FRONTEND TASK REQUIRED: None
 ```
 

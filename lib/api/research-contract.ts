@@ -453,6 +453,11 @@ export interface QuantStudyResult {
 /**
  * How a forensic check came out.
  *
+ * `verified` means the stored record contains the evidence that directly
+ * establishes the claim as stated. `declared` means the record asserts the claim
+ * but contains nothing that corroborates it — a held-out label, a pair of
+ * hashes, a study name. It is not a pass and must never be rendered as one.
+ *
  * `cannot_assess` is not a soft failure. It is the honest answer when the stored
  * record does not contain the evidence a check needs, and it must never be
  * rendered as a pass. `not_applicable` is narrower still: the check does not
@@ -460,6 +465,7 @@ export interface QuantStudyResult {
  */
 export type QuantForensicStatus =
   | "verified"
+  | "declared"
   | "not_verified"
   | "cannot_assess"
   | "not_applicable";
@@ -489,10 +495,17 @@ export interface QuantForensicFinding {
  * verified and states what it could not.
  */
 export interface QuantForensics {
+  /**
+   * The assessment rules that produced this report. The report is computed on
+   * read and never stored, so without this a member cannot tell that the rules
+   * behind the statuses changed underneath them.
+   */
+  version?: string;
   findings: QuantForensicFinding[];
   counts: {
     total: number;
     verified: number;
+    declared?: number;
     notVerified: number;
     cannotAssess: number;
     notApplicable: number;

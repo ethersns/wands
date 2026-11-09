@@ -117,6 +117,9 @@ export function evaluationTone(status: string | undefined): QuantTone {
 export function forensicTone(status: string | undefined): QuantTone {
   if (status === "verified") return "emerald";
   if (status === "not_verified") return "warn";
+  // A declaration is not a failure, so it does not get the warning tone. It is
+  // also not a pass, so it does not get the verified tone either.
+  if (status === "declared") return "accent";
   return "neutral";
 }
 
@@ -124,6 +127,8 @@ export function forensicLabel(status: string | undefined): string {
   switch (status) {
     case "verified":
       return "Verified";
+    case "declared":
+      return "Declared";
     case "not_verified":
       return "Not verified";
     case "cannot_assess":
