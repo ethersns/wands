@@ -11,11 +11,19 @@ it never writes, never re-runs a strategy, and never consults a clock. The same
 experiment produces the same report every time, which is what makes the report
 itself auditable.
 
-Three rules govern the findings.
+Four rules govern the findings.
 
 *A missing check is not a pass.* A capability the stored data cannot evidence is
 reported as ``cannot_assess``, never as ``verified``. The difference between "we
 checked and it held" and "we could not check" is the entire value of the report.
+
+*A declaration is not a demonstration.* A record can assert that a result was
+held out, that its inputs are hashed, or that its study dates events by
+publication. Those assertions are worth reporting, but they are not evidence that
+the property holds. They are reported as ``declared``, which says exactly what
+the record supports: the claim is on file, and nothing in the record corroborates
+it. Collapsing that into ``verified`` is how a research product starts telling a
+member a result was independently validated when all it did was label it.
 
 *Every finding carries its evidence.* A status without the numbers behind it is
 an opinion. Each finding names the stored fields it read.
@@ -44,12 +52,24 @@ from sqlalchemy.orm import Session
 from wands.db.models import MarketCandleRow
 from wands.intelligence import quant
 
-# Finding statuses. ``cannot_assess`` is not a soft failure: it is the honest
-# answer when the stored record does not contain the evidence a check needs.
+# Finding statuses.
+#
+# ``verified`` means the stored record contains the evidence that directly
+# establishes the claim as stated. ``declared`` means the record asserts the
+# claim but contains nothing that corroborates it — a held-out label, a pair of
+# hashes, a study name. ``cannot_assess`` is not a soft failure: it is the honest
+# answer when the record does not contain the evidence a check needs at all.
 VERIFIED = "verified"
+DECLARED = "declared"
 NOT_VERIFIED = "not_verified"
 CANNOT_ASSESS = "cannot_assess"
 NOT_APPLICABLE = "not_applicable"
+
+# The assessment rules are versioned because the report is computed on read and
+# never stored: without a version, a member who looked yesterday cannot tell that
+# the rules behind the statuses changed underneath them. This is a constant, not
+# a persistence system — nothing is written, and no migration is involved.
+FORENSICS_VERSION = "1.0.1"
 
 DAILY_INTERVAL = "1d"
 
@@ -68,7 +88,8 @@ REPORT_NOTE = (
     "This assessment reads the stored experiment and the stored price series. It "
     "does not re-run the strategy, does not modify the recorded result, and does "
     "not estimate a probability that the result is real. A check that could not be "
-    "performed is reported as unassessable rather than passed."
+    "performed is reported as unassessable rather than passed, and a property the "
+    "record only asserts is reported as declared rather than verified."
 )
 
 
@@ -241,19 +262,18 @@ class ForensicSubject:
 # --------------------------------------------------------------------------
 
 
-def _point_in_time(subject: ForensicSubject) -> Finding:
+def _recorded_temporal_boundary(subject: ForensicSubject) -> Finding:
     cutoff = subject.information_cutoff
     end = subject.period_end
 
     if cutoff is None or end is None:
         return Finding(
-            id="point_in_time_eligibility",
-            title="Point-in-time eligibility",
+            id="recorded_temporal_boundary",
+            title="Recorded temporal boundary",
             status=CANNOT_ASSESS,
             explanation=(
                 "The record does not store both the period end and the information "
-                "cutoff, so there is no way to tell whether the measured window "
-                "extended past what was knowable when the run was made."
+                "cutoff, so the boundary the run was pinned to cannot be checked."
             ),
             evidence=(
                 f"Period end: {_stamp(end)}",
@@ -264,13 +284,14 @@ def _point_in_time(subject: ForensicSubject) -> Finding:
 
     if end > cutoff:
         return Finding(
-            id="point_in_time_eligibility",
-            title="Point-in-time eligibility",
+            id="recorded_temporal_boundary",
+            title="Recorded temporal boundary",
             status=NOT_VERIFIED,
             explanation=(
-                "The measured window ends after the information cutoff. Observations "
-                "dated between the cutoff and the period end were not knowable when "
-                "the run was made, so the result is not a point-in-time measurement."
+                "The recorded window ends after the recorded information cutoff. "
+                "Observations dated between the cutoff and the period end were not "
+                "knowable when the run was made, so the run measured past the boundary "
+                "it recorded."
             ),
             evidence=(
                 f"Period end: {_stamp(end)}",
@@ -281,16 +302,22 @@ def _point_in_time(subject: ForensicSubject) -> Finding:
         )
 
     return Finding(
-        id="point_in_time_eligibility",
-        title="Point-in-time eligibility",
+        id="recorded_temporal_boundary",
+        title="Recorded temporal boundary",
         status=VERIFIED,
         explanation=(
-            "The measured window ends on or before the information cutoff, so every "
-            "observation in it was knowable when the run was made."
+            "The recorded window ends on or before the recorded information cutoff. "
+            "This verifies the boundary as recorded. It does not establish that every "
+            "underlying input — each price bar, each filing timestamp — was itself "
+            "point-in-time eligible."
         ),
         evidence=(
             f"Period end: {_stamp(end)}",
             f"Information cutoff: {_stamp(cutoff)}",
+        ),
+        limitation=(
+            "The check compares two recorded dates. An input that was revised after "
+            "the cutoff but still carries an earlier timestamp would pass it."
         ),
     )
 
@@ -300,21 +327,27 @@ def _publication_versus_transaction(subject: ForensicSubject) -> Finding:
         return Finding(
             id="publication_versus_transaction",
             title="Filing publication versus transaction time",
-            status=VERIFIED,
+            status=DECLARED,
             explanation=(
-                "Eligibility is the filing's acceptance time, not the transaction "
-                "date. A Form 4 reports a trade from an earlier day and is published "
-                "later, so dating the sample by the transaction would let the study "
-                "buy at a price that had already printed."
+                "The study is recorded as dating eligibility by the filing's acceptance "
+                "time rather than the transaction date. That is a property of the study "
+                "definition: the stored record carries horizon aggregates, not "
+                "per-observation timestamps, so it cannot corroborate that each "
+                "observation was in fact dated by publication."
             ),
             evidence=(
-                "Sample filter: accepted_at inside the window and on or before the cutoff",
-                "Transaction date is not used for eligibility",
+                "Recorded study: insider_purchase_event_study",
+                "Declared sample filter: accepted_at inside the window and on or before the cutoff",
+                "Per-observation timestamps: not stored",
             ),
             limitation=(
                 "The acceptance timestamp is the SEC's, so a filing accepted after the "
                 "close is treated as knowable that day even though it was readable "
                 "only afterwards."
+            ),
+            next_step=(
+                "Store the per-observation acceptance and transaction timestamps on the "
+                "experiment so the dating can be checked rather than taken on trust."
             ),
         )
 
@@ -322,20 +355,27 @@ def _publication_versus_transaction(subject: ForensicSubject) -> Finding:
         return Finding(
             id="publication_versus_transaction",
             title="Filing publication versus transaction time",
-            status=VERIFIED,
+            status=DECLARED,
             explanation=(
-                "Eligibility is the filing's public availability time. A 13F reports a "
-                "position as of a quarter end and is filed up to 45 days later, so the "
-                "quarter end is never used as the moment the position became knowable."
+                "The study is recorded as dating eligibility by the filing's public "
+                "availability time rather than the quarter end. That is a property of "
+                "the study definition: the stored record carries horizon aggregates, "
+                "not per-observation timestamps, so it cannot corroborate that each "
+                "observation was in fact dated by publication."
             ),
             evidence=(
-                "Sample filter: public availability inside the window and on or before the cutoff",
-                "Quarter end is recorded as the period of report, not as the event time",
+                "Recorded study: institutional_holdings_study",
+                "Declared sample filter: public availability inside the window and on or before the cutoff",
+                "Per-observation timestamps: not stored",
             ),
             limitation=(
                 "A reported increase is a change in a quarterly position, not a "
                 "real-time purchase. The 45-day filing lag is inside the data, not "
                 "corrected by it."
+            ),
+            next_step=(
+                "Store the per-observation availability and period-of-report timestamps "
+                "on the experiment so the dating can be checked rather than taken on trust."
             ),
         )
 
@@ -352,13 +392,13 @@ def _publication_versus_transaction(subject: ForensicSubject) -> Finding:
     )
 
 
-def _look_ahead_fill(subject: ForensicSubject) -> Finding:
+def _recorded_fill_convention(subject: ForensicSubject) -> Finding:
     entry = str(subject.execution_assumptions.get("entry") or "").strip()
 
     if not entry:
         return Finding(
-            id="look_ahead_fill",
-            title="Look-ahead in the fill",
+            id="recorded_fill_convention",
+            title="Recorded fill convention",
             status=CANNOT_ASSESS,
             explanation=(
                 "The record does not state when an order was assumed to fill, so "
@@ -371,13 +411,14 @@ def _look_ahead_fill(subject: ForensicSubject) -> Finding:
 
     if "next_session_open" in entry:
         return Finding(
-            id="look_ahead_fill",
-            title="Look-ahead in the fill",
+            id="recorded_fill_convention",
+            title="Recorded fill convention",
             status=VERIFIED,
             explanation=(
-                "Orders are assumed to fill at the open of the session after the "
-                "decision, so no trade is filled at a price that had already printed "
-                "when the signal was formed."
+                "The run is recorded as filling at the open of the session after the "
+                "decision. This verifies the convention the run was configured with. "
+                "The stored trades do not carry decision timestamps, so per-trade "
+                "compliance with that convention is not separately evidenced."
             ),
             evidence=(f"Recorded entry convention: {entry}",),
             limitation=(
@@ -388,8 +429,8 @@ def _look_ahead_fill(subject: ForensicSubject) -> Finding:
         )
 
     return Finding(
-        id="look_ahead_fill",
-        title="Look-ahead in the fill",
+        id="recorded_fill_convention",
+        title="Recorded fill convention",
         status=NOT_VERIFIED,
         explanation=(
             "The recorded fill convention is not a next-session open, so the "
@@ -697,14 +738,15 @@ def _trading_costs(subject: ForensicSubject) -> Finding:
         title="Trading costs",
         status=VERIFIED,
         explanation=(
-            "A round-trip cost is charged on every simulated trade, so the reported "
-            "returns are net of trading friction rather than gross."
+            f"A round-trip cost of {cost_bps:g} bps is recorded for this run, so the "
+            "reported returns are stated net of a cost assumption rather than gross."
         ),
         evidence=tuple(evidence),
         limitation=(
-            "Spread, commission and slippage are folded into one figure. The record "
-            "does not separate them, and a single bps number cannot capture impact "
-            "that grows with order size."
+            "The record states the assumption and, where present, the resulting drag. "
+            "It does not show the cost applied to each individual trade. Spread, "
+            "commission and slippage are folded into one figure, and a single bps "
+            "number cannot capture impact that grows with order size."
         ),
     )
 
@@ -877,15 +919,22 @@ def _out_of_sample(subject: ForensicSubject) -> Finding:
         return Finding(
             id="out_of_sample_independence",
             title="Out-of-sample independence",
-            status=VERIFIED,
+            status=DECLARED,
             explanation=(
-                "The result is recorded as held out: it was measured on a window that "
-                "did not inform the design of the rule."
+                "The record designates this result as held out. That designation is a "
+                "claim about how the run was conducted: the record contains no evidence "
+                "that the evaluation window was kept out of the design, so independence "
+                "is declared rather than demonstrated."
             ),
             evidence=tuple(evidence),
             limitation=(
-                "Held-out status is a claim about process. The record cannot prove the "
-                "window was never looked at, only that it is declared as held out."
+                "A held-out label can be attached to a window that was in fact examined "
+                "while the rule was being designed. Nothing in the stored record "
+                "distinguishes the two cases."
+            ),
+            next_step=(
+                "Record the design and evaluation windows separately, with the date each "
+                "was first read, so the holdout can be evidenced rather than asserted."
             ),
         )
 
@@ -912,7 +961,7 @@ def _out_of_sample(subject: ForensicSubject) -> Finding:
     )
 
 
-def _reproducibility(subject: ForensicSubject) -> Finding:
+def _reproducibility_metadata(subject: ForensicSubject) -> Finding:
     missing = [
         name
         for name, value in (
@@ -924,13 +973,13 @@ def _reproducibility(subject: ForensicSubject) -> Finding:
 
     if missing:
         return Finding(
-            id="reproducibility",
-            title="Reproducibility",
+            id="reproducibility_metadata",
+            title="Reproducibility metadata",
             status=NOT_VERIFIED,
             explanation=(
-                f"The record is missing its {' and '.join(missing)}, so there is no "
-                "way to confirm that a later run reproduces this result rather than "
-                "producing a different one."
+                f"The record is missing its {' and '.join(missing)}, so a later run "
+                "could not even be identified as the same experiment, let alone "
+                "compared against this one."
             ),
             evidence=tuple(f"Missing: {name}" for name in missing),
             next_step=(
@@ -940,21 +989,27 @@ def _reproducibility(subject: ForensicSubject) -> Finding:
         )
 
     return Finding(
-        id="reproducibility",
-        title="Reproducibility",
-        status=VERIFIED,
+        id="reproducibility_metadata",
+        title="Reproducibility metadata",
+        status=DECLARED,
         explanation=(
             "The definition hash and the data fingerprint are both recorded, so a "
-            "re-run can be identified as the same experiment and its data compared "
-            "against this one."
+            "later run can be identified as the same experiment and its inputs "
+            "compared. No independent rerun comparison is stored, so the result is "
+            "reproducible in principle, not reproduced in fact."
         ),
         evidence=(
             f"Definition hash: {subject.definition_hash[:16]}…",
             f"Data fingerprint: {subject.data_fingerprint[:16]}…",
+            "Independent rerun comparison: not stored",
         ),
         limitation=(
-            "The hashes prove the inputs are identical, not that the arithmetic is "
-            "correct. A deterministic bug reproduces perfectly."
+            "The hashes identify the inputs. They do not show the arithmetic is "
+            "correct, and a deterministic bug reproduces perfectly."
+        ),
+        next_step=(
+            "Re-run the experiment from the recorded definition and store the "
+            "comparison, so reproduction is evidenced rather than assumed."
         ),
     )
 
@@ -977,11 +1032,17 @@ class ForensicReport:
     def verdict(self) -> str:
         total = len(self.findings)
         verified = self._count(VERIFIED)
+        declared = self._count(DECLARED)
         failed = self._count(NOT_VERIFIED)
         unknown = self._count(CANNOT_ASSESS)
         skipped = self._count(NOT_APPLICABLE)
 
         parts = [f"{verified} of {total} checks are verified by the stored record."]
+        if declared:
+            parts.append(
+                f"{declared} {'is' if declared == 1 else 'are'} declared by it but not "
+                "independently established."
+            )
         if failed:
             parts.append(f"{failed} {'is' if failed == 1 else 'are'} not verified.")
         if unknown:
@@ -1009,10 +1070,12 @@ class ForensicReport:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "version": FORENSICS_VERSION,
             "findings": [finding.as_dict() for finding in self.findings],
             "counts": {
                 "total": len(self.findings),
                 "verified": self._count(VERIFIED),
+                "declared": self._count(DECLARED),
                 "notVerified": self._count(NOT_VERIFIED),
                 "cannotAssess": self._count(CANNOT_ASSESS),
                 "notApplicable": self._count(NOT_APPLICABLE),
@@ -1032,9 +1095,9 @@ def assess(
     """Assess one stored experiment. Pure: same subject, same report."""
     return ForensicReport(
         findings=(
-            _point_in_time(subject),
+            _recorded_temporal_boundary(subject),
             _publication_versus_transaction(subject),
-            _look_ahead_fill(subject),
+            _recorded_fill_convention(subject),
             _price_coverage(subject, price_coverage),
             _benchmark_coverage(subject),
             _survivorship(subject),
@@ -1043,7 +1106,7 @@ def assess(
             _parameter_sensitivity(subject),
             _multiple_comparisons(subject),
             _out_of_sample(subject),
-            _reproducibility(subject),
+            _reproducibility_metadata(subject),
         )
     )
 
@@ -1142,6 +1205,8 @@ __all__ = [
     "CANNOT_ASSESS",
     "CandleCoverageProbe",
     "CoverageProbe",
+    "DECLARED",
+    "FORENSICS_VERSION",
     "Finding",
     "ForensicReport",
     "ForensicSubject",

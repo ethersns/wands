@@ -1,11 +1,16 @@
 """Research forensics: a check that was not performed is never reported as passed.
 
 The invariant under test is narrow and load-bearing. Every finding must be one of
-four things — verified, not verified, unassessable, or inapplicable — and the
-first of those is only allowed when the stored record actually contains the
-evidence the check needs. A report that quietly upgrades "we could not check" to
-"we checked and it held" is worse than no report, because it manufactures
+five things — verified, declared, not verified, unassessable, or inapplicable —
+and the first of those is only allowed when the stored record actually contains
+the evidence the check needs. A report that quietly upgrades "we could not check"
+to "we checked and it held" is worse than no report, because it manufactures
 confidence the experiment never earned.
+
+The same is true of the second: a record can assert that a result was held out,
+that its inputs are hashed, or that its study dates events by publication, and
+none of those assertions is evidence that the property holds. Those are reported
+as declared, and the tests below pin that a declaration never becomes a pass.
 
 The second property is that the assessment is read-only and deterministic. It
 must not write, must not re-run a strategy, and must produce the same report for
@@ -23,6 +28,8 @@ from sqlalchemy import func, select
 from wands.db.models import IntelExperimentRow, MarketCandleRow
 from wands.intelligence.forensics import (
     CANNOT_ASSESS,
+    DECLARED,
+    FORENSICS_VERSION,
     NOT_APPLICABLE,
     NOT_VERIFIED,
     VERIFIED,
@@ -106,8 +113,36 @@ def test_no_check_is_verified_without_evidence():
 
 def test_every_finding_uses_a_known_status():
     report = assess(_subject(), price_coverage=_coverage())
-    allowed = {VERIFIED, NOT_VERIFIED, CANNOT_ASSESS, NOT_APPLICABLE}
+    allowed = {VERIFIED, DECLARED, NOT_VERIFIED, CANNOT_ASSESS, NOT_APPLICABLE}
     assert {finding.status for finding in report.findings} <= allowed
+
+
+def test_no_unverified_finding_claims_independent_validation():
+    """The words that overstate are the ones a member reads as a pass."""
+    overclaiming = (
+        "independently validated",
+        "independently reproduced",
+        "point-in-time safe",
+        "was reproduced",
+        "proves",
+    )
+    for subject in (
+        _subject(),
+        _subject(study="insider_purchase_event_study"),
+        _subject(study="institutional_holdings_study"),
+    ):
+        report = assess(subject, price_coverage=_coverage())
+        for finding in report.findings:
+            if finding.status == VERIFIED:
+                continue
+            text = f"{finding.title} {finding.explanation}".lower()
+            for phrase in overclaiming:
+                assert phrase not in text, f"{finding.id} overclaims: {phrase}"
+
+
+def test_the_report_identifies_the_rules_that_produced_it():
+    payload = assess(_subject(), price_coverage=_coverage()).as_dict()
+    assert payload["version"] == FORENSICS_VERSION
 
 
 def test_the_report_carries_no_fabricated_probability():
@@ -129,6 +164,7 @@ def test_the_verdict_counts_what_it_established():
     assert counts["total"] == len(payload["findings"])
     assert (
         counts["verified"]
+        + counts["declared"]
         + counts["notVerified"]
         + counts["cannotAssess"]
         + counts["notApplicable"]
@@ -137,14 +173,32 @@ def test_the_verdict_counts_what_it_established():
     assert payload["verdict"].startswith(f"{counts['verified']} of {counts['total']}")
 
 
+def test_declared_checks_are_counted_apart_from_verified_ones():
+    payload = assess(_subject(), price_coverage=_coverage()).as_dict()
+    counts = payload["counts"]
+    assert counts["declared"] >= 1
+    assert "declared by it but not independently established" in payload["verdict"]
+
+
 # --------------------------------------------------------------------------
 # Point-in-time and look-ahead
 # --------------------------------------------------------------------------
 
 
-def test_a_window_inside_the_cutoff_is_verified():
+def test_a_window_inside_the_cutoff_verifies_the_recorded_boundary():
     report = assess(_subject(), price_coverage=_coverage())
-    assert _finding(report, "point_in_time_eligibility").status == VERIFIED
+    finding = _finding(report, "recorded_temporal_boundary")
+    assert finding.status == VERIFIED
+    assert "as recorded" in finding.explanation
+
+
+def test_the_boundary_check_does_not_claim_input_eligibility():
+    """The record holds two dates. It does not hold the vintage of every input."""
+    report = assess(_subject(), price_coverage=_coverage())
+    finding = _finding(report, "recorded_temporal_boundary")
+    assert "does not establish" in finding.explanation
+    assert "point-in-time eligible" in finding.explanation
+    assert finding.limitation
 
 
 def test_a_window_past_the_cutoff_is_not_verified():
@@ -152,24 +206,32 @@ def test_a_window_past_the_cutoff_is_not_verified():
         _subject(information_cutoff=datetime(2024, 6, 30, tzinfo=UTC)),
         price_coverage=_coverage(),
     )
-    finding = _finding(report, "point_in_time_eligibility")
+    finding = _finding(report, "recorded_temporal_boundary")
     assert finding.status == NOT_VERIFIED
-    assert "after the information cutoff" in finding.explanation
+    assert "after the recorded information cutoff" in finding.explanation
 
 
 def test_a_missing_cutoff_is_unassessable_rather_than_passed():
     report = assess(_subject(information_cutoff=None), price_coverage=_coverage())
-    assert _finding(report, "point_in_time_eligibility").status == CANNOT_ASSESS
+    assert _finding(report, "recorded_temporal_boundary").status == CANNOT_ASSESS
 
 
-def test_a_next_open_fill_is_verified():
+def test_a_next_open_fill_verifies_the_recorded_convention():
     report = assess(_subject(), price_coverage=_coverage())
-    assert _finding(report, "look_ahead_fill").status == VERIFIED
+    finding = _finding(report, "recorded_fill_convention")
+    assert finding.status == VERIFIED
+    assert "configured with" in finding.explanation
+
+
+def test_the_fill_check_does_not_claim_per_trade_compliance():
+    report = assess(_subject(), price_coverage=_coverage())
+    finding = _finding(report, "recorded_fill_convention")
+    assert "not separately evidenced" in finding.explanation
 
 
 def test_an_unrecorded_fill_convention_is_unassessable():
     report = assess(_subject(execution_assumptions={}), price_coverage=_coverage())
-    assert _finding(report, "look_ahead_fill").status == CANNOT_ASSESS
+    assert _finding(report, "recorded_fill_convention").status == CANNOT_ASSESS
 
 
 def test_a_same_close_fill_is_not_verified():
@@ -177,7 +239,7 @@ def test_a_same_close_fill_is_not_verified():
         _subject(execution_assumptions={"entry": "same_session_close"}),
         price_coverage=_coverage(),
     )
-    assert _finding(report, "look_ahead_fill").status == NOT_VERIFIED
+    assert _finding(report, "recorded_fill_convention").status == NOT_VERIFIED
 
 
 def test_a_price_rule_has_no_publication_lag_to_check():
@@ -185,11 +247,25 @@ def test_a_price_rule_has_no_publication_lag_to_check():
     assert _finding(report, "publication_versus_transaction").status == NOT_APPLICABLE
 
 
-def test_an_insider_study_verifies_publication_timing():
+def test_an_insider_study_declares_publication_timing_rather_than_proving_it():
+    """The record names the study. It does not carry the timestamps that would
+    show each observation was in fact dated by publication."""
     report = assess(
         _subject(study="insider_purchase_event_study"), price_coverage=_coverage()
     )
-    assert _finding(report, "publication_versus_transaction").status == VERIFIED
+    finding = _finding(report, "publication_versus_transaction")
+    assert finding.status == DECLARED
+    assert "Per-observation timestamps: not stored" in finding.evidence
+    assert finding.next_step
+
+
+def test_an_institutional_study_declares_publication_timing_rather_than_proving_it():
+    report = assess(
+        _subject(study="institutional_holdings_study"), price_coverage=_coverage()
+    )
+    finding = _finding(report, "publication_versus_transaction")
+    assert finding.status == DECLARED
+    assert "Per-observation timestamps: not stored" in finding.evidence
 
 
 # --------------------------------------------------------------------------
@@ -403,9 +479,14 @@ def test_a_retrospective_result_is_not_out_of_sample_evidence():
     assert "The rules were written against this data." in finding.evidence
 
 
-def test_a_held_out_result_is_verified():
+def test_a_held_out_result_is_declared_not_verified():
+    """A held-out label is a claim about process. The record cannot corroborate it."""
     report = assess(_subject(), price_coverage=_coverage())
-    assert _finding(report, "out_of_sample_independence").status == VERIFIED
+    finding = _finding(report, "out_of_sample_independence")
+    assert finding.status == DECLARED
+    assert finding.status != VERIFIED
+    assert "declared rather than demonstrated" in finding.explanation
+    assert finding.next_step
 
 
 def test_a_missing_evaluation_status_is_unassessable():
@@ -421,14 +502,19 @@ def test_a_missing_evaluation_status_is_unassessable():
 # --------------------------------------------------------------------------
 
 
-def test_recorded_hashes_are_verified():
+def test_recorded_hashes_are_declared_not_verified():
+    """Hashes identify the inputs. They are not an independent rerun comparison."""
     report = assess(_subject(), price_coverage=_coverage())
-    assert _finding(report, "reproducibility").status == VERIFIED
+    finding = _finding(report, "reproducibility_metadata")
+    assert finding.status == DECLARED
+    assert finding.status != VERIFIED
+    assert "Independent rerun comparison: not stored" in finding.evidence
+    assert "reproducible in principle, not reproduced in fact" in finding.explanation
 
 
 def test_a_missing_fingerprint_is_not_reproducible():
     report = assess(_subject(data_fingerprint=""), price_coverage=_coverage())
-    finding = _finding(report, "reproducibility")
+    finding = _finding(report, "reproducibility_metadata")
     assert finding.status == NOT_VERIFIED
     assert "data fingerprint" in finding.explanation
 
