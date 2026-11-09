@@ -28,6 +28,7 @@ import {
   recordTestAction,
 } from "@/lib/opportunity/actions";
 import { cn } from "@/lib/utils";
+import { MarketPulsePanel } from "./market-pulse-panel";
 import { ScannerPanel } from "./scanner-panel";
 
 /**
@@ -450,6 +451,7 @@ export function OpportunityDesk({
   return (
     <div className="flex flex-col gap-6">
       <OutcomeBanner outcome={outcome} />
+      <MarketPulsePanel />
       <ScannerPanel />
 
       <SectionCard

@@ -16,7 +16,7 @@ import { requireFounder } from "@/lib/auth/founder";
 export const metadata: Metadata = {
   title: "Opportunity Desk",
   description:
-    "A private research workspace for short-term setups, with manual paper tests and an honest journal.",
+    "A private Kraken market-discovery workspace with measured market interest, qualified setups, manual paper tests, and an honest journal.",
 };
 
 export const dynamic = "force-dynamic";

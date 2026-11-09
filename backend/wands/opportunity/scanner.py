@@ -78,6 +78,8 @@ class ScanCoordinator:
         run_id: str | None = None,
         cursor: int | None = None,
         restart: bool = False,
+        replace_run_id: str | None = None,
+        replace_cursor: int | None = None,
     ) -> dict[str, Any] | None:
         self._ensure_row()
         now = self.clock()
@@ -107,9 +109,28 @@ class ScanCoordinator:
                     raise BadRequest("A resumed scan must keep its original candle interval.")
                 if cursor != state["cursor"] or state["status"] == "complete":
                     return self._finish(owner, state, delay=0, advance=False)
-            elif state and (state["status"] != "complete" or not restart):
-                return self._finish(owner, state, delay=0, advance=False)
             else:
+                replaced_run = None
+                if state:
+                    if state["status"] != "complete":
+                        if not restart:
+                            return self._finish(owner, state, delay=0, advance=False)
+                        if replace_run_id != state["runId"] or replace_cursor != state["cursor"]:
+                            raise BadRequest(
+                                "The saved scan changed. Read its current run and cursor, then confirm the replacement again."
+                            )
+                    elif not restart:
+                        return self._finish(owner, state, delay=0, advance=False)
+                    elif replace_run_id is not None and replace_run_id != state["runId"]:
+                        raise BadRequest("This saved scan was replaced. Read its current status before starting another.")
+                    replaced_run = {
+                        "runId": state["runId"],
+                        "status": state["status"],
+                        "checked": state.get("checked", 0),
+                        "total": state.get("total"),
+                        "qualified": state.get("qualified", 0),
+                        "updatedAt": state.get("updatedAt"),
+                    }
                 state = {
                     "runId": str(uuid.uuid4()),
                     "status": "discovering",
@@ -132,6 +153,8 @@ class ScanCoordinator:
                         "maxSpreadPct": str(service.settings.max_spread_pct),
                     },
                 }
+                if replaced_run is not None:
+                    state["replacedRun"] = replaced_run
                 self._checkpoint(owner, state)
 
             # Discovery and the ticker snapshot fix a deterministic, liquid

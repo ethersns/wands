@@ -110,6 +110,48 @@ def ready_crypto(session, clock, calls):
     return state
 
 
+def test_market_snapshot_uses_one_bulk_ticker_and_preserves_missing_values():
+    calls = []
+    ticker = {
+        "a": ["101"],
+        "b": ["99"],
+        "c": ["120"],
+        "h": ["130", "120"],
+        "l": ["80", "80"],
+        "v": ["1", "2000"],
+        "p": ["110", "100"],
+        "o": "100",
+    }
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            headers={"date": "Mon, 09 Nov 2026 15:00:00 GMT"},
+            json={"error": [], "result": {"XBTUSD": ticker}},
+        )
+
+    provider = KrakenPublicProvider(client=httpx.Client(transport=httpx.MockTransport(handle)))
+    snapshot = provider.market_snapshot(
+        [
+            {"symbol": "BTC/USD", "pair": "XBTUSD", "status": "online"},
+            {"symbol": "MISSING/USD", "pair": "MISSINGUSD", "status": "online"},
+        ]
+    )
+
+    bitcoin, missing = snapshot["markets"]
+    assert len(calls) == 1
+    assert snapshot["timestampSource"] == "provider"
+    assert bitcoin["turnover24hUsd"] == "200000"
+    assert bitcoin["dayChangePct"] == "20.0"
+    assert bitcoin["range24hPct"] == str(Decimal("40") / Decimal("100") * Decimal("100"))
+    assert bitcoin["spreadPct"] == "2.00"
+    assert missing["tickerAvailable"] is False
+    assert missing["turnover24hUsd"] is None
+    assert missing["dayChangePct"] is None
+    assert missing["warnings"]
+
+
 def test_discovery_filters_quote_class_dark_pools_and_normalizes_aliases():
     calls = []
 
@@ -267,6 +309,50 @@ def test_restart_resume_separate_requests_and_duplicate_cursor_are_idempotent(se
     )
     assert replay["status"] == "complete"
     assert session.scalar(select(func.count()).select_from(OppCandidateRow)) == 1
+
+
+def test_explicit_new_bounded_scan_guards_checkpoint_and_keeps_candidates(session):
+    clock, calls = Clock(), []
+    state = ready_crypto(session, clock, calls)
+    state = step(session, clock, calls, state)  # Fresh liquidity check.
+    state = step(session, clock, calls, state)  # Store one qualified candidate.
+    assert state["status"] == "complete"
+    assert state["qualified"] == 1
+    candidate_count = session.scalar(select(func.count()).select_from(OppCandidateRow))
+
+    catalog = [
+        {"symbol": f"ASSET{i}/USD", "pair": f"ASSET{i}USD", "status": "online"}
+        for i in range(50)
+    ]
+    state = ScanCoordinator(session, clock=clock).advance(
+        service=source(session, calls, catalog=catalog), store_report=_store_report, restart=True
+    )
+    assert state["status"] == "scanning"
+    assert state["total"] == 44
+    clock.tick(3)
+    with pytest.raises(BadRequest):
+        ScanCoordinator(session, clock=clock).advance(
+            service=source(session, calls, catalog=catalog),
+            store_report=_store_report,
+            restart=True,
+            replace_run_id=state["runId"],
+            replace_cursor=state["cursor"] + 1,
+        )
+    current = ScanCoordinator(session, clock=clock).status()
+    assert current["runId"] == state["runId"]
+    assert current["cursor"] == state["cursor"]
+
+    clock.tick(3)
+    restarted = ScanCoordinator(session, clock=clock).advance(
+        service=source(session, calls, catalog=catalog),
+        store_report=_store_report,
+        restart=True,
+        replace_run_id=current["runId"],
+        replace_cursor=current["cursor"],
+    )
+    assert restarted["runId"] != current["runId"]
+    assert restarted["replacedRun"]["runId"] == current["runId"]
+    assert session.scalar(select(func.count()).select_from(OppCandidateRow)) == candidate_count
 
 
 def test_rate_limit_backoff_retains_market_and_blocks_early_requests(session):
