@@ -14,7 +14,12 @@ import {
   SymbolError,
   toMarketType,
 } from "@/lib/member/symbols";
-import { addWatchlistItem, listTrackedSymbols } from "@/lib/member/watchlists";
+import {
+  addWatchlistItem,
+  listTrackedSymbols,
+  trackedSymbolsFrom,
+  type Watchlist,
+} from "@/lib/member/watchlists";
 
 const queryMock = vi.mocked(query);
 
@@ -157,6 +162,56 @@ describe("watchlist persistence", () => {
     ] as never);
 
     await expect(listTrackedSymbols("user_1")).resolves.toEqual([
+      { symbol: "AAPL", marketType: "stocks" },
+      { symbol: "BTC/USD", marketType: "crypto" },
+    ]);
+  });
+
+  it("carries the market when deriving symbols from already-read watchlists", () => {
+    // The brief and the alert sweep both derive their symbol list from the
+    // watchlists they already read. Dropping the market here is what let a
+    // crypto pair reach equity-only SEC research selection.
+    const watchlists: Watchlist[] = [
+      {
+        id: "wl_1",
+        name: "My watchlist",
+        isDefault: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        items: [
+          {
+            id: "i1",
+            symbol: "AAPL",
+            marketType: "stocks",
+            note: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "i2",
+            symbol: "BTC/USD",
+            marketType: "crypto",
+            note: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        id: "wl_2",
+        name: "Second",
+        isDefault: false,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        items: [
+          {
+            id: "i3",
+            symbol: "AAPL",
+            marketType: "stocks",
+            note: null,
+            createdAt: "2026-01-02T00:00:00.000Z",
+          },
+        ],
+      },
+    ];
+
+    expect(trackedSymbolsFrom(watchlists)).toEqual([
       { symbol: "AAPL", marketType: "stocks" },
       { symbol: "BTC/USD", marketType: "crypto" },
     ]);

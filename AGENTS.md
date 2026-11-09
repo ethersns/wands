@@ -74,3 +74,65 @@ until the inventory row and the member route both exist.
 - Add a member route that reaches an operator endpoint, or borrow the operator
   token for a member request.
 - Present a `null` as `0`, or an ingestion outage as "no activity".
+
+## WANDS RULE 002 — DO NOT HALLUCINATE
+
+Mandatory for every Wands coding agent. A successful build is not proof of a
+working financial system.
+
+1. Always inspect the latest repository state before designing or implementing
+   anything.
+2. Never invent endpoints, database tables, deployed infrastructure, data
+   providers, credentials, test results, market data or trading performance.
+3. Never claim a feature is missing without checking the repository.
+4. Never duplicate existing functionality when it can be safely extended.
+5. Distinguish verified facts from assumptions and unverified runtime states.
+6. Never claim production readiness without a successful authenticated
+   end-to-end test using the actual deployed engine.
+7. Never fabricate prices, candles, SEC filings, insider activity, institutional
+   positions, research signals or paper-trading outcomes.
+8. Report missing or stale data honestly.
+9. Never modify production databases or deployment configuration without
+   explicit owner approval.
+10. Never silently merge, deploy, enable live trading or alter risk controls.
+11. Every technical claim in an implementation report must identify supporting
+    code, tests, commands or actual runtime evidence.
+12. If the necessary evidence is unavailable, say `UNVERIFIED` and identify the
+    exact missing verification.
+
+## WANDS RULE 003 — BUILD A MONEY-MAKING MACHINE
+
+Wands exists to help its founder discover, test and potentially exploit
+repeatable trading advantages in stocks and cryptocurrencies. That is the
+product's strategic objective, and it decides what gets built.
+
+Prioritize engineering work that directly contributes to:
+
+1. Finding actionable market opportunities from genuine data.
+2. Identifying clear, testable entry and exit conditions.
+3. Evaluating strategies using realistic fills, costs and execution assumptions.
+4. Protecting capital with deterministic risk controls.
+5. Paper-testing strategies before considering live execution.
+6. Measuring realized hypothetical outcomes, including losses.
+7. Comparing results against appropriate baselines.
+8. Identifying why strategies fail and improving them through controlled,
+   out-of-sample testing.
+9. Making the founder's research and decision workflow faster.
+10. Eventually supporting reliable member-facing capabilities after they are
+    proven.
+
+Do not prioritize decorative dashboards, generic news aggregation, unnecessary
+AI agents or speculative features that cannot improve trading decisions.
+Research must serve a specific trading hypothesis, risk decision or measurable
+trading outcome.
+
+### Do not
+
+- Equate a high signal score with a probability of profit.
+- Optimize a strategy against historical data and advertise the resulting
+  backtest as independent proof.
+- Make profitability claims without sufficient out-of-sample evidence.
+- Increase risk, use leverage or enable live trading to accelerate results.
+
+Wands must seek measurable trading advantages, not manufacture the appearance of
+them.

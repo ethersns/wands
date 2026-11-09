@@ -190,12 +190,19 @@ export async function listTrackedSymbols(userId: string): Promise<TrackedSymbol[
  * The distinct symbols across watchlists that were already read for this member.
  *
  * Same result as `listTrackedSymbols` — distinct, ascending — without a second
- * query, for a caller that needs the watchlists themselves as well.
+ * query, for a caller that needs the watchlists themselves as well. The market
+ * travels with the symbol: the research and alert surfaces behind this are
+ * equity-only, and a crypto pair has to stay recognisable as one so it cannot
+ * be selected as though it were a ticker.
  */
-export function trackedSymbolsFrom(watchlists: Watchlist[]): string[] {
-  const symbols = new Set<string>();
+export function trackedSymbolsFrom(watchlists: Watchlist[]): TrackedSymbol[] {
+  const symbols = new Map<string, TrackedSymbol>();
   for (const watchlist of watchlists) {
-    for (const item of watchlist.items) symbols.add(item.symbol);
+    for (const item of watchlist.items) {
+      if (!symbols.has(item.symbol)) {
+        symbols.set(item.symbol, { symbol: item.symbol, marketType: item.marketType });
+      }
+    }
   }
-  return [...symbols].sort();
+  return [...symbols.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
 }

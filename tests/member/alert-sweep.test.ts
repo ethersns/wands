@@ -98,7 +98,7 @@ beforeEach(() => {
     assetSignals: true,
     productUpdates: false,
   });
-  listTrackedSymbols.mockResolvedValue(["NVDA"]);
+  listTrackedSymbols.mockResolvedValue([{ symbol: "NVDA", marketType: "stocks" }]);
   createNotification.mockResolvedValue({ id: "notification-1" });
   insiders.mockResolvedValue(envelope({ ...EMPTY_FEED, items: [TRANSACTION], total: 1 }));
   signals.mockResolvedValue(envelope(EMPTY_FEED));
@@ -171,5 +171,45 @@ describe("runAlertSweep", () => {
 
     expect(result.evaluated).toBe(0);
     expect(result.notes[0]).toContain("No alert rule exists yet");
+  });
+
+  /** A rule with no ticker watches the whole watchlist. */
+  function wireWatchlistWideRule() {
+    query.mockImplementation((text: string) => {
+      if (text.includes("from member_alert_rule")) {
+        return Promise.resolve([{ ...RULE_ROW, symbol: null }]);
+      }
+      if (text.includes("insert into member_alert_delivery")) {
+        return Promise.resolve([{ id: "delivery-1" }]);
+      }
+      return Promise.resolve([]);
+    });
+  }
+
+  it("does not match a watchlist-wide rule against a crypto pair", async () => {
+    // The insider feed is SEC equity data. A crypto pair on the watchlist must
+    // not be matched against it, even when a record carries the same symbol.
+    wireWatchlistWideRule();
+    listTrackedSymbols.mockResolvedValue([{ symbol: "BTC/USD", marketType: "crypto" }]);
+    insiders.mockResolvedValue(
+      envelope({ ...EMPTY_FEED, items: [{ ...TRANSACTION, symbol: "BTC/USD" }], total: 1 }),
+    );
+
+    const result = await runAlertSweep("user-1");
+
+    expect(result.created).toBe(0);
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  it("still matches a watchlist-wide rule against a stock", async () => {
+    wireWatchlistWideRule();
+    listTrackedSymbols.mockResolvedValue([
+      { symbol: "NVDA", marketType: "stocks" },
+      { symbol: "BTC/USD", marketType: "crypto" },
+    ]);
+
+    const result = await runAlertSweep("user-1");
+
+    expect(result.created).toBe(1);
   });
 });

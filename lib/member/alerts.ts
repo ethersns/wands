@@ -228,7 +228,10 @@ export async function runAlertSweep(userId: string): Promise<SweepResult> {
       transactions: insiderEnvelope?.unreachable ? [] : (insiderEnvelope?.data.items ?? []),
       signals: signalEnvelope?.unreachable ? [] : (signalEnvelope?.data.items ?? []),
     },
-    trackedSymbols.map((entry) => entry.symbol),
+    // Alert rules read the insider and signal feeds, which are SEC data. A
+    // crypto pair is tracked in the same watchlist but must not be matched
+    // against equity records, so only stocks reach the matcher.
+    trackedSymbols.filter((entry) => entry.marketType === "stocks").map((entry) => entry.symbol),
   );
 
   const kindByRule = new Map(runnable.map((rule) => [rule.id, rule.kind]));
