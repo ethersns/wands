@@ -806,6 +806,11 @@ class IntelInstitutionalHoldingRow(Base):
         ),
         Index("ix_intel_institutional_holdings_period", "period_of_report"),
         Index("ix_intel_institutional_holdings_cusip", "cusip"),
+        Index(
+            "ix_intel_institutional_holdings_institution_period",
+            "institution_id",
+            "period_of_report",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)

@@ -13,6 +13,7 @@ time.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -94,39 +95,108 @@ class InstitutionalRadar:
             return None
 
         moment = as_of or datetime.now(tz=UTC)
-        periods = self.periods(cik, as_of=moment)
+        periods = self.periods(cik, as_of=moment, institution=institution)
         latest = periods[-1] if periods else None
-        holdings = self._holdings_for(cik, latest, moment) if latest else []
-        aggregated = _by_cusip(holdings)
-
-        return InstitutionSummary(
-            cik=institution.cik,
-            name=institution.name,
-            periods=periods,
-            latest_period=latest,
-            latest_public_available_at=(
-                max((row.accepted_at for row in holdings), default=None)
-            ),
-            reported_value_usd=(
-                sum(
-                    (item.value_usd for item in aggregated.values() if item.value_usd is not None),
-                    Decimal("0"),
-                )
-                if aggregated
-                else None
-            ),
-            position_count=len(aggregated),
+        holdings = (
+            self._holdings_for(cik, latest, moment, institution=institution)
+            if latest
+            else []
         )
+        return _summary_from(institution, periods, holdings)
 
-    def periods(self, cik: str, *, as_of: datetime | None = None) -> list[datetime]:
+    def summaries(
+        self, ciks: list[str], *, as_of: datetime | None = None
+    ) -> dict[str, InstitutionSummary]:
+        """Summaries for many filers in a fixed number of queries.
+
+        The single-filer path costs five round-trips, and the feed called it once
+        per filer, so latency grew with the number of filers rather than with the
+        amount of data. This loads the same rows in three queries regardless of
+        how many filers are asked for and derives identical figures in Python.
+
+        The point-in-time rule is unchanged: a period is visible only from the
+        acceptance time of the filing that reported it, and only the latest
+        accepted version of a quarter is used.
+        """
+        if not ciks:
+            return {}
+
         moment = as_of or datetime.now(tz=UTC)
-        institution = self.institution(cik)
-        if institution is None:
+        institutions = list(
+            self.session.scalars(
+                select(IntelInstitutionRow).where(IntelInstitutionRow.cik.in_(ciks))
+            ).all()
+        )
+        if not institutions:
+            return {}
+
+        institution_ids = [row.id for row in institutions]
+
+        period_rows = self.session.execute(
+            select(
+                IntelInstitutionalHoldingRow.institution_id,
+                IntelInstitutionalHoldingRow.period_of_report,
+            )
+            .where(
+                IntelInstitutionalHoldingRow.institution_id.in_(institution_ids),
+                IntelInstitutionalHoldingRow.accepted_at <= moment,
+            )
+            .distinct()
+        ).all()
+
+        periods_by_institution: dict[uuid.UUID, list[datetime]] = {}
+        for institution_id, period in period_rows:
+            if period is None:
+                continue
+            periods_by_institution.setdefault(institution_id, []).append(period)
+        for values in periods_by_institution.values():
+            values.sort()
+
+        latest_periods = {
+            periods[-1] for periods in periods_by_institution.values() if periods
+        }
+
+        holdings_by_institution: dict[uuid.UUID, list[IntelInstitutionalHoldingRow]] = {}
+        if latest_periods:
+            for row in self.session.scalars(
+                select(IntelInstitutionalHoldingRow).where(
+                    IntelInstitutionalHoldingRow.institution_id.in_(institution_ids),
+                    IntelInstitutionalHoldingRow.period_of_report.in_(latest_periods),
+                    IntelInstitutionalHoldingRow.accepted_at <= moment,
+                )
+            ).all():
+                holdings_by_institution.setdefault(row.institution_id, []).append(row)
+
+        summaries: dict[str, InstitutionSummary] = {}
+        for institution in institutions:
+            periods = periods_by_institution.get(institution.id, [])
+            latest = periods[-1] if periods else None
+            rows = holdings_by_institution.get(institution.id, [])
+            if latest is not None:
+                rows = [row for row in rows if row.period_of_report == latest]
+                if rows:
+                    newest = max(row.accepted_at for row in rows)
+                    rows = [row for row in rows if row.accepted_at == newest]
+            else:
+                rows = []
+            summaries[institution.cik] = _summary_from(institution, periods, rows)
+        return summaries
+
+    def periods(
+        self,
+        cik: str,
+        *,
+        as_of: datetime | None = None,
+        institution: IntelInstitutionRow | None = None,
+    ) -> list[datetime]:
+        moment = as_of or datetime.now(tz=UTC)
+        resolved = institution or self.institution(cik)
+        if resolved is None:
             return []
         rows = self.session.scalars(
             select(IntelInstitutionalHoldingRow.period_of_report)
             .where(
-                IntelInstitutionalHoldingRow.institution_id == institution.id,
+                IntelInstitutionalHoldingRow.institution_id == resolved.id,
                 IntelInstitutionalHoldingRow.accepted_at <= moment,
             )
             .distinct()
@@ -141,9 +211,10 @@ class InstitutionalRadar:
         *,
         period: datetime | None = None,
         as_of: datetime | None = None,
+        institution: IntelInstitutionRow | None = None,
     ) -> list[HoldingChange]:
         moment = as_of or datetime.now(tz=UTC)
-        periods = self.periods(cik, as_of=moment)
+        periods = self.periods(cik, as_of=moment, institution=institution)
         if not periods:
             return []
 
@@ -161,8 +232,10 @@ class InstitutionalRadar:
             # positions as "new" would describe a starting position as activity.
             return []
 
-        current = self._holdings_for(cik, current_period, moment)
-        prior = self._holdings_for(cik, prior_period, moment)
+        current = self._holdings_for(
+            cik, current_period, moment, institution=institution
+        )
+        prior = self._holdings_for(cik, prior_period, moment, institution=institution)
 
         current_by_cusip = _by_cusip(current)
         prior_by_cusip = _by_cusip(prior)
@@ -189,7 +262,7 @@ class InstitutionalRadar:
         if institution is None:
             return []
 
-        changes = self.changes(cik, period=period, as_of=moment)
+        changes = self.changes(cik, period=period, as_of=moment, institution=institution)
         if not changes:
             return []
 
@@ -295,18 +368,20 @@ class InstitutionalRadar:
         cik: str,
         period: datetime | None,
         as_of: datetime,
+        *,
+        institution: IntelInstitutionRow | None = None,
     ) -> list[IntelInstitutionalHoldingRow]:
         """Holdings for one quarter, using only the latest version visible at ``as_of``."""
         if period is None:
             return []
-        institution = self.institution(cik)
-        if institution is None:
+        resolved = institution or self.institution(cik)
+        if resolved is None:
             return []
 
         rows = list(
             self.session.scalars(
                 select(IntelInstitutionalHoldingRow).where(
-                    IntelInstitutionalHoldingRow.institution_id == institution.id,
+                    IntelInstitutionalHoldingRow.institution_id == resolved.id,
                     IntelInstitutionalHoldingRow.period_of_report == period,
                     IntelInstitutionalHoldingRow.accepted_at <= as_of,
                 )
@@ -365,6 +440,35 @@ def _by_cusip(rows: list[IntelInstitutionalHoldingRow]) -> dict[str, _Aggregate]
             source_url=existing.source_url or row.source_url,
         )
     return grouped
+
+
+def _summary_from(
+    institution: IntelInstitutionRow,
+    periods: list[datetime],
+    holdings: list[IntelInstitutionalHoldingRow],
+) -> InstitutionSummary:
+    """Build one filer's summary from rows already loaded.
+
+    Shared by the single-filer and batched paths so both report the same figures
+    from the same inputs.
+    """
+    aggregated = _by_cusip(holdings)
+    return InstitutionSummary(
+        cik=institution.cik,
+        name=institution.name,
+        periods=periods,
+        latest_period=periods[-1] if periods else None,
+        latest_public_available_at=max((row.accepted_at for row in holdings), default=None),
+        reported_value_usd=(
+            sum(
+                (item.value_usd for item in aggregated.values() if item.value_usd is not None),
+                Decimal("0"),
+            )
+            if aggregated
+            else None
+        ),
+        position_count=len(aggregated),
+    )
 
 
 def _change_for(
