@@ -95,13 +95,18 @@ export default async function OverviewPage() {
           />
         ) : (
           <ul className="flex flex-wrap gap-2">
-            {tracked.map((symbol) => (
-              <li key={symbol}>
+            {tracked.map((entry) => (
+              <li key={`${entry.marketType}:${entry.symbol}`}>
                 <Link
-                  href={`/app/assets/${encodeURIComponent(symbol)}`}
-                  className="inline-flex items-center rounded-md border border-mk-line bg-mk-raised px-2.5 py-1.5 font-marketing-mono text-xs text-mk-fg transition-colors hover:border-mk-accent/40 hover:text-mk-accent"
+                  href={`/app/assets/${encodeURIComponent(entry.symbol)}`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-mk-line bg-mk-raised px-2.5 py-1.5 font-marketing-mono text-xs text-mk-fg transition-colors hover:border-mk-accent/40 hover:text-mk-accent"
                 >
-                  {symbol}
+                  {entry.symbol}
+                  {entry.marketType === "crypto" ? (
+                    <span className="rounded border border-mk-line px-1 text-[9px] uppercase tracking-[0.1em] text-mk-dim">
+                      Crypto
+                    </span>
+                  ) : null}
                 </Link>
               </li>
             ))}

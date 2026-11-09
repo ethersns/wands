@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AddToWatchlist } from "@/components/member/add-to-watchlist";
+import { CryptoAssetView } from "@/components/member/crypto-asset-view";
 import { InsiderRow } from "@/components/member/insider-row";
 import { SaveButton } from "@/components/member/save-button";
 import { SignalRow } from "@/components/member/signal-row";
@@ -24,7 +25,7 @@ import type {
 import { memberResearch } from "@/lib/member/research";
 import { isSaved } from "@/lib/member/saved";
 import { requireMember } from "@/lib/member/session";
-import { SYMBOL_PATTERN } from "@/lib/member/validation";
+import { parseAssetSymbol } from "@/lib/member/symbols";
 
 type PageProps = { params: Promise<{ symbol: string }> };
 
@@ -35,24 +36,28 @@ const COVERAGE_TONE: Record<ResearchCoverageStatus, "neutral" | "accent" | "warn
   unavailable: "warn",
 };
 
-function normalize(raw: string): string | null {
-  const symbol = decodeURIComponent(raw).trim().toUpperCase();
-  return SYMBOL_PATTERN.test(symbol) ? symbol : null;
-}
-
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { symbol } = await params;
-  const normalized = normalize(symbol);
-  return { title: normalized ? `${normalized} research` : "Asset research" };
+  const parsed = parseAssetSymbol(symbol);
+  return { title: parsed ? `${parsed.symbol} research` : "Asset research" };
 }
 
 export default async function AssetPage({ params }: PageProps) {
   const { symbol: rawSymbol } = await params;
-  const symbol = normalize(rawSymbol);
+  const parsed = parseAssetSymbol(rawSymbol);
 
-  if (!symbol) notFound();
+  if (!parsed) notFound();
 
-  const session = await requireMember(`/app/assets/${symbol}`);
+  const { symbol, marketType } = parsed;
+
+  const session = await requireMember(`/app/assets/${encodeURIComponent(symbol)}`);
+
+  // The research contract behind this page is SEC equity evidence. A crypto
+  // pair has none of it, so it gets its own view rather than an equity lookup
+  // that would answer with an empty result and read as "nothing happened".
+  if (marketType === "crypto") {
+    return <CryptoAssetView symbol={symbol} />;
+  }
 
   const [envelope, filings, sources, prices, saved] = await Promise.all([
     memberResearch.asset(symbol),

@@ -4,10 +4,17 @@ import { useState } from "react";
 import { Check, ListPlus } from "lucide-react";
 
 import { fetcher, sendJson } from "@/lib/member/fetcher";
+import type { MemberMarketType } from "@/lib/member/symbols";
 
 type WatchlistSummary = { id: string; isDefault: boolean };
 
-export function AddToWatchlist({ symbol }: { symbol: string }) {
+export function AddToWatchlist({
+  symbol,
+  marketType = "stocks",
+}: {
+  symbol: string;
+  marketType?: MemberMarketType;
+}) {
   const [state, setState] = useState<"idle" | "pending" | "added">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +28,7 @@ export function AddToWatchlist({ symbol }: { symbol: string }) {
 
       if (!target) throw new Error("Create a watchlist first.");
 
-      await sendJson(`/api/member/watchlists/${target.id}/items`, "POST", { symbol });
+      await sendJson(`/api/member/watchlists/${target.id}/items`, "POST", { symbol, marketType });
       setState("added");
     } catch (caught) {
       setState("idle");

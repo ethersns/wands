@@ -13,7 +13,7 @@ export async function PATCH(request: Request) {
     if (input.seedSymbols?.length) {
       const watchlist = await ensureDefaultWatchlist(actor.userId);
       for (const symbol of input.seedSymbols) {
-        await addWatchlistItem(actor.userId, watchlist.id, symbol);
+        await addWatchlistItem(actor.userId, watchlist.id, symbol, "stocks");
       }
     }
 
