@@ -7,7 +7,7 @@ contract, so the models are camelCase on the wire and snake_case in Python.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum, StrEnum
 from typing import Any, Literal
@@ -750,6 +750,10 @@ def jsonable(value: Any) -> Any:
         return float(value)
     if isinstance(value, datetime):
         return value.isoformat().replace("+00:00", "Z")
+    # A bare date is a calendar day with no time and no zone. It is serialised as
+    # a plain ISO date so a consumer cannot read a midnight instant into it.
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, uuid.UUID):
         return str(value)
     if isinstance(value, Enum):

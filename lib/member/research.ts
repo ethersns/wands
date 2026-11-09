@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   getAssetResearch,
+  getCatalystFeed,
   getExperiment,
   getExperiments,
   getInsiderFeed,
@@ -43,6 +44,7 @@ export const memberResearch = {
   coverage: getPublicCoverage,
   experiments: getExperiments,
   experiment: getExperiment,
+  catalysts: getCatalystFeed,
 } as const;
 
 export type MemberResearch = typeof memberResearch;

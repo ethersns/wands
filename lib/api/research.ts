@@ -16,6 +16,7 @@ import type {
 } from "./contracts";
 import type {
   AssetResearch,
+  CatalystFeed,
   PriceSeries,
   QuantExperiment,
   QuantExperimentFeed,
@@ -94,6 +95,26 @@ const emptyCoverage: ResearchCoverageDisclosure = {
   gaps: [],
   caveats: [],
 };
+
+/**
+ * The payload used when the engine could not be reached.
+ *
+ * `sources` is empty rather than populated with a fake "ok" entry, so the page
+ * cannot mistake an outage for a source that was read and had nothing to say.
+ */
+function emptyCatalystFeed(): CatalystFeed {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    items: [],
+    sources: [],
+    windowStart: today,
+    windowEnd: today,
+    upcoming: 0,
+    recent: 0,
+    caveats: [],
+    coverageLimitations: [],
+  };
+}
 
 function emptyInsiderSummary(symbol: string): InsiderSymbolSummary {
   return {
@@ -239,6 +260,30 @@ export const getPublicCoverage = cache(() =>
     "/v1/intelligence/coverage/public",
     () => emptyCoverage,
   ),
+);
+
+/**
+ * Upcoming and recently published market events.
+ *
+ * An empty feed is not the same as an unavailable one. When the engine answers
+ * with no items the payload still carries the per-source status, so the page can
+ * say which source was read and which could not be, instead of showing a blank
+ * calendar that reads as "nothing is scheduled".
+ */
+export const getCatalystFeed = cache(
+  (filters: { category?: string; symbol?: string; windowDays?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.category) params.set("category", filters.category);
+    if (filters.symbol) params.set("symbol", filters.symbol);
+    if (filters.windowDays) params.set("window_days", String(filters.windowDays));
+
+    const query = params.toString();
+
+    return loadResearch<CatalystFeed>(
+      `/v1/intelligence/catalysts${query ? `?${query}` : ""}`,
+      emptyCatalystFeed,
+    );
+  },
 );
 
 /**

@@ -36,6 +36,8 @@ from wands.config import Settings, get_settings
 from wands.db.session import get_session
 from wands.envelope import envelope, unavailable
 from wands.errors import BadRequest, NotFound
+from wands.intelligence.catalyst_sources import STATUS_OK
+from wands.intelligence.catalysts import CatalystService
 from wands.intelligence.member import MemberResearchService
 from wands.intelligence.research import ResearchService
 from wands.intelligence.schemas import (
@@ -648,3 +650,52 @@ def insider_transaction(
     if result is None:
         raise NotFound(f"No insider transaction with id {transaction_id} is stored.")
     return envelope(dump(result))
+
+
+@router.get("/catalysts")
+def catalysts(
+    category: str | None = None,
+    symbol: str | None = None,
+    window_days: int | None = Query(default=None, ge=1, le=730),
+    past_days: int | None = Query(default=None, ge=0, le=365),
+    limit: int | None = Query(default=None, ge=1, le=500),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = Depends(require_scope(RESEARCH_SCOPE)),
+) -> dict:
+    """Upcoming and recently published market events, with their sources.
+
+    A scheduled source that could not be read is reported in ``sources`` and in
+    the envelope warnings. When nothing at all could be produced the response is
+    ``unavailable`` rather than an empty calendar, because "we could not ask" and
+    "there is nothing scheduled" are different answers and only one of them is
+    true.
+    """
+    feed = CatalystService(session, settings).feed(
+        category=category,
+        symbol=symbol,
+        window_days=window_days,
+        past_days=past_days,
+        limit=limit,
+    )
+    payload = dump(feed)
+
+    degraded = [source for source in feed.sources if source.status != STATUS_OK]
+    warnings = list(feed.caveats)
+    for source in degraded:
+        warnings.append(f"{source.label} is {source.status}: {source.detail}")
+
+    if not feed.items and degraded:
+        return unavailable(
+            payload,
+            "No catalysts are available. "
+            + " ".join(f"{source.label}: {source.detail}" for source in degraded),
+        )
+
+    if not feed.items:
+        warnings.append(
+            "No catalyst falls inside this window. That is an empty window, not a "
+            "statement that no events are scheduled."
+        )
+
+    return envelope(payload, warnings=warnings)
