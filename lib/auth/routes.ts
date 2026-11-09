@@ -128,7 +128,6 @@ export const PUBLIC_API_PREFIXES = [
   // session yet. The activation token is the credential, and the route
   // re-validates it on every call.
   "/api/billing/activate",
-  "/api/diag",
 ] as const;
 
 function matches(pathname: string, prefixes: readonly string[]): boolean {
