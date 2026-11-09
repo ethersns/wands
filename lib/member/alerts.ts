@@ -228,7 +228,7 @@ export async function runAlertSweep(userId: string): Promise<SweepResult> {
       transactions: insiderEnvelope?.unreachable ? [] : (insiderEnvelope?.data.items ?? []),
       signals: signalEnvelope?.unreachable ? [] : (signalEnvelope?.data.items ?? []),
     },
-    trackedSymbols,
+    trackedSymbols.map((entry) => entry.symbol),
   );
 
   const kindByRule = new Map(runnable.map((rule) => [rule.id, rule.kind]));

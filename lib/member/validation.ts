@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const SYMBOL_PATTERN = /^[A-Z][A-Z0-9.-]{0,9}$/;
+import { checkMemberSymbol, MARKET_TYPES, STOCK_SYMBOL_PATTERN } from "@/lib/member/symbols";
+
+export const SYMBOL_PATTERN = STOCK_SYMBOL_PATTERN;
 
 export const symbolSchema = z
   .string()
@@ -30,10 +32,37 @@ export const renameWatchlistSchema = z.object({
   name: watchlistNameSchema,
 });
 
-export const addWatchlistItemSchema = z.object({
-  symbol: symbolSchema,
-  note: noteSchema,
-});
+export const marketTypeSchema = z.enum(MARKET_TYPES);
+
+/**
+ * A watchlist entry is a symbol *and* the market it belongs to.
+ *
+ * `marketType` defaults to `stocks` so every existing caller keeps its exact
+ * behaviour: a bare ticker is an equity, and a crypto pair has to be asked for
+ * explicitly. The symbol is then normalised by the same rule the engine uses,
+ * so what is stored is canonical and `BTC` can never be silently read as
+ * `BTC/USD`.
+ */
+export const addWatchlistItemSchema = z
+  .object({
+    symbol: z.string().trim().min(1, "Enter a symbol.").max(24, "Keep the symbol under 24 characters."),
+    marketType: marketTypeSchema.default("stocks"),
+    note: noteSchema,
+  })
+  .superRefine((value, ctx) => {
+    const check = checkMemberSymbol(value.symbol, value.marketType);
+    if (!check.ok) {
+      ctx.addIssue({ code: "custom", path: ["symbol"], message: check.message });
+    }
+  })
+  .transform((value) => {
+    const check = checkMemberSymbol(value.symbol, value.marketType);
+    return {
+      symbol: check.ok ? check.symbol : value.symbol.trim().toUpperCase(),
+      marketType: value.marketType,
+      note: value.note,
+    };
+  });
 
 export const saveItemSchema = z.object({
   kind: z.enum(["signal", "filing", "asset", "insider"]),

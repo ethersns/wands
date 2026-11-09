@@ -7,7 +7,12 @@ import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import type { Watchlist } from "@/lib/member/watchlists";
 import { fetcher, sendJson } from "@/lib/member/fetcher";
-import { SYMBOL_PATTERN } from "@/lib/member/validation";
+import {
+  checkMemberSymbol,
+  MARKET_LABELS,
+  MARKET_TYPES,
+  type MemberMarketType,
+} from "@/lib/member/symbols";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "./ui";
 
@@ -78,8 +83,8 @@ export function WatchlistManager({
           key={watchlist.id}
           watchlist={watchlist}
           busy={busy}
-          onAddSymbol={(symbol) =>
-            run(() => sendJson(`/api/member/watchlists/${watchlist.id}/items`, "POST", { symbol }))
+          onAddSymbol={(symbol, marketType) =>
+            run(() => sendJson(`/api/member/watchlists/${watchlist.id}/items`, "POST", { symbol, marketType }))
           }
           onRemoveSymbol={(itemId) => run(() => sendJson(`/api/member/watchlist-items/${itemId}`, "DELETE"))}
           onRename={(name) => run(() => sendJson(`/api/member/watchlists/${watchlist.id}`, "PATCH", { name }))}
@@ -127,7 +132,7 @@ function WatchlistCard({
 }: {
   watchlist: Watchlist;
   busy: boolean;
-  onAddSymbol: (symbol: string) => Promise<void>;
+  onAddSymbol: (symbol: string, marketType: MemberMarketType) => Promise<void>;
   onRemoveSymbol: (itemId: string) => Promise<void>;
   onRename: (name: string) => Promise<void>;
   onDelete: () => Promise<void>;
@@ -135,21 +140,22 @@ function WatchlistCard({
   const symbolId = useId();
   const renameId = useId();
   const [symbol, setSymbol] = useState("");
+  const [marketType, setMarketType] = useState<MemberMarketType>("stocks");
   const [symbolError, setSymbolError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState(watchlist.name);
 
   async function addSymbol(event: React.FormEvent) {
     event.preventDefault();
-    const next = symbol.trim().toUpperCase();
 
-    if (!SYMBOL_PATTERN.test(next)) {
-      setSymbolError("Enter a ticker like NVDA or BRK.B.");
+    const check = checkMemberSymbol(symbol, marketType);
+    if (!check.ok) {
+      setSymbolError(check.message);
       return;
     }
 
     setSymbolError(null);
-    await onAddSymbol(next);
+    await onAddSymbol(check.symbol, marketType);
     setSymbol("");
   }
 
@@ -248,6 +254,11 @@ function WatchlistCard({
                   >
                     {item.symbol}
                   </Link>
+                  {item.marketType === "crypto" ? (
+                    <span className="rounded border border-mk-line px-1 font-marketing-mono text-[9px] uppercase tracking-[0.1em] text-mk-dim">
+                      Crypto
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onRemoveSymbol(item.id)}
@@ -263,38 +274,69 @@ function WatchlistCard({
           </ul>
         )}
 
-        <form onSubmit={addSymbol} className="mt-3 flex gap-2">
-          <label htmlFor={symbolId} className="sr-only">
-            Add a ticker to {watchlist.name}
-          </label>
-          <input
-            id={symbolId}
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
-            placeholder="Add ticker"
-            autoComplete="off"
-            spellCheck={false}
-            aria-invalid={symbolError ? true : undefined}
-            aria-describedby={symbolError ? `${symbolId}-error` : undefined}
-            className={cn(
-              "w-40 rounded-lg border bg-mk-surface px-3 py-1.5 font-marketing-mono text-sm uppercase text-mk-fg placeholder:normal-case placeholder:text-mk-dim focus:outline-none focus:ring-2 focus:ring-mk-accent/20",
-              symbolError ? "border-mk-warn/60" : "border-mk-line focus:border-mk-accent/60",
-            )}
-          />
-          <button
-            type="submit"
-            disabled={busy || !symbol.trim()}
-            className="inline-flex items-center gap-1 rounded-lg border border-mk-line px-2.5 py-1.5 text-sm text-mk-fg transition-colors hover:border-mk-line-strong disabled:opacity-50"
-          >
-            <Plus className="size-3.5" aria-hidden />
-            Add
-          </button>
-        </form>
-        {symbolError ? (
-          <p id={`${symbolId}-error`} role="alert" className="mt-1.5 text-xs text-mk-warn">
-            {symbolError}
-          </p>
-        ) : null}
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div
+              role="group"
+              aria-label={`Market for ${watchlist.name}`}
+              className="inline-flex items-center gap-0.5 rounded-lg border border-mk-line bg-mk-surface p-0.5"
+            >
+              {MARKET_TYPES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setMarketType(option);
+                    setSymbolError(null);
+                  }}
+                  aria-pressed={marketType === option}
+                  className={cn(
+                    "rounded-md px-2 py-1 font-marketing-mono text-[10px] uppercase tracking-[0.12em] transition-colors",
+                    marketType === option ? "bg-mk-raised text-mk-fg" : "text-mk-dim hover:text-mk-muted",
+                  )}
+                >
+                  {MARKET_LABELS[option]}
+                </button>
+              ))}
+            </div>
+            <p className="font-marketing-mono text-[10px] uppercase tracking-[0.12em] text-mk-dim">
+              {marketType === "crypto" ? "Pair, e.g. BTC/USD" : "Ticker, e.g. NVDA"}
+            </p>
+          </div>
+
+          <form onSubmit={addSymbol} className="flex gap-2">
+            <label htmlFor={symbolId} className="sr-only">
+              Add a {marketType === "crypto" ? "crypto pair" : "ticker"} to {watchlist.name}
+            </label>
+            <input
+              id={symbolId}
+              value={symbol}
+              onChange={(event) => setSymbol(event.target.value)}
+              placeholder={marketType === "crypto" ? "BTC/USD" : "Add ticker"}
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={symbolError ? true : undefined}
+              aria-describedby={symbolError ? `${symbolId}-error` : undefined}
+              className={cn(
+                "w-40 rounded-lg border bg-mk-surface px-3 py-1.5 font-marketing-mono text-sm uppercase text-mk-fg placeholder:normal-case placeholder:text-mk-dim focus:outline-none focus:ring-2 focus:ring-mk-accent/20",
+                symbolError ? "border-mk-warn/60" : "border-mk-line focus:border-mk-accent/60",
+              )}
+            />
+            <button
+              type="submit"
+              disabled={busy || !symbol.trim()}
+              className="inline-flex items-center gap-1 rounded-lg border border-mk-line px-2.5 py-1.5 text-sm text-mk-fg transition-colors hover:border-mk-line-strong disabled:opacity-50"
+            >
+              <Plus className="size-3.5" aria-hidden />
+              Add
+            </button>
+          </form>
+          {symbolError ? (
+            <p id={`${symbolId}-error`} role="alert" className="text-xs text-mk-warn">
+              {symbolError}
+            </p>
+          ) : null}
+        </div>
       </div>
     </section>
   );

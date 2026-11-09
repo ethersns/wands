@@ -38,6 +38,36 @@ describe("watchlist validation", () => {
   });
 });
 
+describe("watchlist market selection", () => {
+  it("defaults a bare ticker to stocks", () => {
+    expect(addWatchlistItemSchema.parse({ symbol: "nvda" })).toMatchObject({
+      symbol: "NVDA",
+      marketType: "stocks",
+    });
+  });
+
+  it("accepts a crypto pair when the market is explicit", () => {
+    expect(addWatchlistItemSchema.parse({ symbol: "btc-usd", marketType: "crypto" })).toMatchObject({
+      symbol: "BTC/USD",
+      marketType: "crypto",
+    });
+  });
+
+  it("rejects a bare base asset in the crypto market", () => {
+    expect(addWatchlistItemSchema.safeParse({ symbol: "BTC", marketType: "crypto" }).success).toBe(false);
+  });
+
+  it("rejects a crypto pair in the stock market", () => {
+    expect(addWatchlistItemSchema.safeParse({ symbol: "BTC/USD", marketType: "stocks" }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects an unknown market", () => {
+    expect(addWatchlistItemSchema.safeParse({ symbol: "NVDA", marketType: "forex" }).success).toBe(false);
+  });
+});
+
 describe("saved item validation", () => {
   it("accepts a well formed save", () => {
     const parsed = saveItemSchema.parse({

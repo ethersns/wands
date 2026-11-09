@@ -1,13 +1,20 @@
 import "server-only";
 
 import { query } from "@/lib/db";
+import { toMarketType, type MemberMarketType } from "@/lib/member/symbols";
 
 export type WatchlistItem = {
   id: string;
   symbol: string;
-  marketType: string;
+  marketType: MemberMarketType;
   note: string | null;
   createdAt: string;
+};
+
+/** A symbol a member tracks, with the market it belongs to. */
+export type TrackedSymbol = {
+  symbol: string;
+  marketType: MemberMarketType;
 };
 
 export type Watchlist = {
@@ -59,7 +66,7 @@ function toWatchlist(row: WatchlistRow): Watchlist {
     items: row.items.map((item) => ({
       id: item.id,
       symbol: item.symbol,
-      marketType: item.marketType,
+      marketType: toMarketType(item.marketType),
       note: item.note,
       createdAt: new Date(item.createdAt).toISOString(),
     })),
@@ -127,6 +134,7 @@ export async function addWatchlistItem(
   userId: string,
   watchlistId: string,
   symbol: string,
+  marketType: MemberMarketType,
   note?: string,
 ): Promise<WatchlistItem | null> {
   const owned = await query<{ id: string }>(
@@ -136,18 +144,20 @@ export async function addWatchlistItem(
   if (owned.length === 0) return null;
 
   const rows = await query<{ id: string; symbol: string; market_type: string; note: string | null; created_at: Date }>(
-    `insert into member_watchlist_item (watchlist_id, user_id, symbol, note)
-     values ($2, $1, $3, $4)
-     on conflict (watchlist_id, symbol) do update set note = coalesce(excluded.note, member_watchlist_item.note)
+    `insert into member_watchlist_item (watchlist_id, user_id, symbol, market_type, note)
+     values ($2, $1, $3, $4, $5)
+     on conflict (watchlist_id, symbol) do update
+       set note = coalesce(excluded.note, member_watchlist_item.note),
+           market_type = excluded.market_type
      returning id, symbol, market_type, note, created_at`,
-    [userId, watchlistId, symbol, note ?? null],
+    [userId, watchlistId, symbol, marketType, note ?? null],
   );
 
   const row = rows[0];
   return {
     id: row.id,
     symbol: row.symbol,
-    marketType: row.market_type,
+    marketType: toMarketType(row.market_type),
     note: row.note,
     createdAt: row.created_at.toISOString(),
   };
@@ -161,12 +171,19 @@ export async function removeWatchlistItem(userId: string, itemId: string): Promi
   return rows.length > 0;
 }
 
-export async function listTrackedSymbols(userId: string): Promise<string[]> {
-  const rows = await query<{ symbol: string }>(
-    `select distinct symbol from member_watchlist_item where user_id = $1 order by symbol asc`,
+/**
+ * Every symbol a member tracks, carrying its market.
+ *
+ * The market travels with the symbol because the research and alert surfaces
+ * behind this are equity-only: a crypto pair must be recognisable as one before
+ * it reaches a lookup that would otherwise read it as a ticker.
+ */
+export async function listTrackedSymbols(userId: string): Promise<TrackedSymbol[]> {
+  const rows = await query<{ symbol: string; market_type: string }>(
+    `select distinct symbol, market_type from member_watchlist_item where user_id = $1 order by symbol asc`,
     [userId],
   );
-  return rows.map((r) => r.symbol);
+  return rows.map((row) => ({ symbol: row.symbol, marketType: toMarketType(row.market_type) }));
 }
 
 /**
