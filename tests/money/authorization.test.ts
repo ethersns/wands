@@ -50,7 +50,7 @@ function sideEffects() {
   );
 }
 
-/** A fresh module graph, so the scan cooldown does not leak between tests. */
+/** A fresh module graph keeps server action state isolated between tests. */
 async function loadActions() {
   vi.resetModules();
   return import("@/lib/money/actions");
@@ -281,7 +281,7 @@ describe("Money actions for the founder", () => {
     expect(result.message).toContain("admin role");
   });
 
-  it("ignores a second scan inside the cooldown window", async () => {
+  it("delegates overlapping requests to the engine's durable lease", async () => {
     getMemberSession.mockResolvedValue(sessionFor(FOUNDER_ID));
     engine.getOpportunityScan.mockResolvedValue({
       ok: true,
@@ -301,8 +301,7 @@ describe("Money actions for the founder", () => {
     const second = await runMoneyScanAction();
 
     expect(first.ok).toBe(true);
-    expect(second.ok).toBe(false);
-    expect(second.title).toBe("A scan just ran");
-    expect(engine.getOpportunityScan).toHaveBeenCalledTimes(1);
+    expect(second.ok).toBe(true);
+    expect(engine.getOpportunityScan).toHaveBeenCalledTimes(2);
   });
 });

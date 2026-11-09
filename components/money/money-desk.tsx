@@ -16,7 +16,8 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import type { OpportunityCandidate } from "@/lib/api/opportunity";
 import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
-import { refreshMoneyAction, runMoneyScanAction } from "@/lib/money/actions";
+import { refreshMoneyAction } from "@/lib/money/actions";
+import { ScannerPanel } from "@/components/opportunity/scanner-panel";
 import type { ClosedTradeView, OpenPositionView } from "@/lib/money/types";
 import { cn } from "@/lib/utils";
 import { OpportunityCard } from "./opportunity-card";
@@ -168,27 +169,9 @@ export function MoneyDesk({
   candidatesError: string | null;
 }) {
   const [outcome, setOutcome] = React.useState<ActionOutcome | null>(null);
-  const [scanning, setScanning] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
   const openSet = React.useMemo(() => new Set(openCandidateIds), [openCandidateIds]);
-
-  async function scan() {
-    setScanning(true);
-    try {
-      setOutcome(await runMoneyScanAction());
-    } catch {
-      setOutcome({
-        ok: false,
-        title: "The scan did not run",
-        message: "The request did not reach the server. Nothing was recorded.",
-        detail: [],
-        at: new Date().toISOString(),
-      });
-    } finally {
-      setScanning(false);
-    }
-  }
 
   async function refresh() {
     setRefreshing(true);
@@ -210,20 +193,11 @@ export function MoneyDesk({
   return (
     <div className="flex flex-col gap-6">
       <OutcomeBanner outcome={outcome} />
+      <ScannerPanel />
 
       <SectionCard
         title="Opportunities"
-        description="Setups the rule qualified on verified candles. A scan is an explicit action because it writes what it finds."
-        action={
-          <Button type="button" size="sm" variant="outline" onClick={scan} disabled={scanning}>
-            {scanning ? (
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="size-3" aria-hidden />
-            )}
-            {scanning ? "Scanning" : "Find opportunities"}
-          </Button>
-        }
+        description="Stored setups with their original candle timestamps, sizing and freshness warnings."
       >
         {candidatesError ? (
           <EmptyState
@@ -246,7 +220,7 @@ export function MoneyDesk({
           <EmptyState
             icon={Target}
             title="No qualifying opportunities stored"
-            description="Run a scan to apply the rule to the watchlist. A quiet scan is a normal result, not a failure."
+            description="Run the scanner above to check Kraken USD spot markets and the stock watchlist. A quiet scan is a normal result, not a failure."
           />
         )}
       </SectionCard>

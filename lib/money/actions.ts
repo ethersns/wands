@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getOpportunityScan } from "@/lib/api/opportunity";
+import { advanceScannerAction } from "@/lib/opportunity/scan-actions";
 import { requireFounder } from "@/lib/auth/founder";
 import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
 import { closeTrade, openTrade } from "./journal";
@@ -23,15 +23,6 @@ import { parseEntryInput, parseExitInput } from "./validation";
  */
 
 const MONEY_PATH = "/app/money";
-
-/**
- * A scan writes a candidate row per qualifying symbol, so a double submit would
- * store the same setups twice. The button disables itself while a scan runs;
- * this is the server-side backstop. Per-instance best effort, not a security
- * control.
- */
-const SCAN_COOLDOWN_MS = 15_000;
-let lastScanAt = 0;
 
 function outcome(
   ok: boolean,
@@ -57,51 +48,7 @@ async function denyUnlessFounder(): Promise<ActionOutcome | null> {
 }
 
 export async function runMoneyScanAction(): Promise<ActionOutcome> {
-  const denied = await denyUnlessFounder();
-  if (denied) return denied;
-
-  const now = Date.now();
-  if (now - lastScanAt < SCAN_COOLDOWN_MS) {
-    return failure(
-      "A scan just ran",
-      "The desk ignores a second scan within 15 seconds so a double click cannot store the same candidates twice.",
-    );
-  }
-  lastScanAt = now;
-
-  const result = await getOpportunityScan();
-
-  if (!result.ok) {
-    lastScanAt = 0;
-    return failure(
-      "The scan did not run",
-      result.error.code === "unauthorized"
-        ? "The engine refused this scan. The configured engine token does not hold the admin role the opportunity engine requires."
-        : result.error.message,
-      [`error code: ${result.error.code}`],
-    );
-  }
-
-  revalidatePath(MONEY_PATH);
-
-  const data = result.envelope.data;
-  const skipped = data.skipped.map((item) => `${item.symbol}: ${item.reason}`);
-
-  if (data.candidates.length === 0) {
-    return outcome(
-      true,
-      "No qualifying opportunities",
-      "The rule did not find a setup that met its conditions. A quiet scan is a normal result, not a failure.",
-      skipped,
-    );
-  }
-
-  return outcome(
-    true,
-    `${data.candidates.length} candidate${data.candidates.length === 1 ? "" : "s"} recorded`,
-    `The engine stored what qualified on ${data.interval} candles. A candidate is a hypothesis to look at, not a trade.`,
-    skipped,
-  );
+  return advanceScannerAction();
 }
 
 export async function recordEntryAction(raw: {

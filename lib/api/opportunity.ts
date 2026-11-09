@@ -46,11 +46,31 @@ export interface OpportunityCandidate {
 }
 
 export interface OpportunityScan {
+  runId: string;
+  status: "discovering" | "scanning" | "paused" | "complete";
   generatedAt: string;
+  updatedAt: string;
   interval: string;
-  candidates: OpportunityCandidate[];
+  cursor: number;
+  checked: number;
+  pairsChecked: number;
+  total: number | null;
+  activeUsdPairs: number | null;
+  qualified: number;
+  candidates: { id: string; symbol: string; observedAt: string }[];
   skipped: { symbol: string; reason: string }[];
   notes: string[];
+  lastError: string | null;
+  nextBatchAt: string | null;
+  busy: boolean;
+  liquidity: { minUsdVolume24h: string; maxSpreadPct: string };
+}
+
+export interface ScanRequest {
+  runId?: string;
+  cursor?: number;
+  interval?: string;
+  restart?: boolean;
 }
 
 export interface OpportunityBudget {
@@ -102,18 +122,23 @@ export interface OpportunityPaperTest {
 
 export type OpportunityDecisionKind = "candidate_watched" | "candidate_rejected";
 
-/**
- * A scan reads candles for every watchlist symbol, so it is given a longer
- * budget than a single read. It is also the only call here that writes: the
- * engine stores each candidate it qualifies, which is why the page never runs
- * it on render and why it is a POST. A GET that writes can be replayed by a
- * prefetch, a crawler or a link preview, so the method now matches the effect.
+/** One request advances at most one provider call. The engine owns the cursor,
+ * pacing and durable checkpoint; replays attach without duplicating candidates.
  */
-export function getOpportunityScan(): Promise<ApiResult<OpportunityScan>> {
-  return engineFetch<OpportunityScan>("/v1/opportunity/scan", {
+export function getOpportunityScan(input: ScanRequest = {}): Promise<ApiResult<OpportunityScan | null>> {
+  const params = new URLSearchParams();
+  if (input.runId) params.set("run_id", input.runId);
+  if (input.cursor !== undefined) params.set("cursor", String(input.cursor));
+  if (input.interval) params.set("interval", input.interval);
+  if (input.restart) params.set("restart", "true");
+  return engineFetch<OpportunityScan | null>(`/v1/opportunity/scan?${params}`, {
     method: "POST",
-    timeoutMs: 20_000,
+    timeoutMs: 12_000,
   });
+}
+
+export function getOpportunityScanStatus(): Promise<ApiResult<OpportunityScan | null>> {
+  return engineFetch<OpportunityScan | null>("/v1/opportunity/scan/status");
 }
 
 export function getOpportunityBudget(): Promise<ApiResult<OpportunityBudget>> {

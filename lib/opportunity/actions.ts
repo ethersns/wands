@@ -5,13 +5,13 @@ import { revalidatePath } from "next/cache";
 import type { ApiError } from "@/lib/api/contracts";
 import {
   evaluateOpportunityTest,
-  getOpportunityScan,
   recordOpportunityDecision,
   recordOpportunityTest,
   type OpportunityDecisionKind,
 } from "@/lib/api/opportunity";
 import type { ActionOutcome } from "@/lib/intelligence/action-outcome";
 import { requireFounder } from "@/lib/auth/founder";
+import { advanceScannerAction } from "./scan-actions";
 
 /**
  * Manual research actions for the Opportunity Desk.
@@ -31,15 +31,6 @@ import { requireFounder } from "@/lib/auth/founder";
  */
 
 const DESK_PATH = "/app/opportunity";
-
-/**
- * A scan writes a candidate row per qualifying symbol, so a double submit would
- * store the same setups twice. The button disables itself while a scan runs;
- * this is the server-side backstop for a request that slips past it. It is
- * per-instance best effort, not a security control.
- */
-const SCAN_COOLDOWN_MS = 15_000;
-let lastScanAt = 0;
 
 function outcome(
   ok: boolean,
@@ -86,48 +77,7 @@ async function denyUnlessFounder(): Promise<ActionOutcome | null> {
 }
 
 export async function runScanAction(): Promise<ActionOutcome> {
-  const denied = await denyUnlessFounder();
-  if (denied) return denied;
-
-  const now = Date.now();
-  if (now - lastScanAt < SCAN_COOLDOWN_MS) {
-    return failure(
-      "A scan just ran",
-      "The desk ignores a second scan within 15 seconds so a double click cannot store the same candidates twice.",
-    );
-  }
-  lastScanAt = now;
-
-  const result = await getOpportunityScan();
-
-  if (!result.ok) {
-    // A failed scan stored nothing, so the founder can retry immediately.
-    lastScanAt = 0;
-    return failure("The scan did not run", explain(result.error, "scan"), [
-      `error code: ${result.error.code}`,
-    ]);
-  }
-
-  revalidatePath(DESK_PATH);
-
-  const data = result.envelope.data;
-  const skipped = data.skipped.map((item) => `${item.symbol}: ${item.reason}`);
-
-  if (data.candidates.length === 0) {
-    return outcome(
-      true,
-      "No qualifying opportunities",
-      "The rule did not find a setup that met its conditions. A quiet scan is a normal result, not a failure.",
-      skipped,
-    );
-  }
-
-  return outcome(
-    true,
-    `${data.candidates.length} candidate${data.candidates.length === 1 ? "" : "s"} recorded`,
-    `The engine stored what qualified on ${data.interval} candles. A candidate is a hypothesis to look at, not a trade.`,
-    skipped,
-  );
+  return advanceScannerAction();
 }
 
 export async function recordDecisionAction(

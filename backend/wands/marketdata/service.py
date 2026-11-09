@@ -175,9 +175,7 @@ class Overview:
             quotes=[quote.as_schema() for quote in self.quotes],
             watchlist=self.watchlist,
             feed_updated_at=(
-                self.feed_updated_at.isoformat().replace("+00:00", "Z")
-                if self.feed_updated_at
-                else None
+                self.feed_updated_at.isoformat().replace("+00:00", "Z") if self.feed_updated_at else None
             ),
             feed_healthy=self.feed_healthy,
         )
@@ -194,11 +192,7 @@ def default_providers(settings: Settings) -> dict[MarketType, MarketDataProvider
         bucket=TokenBucket(settings.kraken_rate_limit_per_second, 3),
     )
     alpaca = AlpacaDataProvider(
-        key=(
-            settings.alpaca_data_key.get_secret_value()
-            if settings.alpaca_data_key is not None
-            else None
-        ),
+        key=(settings.alpaca_data_key.get_secret_value() if settings.alpaca_data_key is not None else None),
         secret=(
             settings.alpaca_data_secret.get_secret_value()
             if settings.alpaca_data_secret is not None
@@ -377,6 +371,31 @@ class MarketDataService:
             ],
         )
 
+    def scan_candles(
+        self, symbol: str, interval: CandleInterval, *, market_type: MarketType, limit: int = 60
+    ) -> CandleSeries:
+        """Fetch completed bars explicitly; a failed refresh must not reuse cached bars."""
+        provider = self.provider_for(market_type)
+        if provider is None or not provider.is_configured():
+            raise ProviderNotConfigured(f"{market_type} market data is not configured.")
+        candles = provider.fetch_candles(symbol, interval, limit=limit)
+        self._persist_candles(candles)
+        return CandleSeries(
+            symbol=symbol,
+            interval=interval,
+            candles=[
+                Candle(
+                    time=int(bar.open_time.timestamp()),
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                )
+                for bar in candles
+            ],
+        )
+
     def refresh_candles(
         self,
         symbol: str,
@@ -393,9 +412,7 @@ class MarketDataService:
 
         started = time.perf_counter()
         try:
-            candles = provider.fetch_candles(
-                canonical, CandleInterval(interval), limit=limit
-            )
+            candles = provider.fetch_candles(canonical, CandleInterval(interval), limit=limit)
         except MarketDataError as exc:
             self._record_failure(provider.name, exc)
             return 0
@@ -406,9 +423,7 @@ class MarketDataService:
         self._record_success(provider.name, (time.perf_counter() - started) * 1000)
         return self._persist_candles(candles)
 
-    def _candle_rows(
-        self, symbol: str, interval: CandleInterval, limit: int
-    ) -> list[MarketCandleRow]:
+    def _candle_rows(self, symbol: str, interval: CandleInterval, limit: int) -> list[MarketCandleRow]:
         rows = self.session.scalars(
             select(MarketCandleRow)
             .where(
@@ -449,9 +464,7 @@ class MarketDataService:
                 view = self.refresh_quote(canonical, market) or view
 
             if view is None:
-                warnings.append(
-                    f"No quote is available for {canonical}. The price is unknown, not zero."
-                )
+                warnings.append(f"No quote is available for {canonical}. The price is unknown, not zero.")
                 continue
             quotes.append(view)
 
@@ -462,19 +475,13 @@ class MarketDataService:
                     "instruments are unavailable."
                 )
             elif provider_health.last_error:
-                warnings.append(
-                    f"{provider_health.provider} last failed: {provider_health.last_error}"
-                )
+                warnings.append(f"{provider_health.provider} last failed: {provider_health.last_error}")
 
         live = [quote for quote in quotes if quote.quality is DataQuality.LIVE and not quote.stale]
-        feed_updated_at = max(
-            (quote.as_of for quote in quotes if quote.as_of is not None), default=None
-        )
+        feed_updated_at = max((quote.as_of for quote in quotes if quote.as_of is not None), default=None)
         provenance = "live" if live else "unavailable"
         if not quotes:
-            warnings.append(
-                "No market data has been ingested yet. Prices are unknown, not zero."
-            )
+            warnings.append("No market data has been ingested yet. Prices are unknown, not zero.")
 
         return Overview(
             quotes=quotes,
@@ -624,9 +631,7 @@ class MarketDataService:
                 else f"{row.symbol} quote has no timestamp and cannot be trusted."
             )
         if mid is None:
-            warnings.append(
-                f"{row.symbol} has no two-sided bid/ask quote, so it has no executable price."
-            )
+            warnings.append(f"{row.symbol} has no two-sided bid/ask quote, so it has no executable price.")
 
         return QuoteView(
             symbol=row.symbol,
@@ -651,9 +656,7 @@ class MarketDataService:
             warnings=tuple(warnings),
         )
 
-    def _derive_change_24h(
-        self, symbol: str, market: MarketType, last: Decimal
-    ) -> Decimal | None:
+    def _derive_change_24h(self, symbol: str, market: MarketType, last: Decimal) -> Decimal | None:
         """Derive a rolling 24h change from stored hourly closes.
 
         Only used when the provider does not publish one. If there is no stored
@@ -682,9 +685,7 @@ class MarketDataService:
     # -- health ------------------------------------------------------------
 
     def _record_success(self, provider: str, latency_ms: float) -> None:
-        entry = self._health.setdefault(
-            provider, ProviderHealth(provider=provider, configured=True)
-        )
+        entry = self._health.setdefault(provider, ProviderHealth(provider=provider, configured=True))
         entry.last_success_at = self._clock()
         entry.last_error = None
         entry.consecutive_failures = 0
@@ -692,9 +693,7 @@ class MarketDataService:
         self._last_latency_ms = round(latency_ms, 2)
 
     def _record_failure(self, provider: str, error: MarketDataError) -> None:
-        entry = self._health.setdefault(
-            provider, ProviderHealth(provider=provider, configured=True)
-        )
+        entry = self._health.setdefault(provider, ProviderHealth(provider=provider, configured=True))
         entry.last_error = f"{type(error).__name__}: {error}"
         entry.last_error_at = self._clock()
         entry.consecutive_failures += 1

@@ -26,9 +26,9 @@ import {
   evaluateTestAction,
   recordDecisionAction,
   recordTestAction,
-  runScanAction,
 } from "@/lib/opportunity/actions";
 import { cn } from "@/lib/utils";
+import { ScannerPanel } from "./scanner-panel";
 
 /**
  * The manual half of the Opportunity Desk.
@@ -430,7 +430,6 @@ export function OpportunityDesk({
   candidatesError: string | null;
 }) {
   const [outcome, setOutcome] = React.useState<ActionOutcome | null>(null);
-  const [scanning, setScanning] = React.useState(false);
 
   const latestDecision = React.useMemo(() => {
     const map = new Map<string, OpportunityDecision>();
@@ -448,40 +447,14 @@ export function OpportunityDesk({
     return map;
   }, [tests]);
 
-  async function scan() {
-    setScanning(true);
-    try {
-      setOutcome(await runScanAction());
-    } catch {
-      setOutcome({
-        ok: false,
-        title: "The scan did not run",
-        message: "The request did not reach the server. Nothing was recorded.",
-        detail: [],
-        at: new Date().toISOString(),
-      });
-    } finally {
-      setScanning(false);
-    }
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <OutcomeBanner outcome={outcome} />
+      <ScannerPanel />
 
       <SectionCard
         title="Candidates"
-        description="Stored candidates, newest first. A scan is an explicit action because it writes what it finds."
-        action={
-          <Button type="button" size="sm" variant="outline" onClick={scan} disabled={scanning}>
-            {scanning ? (
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="size-3" aria-hidden />
-            )}
-            {scanning ? "Scanning" : "Run scan"}
-          </Button>
-        }
+        description="Stored candidates, newest first, with original timestamps and safety warnings."
       >
         {candidatesError ? (
           <EmptyState
@@ -505,7 +478,7 @@ export function OpportunityDesk({
           <EmptyState
             icon={Crosshair}
             title="No candidates stored yet."
-            description="Run a scan to apply the rule to the watchlist. A quiet scan is a normal result, not a failure."
+            description="Run the scanner above to check Kraken USD spot markets and the stock watchlist. A quiet scan is a normal result, not a failure."
           />
         )}
       </SectionCard>
