@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { researchConfig, researchFetch } from "@/lib/api/client";
+import { engineTimeoutMs, researchFetch } from "@/lib/api/client";
 
 export const dynamic = "force-dynamic";
 
@@ -20,73 +20,18 @@ export async function GET(request: Request) {
     return new NextResponse(null, { status: 404 });
   }
 
-  const config = researchConfig();
-
-  let host: string | null = null;
-  let scheme: string | null = null;
-  let pathname: string | null = null;
-  let urlValid = false;
-
-  if (config.baseUrl) {
-    try {
-      const parsed = new URL(config.baseUrl);
-      host = parsed.host;
-      scheme = parsed.protocol;
-      pathname = parsed.pathname;
-      urlValid = true;
-    } catch {
-      host = "INVALID_URL";
-    }
-  }
-
-  let health: { ms: number; status: number | null; error: string | null } = {
-    ms: 0,
-    status: null,
-    error: "no base url",
-  };
-
-  if (config.baseUrl) {
-    const started = Date.now();
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const response = await fetch(new URL("/healthz", config.baseUrl), {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      health = { ms: Date.now() - started, status: response.status, error: null };
-    } catch (cause) {
-      health = {
-        ms: Date.now() - started,
-        status: null,
-        error: cause instanceof Error ? `${cause.name}: ${cause.message}`.slice(0, 160) : "unknown",
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   const results = [];
   for (const path of PATHS) {
     const started = Date.now();
-    const result = await researchFetch(path, { timeoutMs: 15_000 });
+    const result = await researchFetch(path);
     results.push({
       path,
       ms: Date.now() - started,
       ok: result.ok,
-      status: result.ok ? 200 : (result.error.status ?? null),
       code: result.ok ? null : result.error.code,
-      message: result.ok ? null : result.error.message.slice(0, 140),
+      message: result.ok ? null : result.error.message.slice(0, 120),
     });
   }
 
-  return NextResponse.json({
-    engineHost: host,
-    scheme,
-    pathname,
-    urlValid,
-    tokenConfigured: config.scoped,
-    health,
-    results,
-  });
+  return NextResponse.json({ effectiveTimeoutMs: engineTimeoutMs(), results });
 }

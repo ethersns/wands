@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { researchConfig, researchFetch } from "@/lib/api/client";
+import { engineTimeoutMs, researchConfig, researchFetch } from "@/lib/api/client";
 
 const ENGINE_URL = "https://engine.test";
 const OPERATOR_TOKEN = "operator-token-must-never-reach-a-member-request";
@@ -111,5 +111,82 @@ describe("the member research credential", () => {
 
     expect(result.ok).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("the engine request timeout", () => {
+  it("defaults to a ceiling above the engine's slowest measured aggregate", () => {
+    vi.stubEnv("WANDS_ENGINE_TIMEOUT_MS", "");
+
+    // `institutions` measured ~5.7s and `dashboard` ~3.8s from the Vercel
+    // runtime, so the default must clear both with headroom.
+    expect(engineTimeoutMs()).toBe(12_000);
+    expect(engineTimeoutMs()).toBeGreaterThan(5_728);
+  });
+
+  it("honours a configured ceiling", () => {
+    vi.stubEnv("WANDS_ENGINE_TIMEOUT_MS", "20000");
+
+    expect(engineTimeoutMs()).toBe(20_000);
+  });
+
+  it("clamps a configured ceiling so a bad value cannot wait forever", () => {
+    vi.stubEnv("WANDS_ENGINE_TIMEOUT_MS", "600000");
+    expect(engineTimeoutMs()).toBe(30_000);
+
+    vi.stubEnv("WANDS_ENGINE_TIMEOUT_MS", "1");
+    expect(engineTimeoutMs()).toBe(1_000);
+  });
+
+  it("falls back to the default when the configured value is not a number", () => {
+    vi.stubEnv("WANDS_ENGINE_TIMEOUT_MS", "not-a-number");
+
+    expect(engineTimeoutMs()).toBe(12_000);
+  });
+
+  it("accepts a response that is slow but inside the ceiling", async () => {
+    const fetchSpy = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(envelope({ items: [] })), 300);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    stubEnv({
+      WANDS_ENGINE_URL: ENGINE_URL,
+      WANDS_RESEARCH_TOKEN: RESEARCH_TOKEN,
+      WANDS_ENGINE_TIMEOUT_MS: "2000",
+    });
+
+    const result = await researchFetch("/v1/intelligence/institutions");
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("reports a timeout, not an outage, when the engine exceeds the ceiling", async () => {
+    const fetchSpy = vi.fn(
+      (_url: URL, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            reject(error);
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    stubEnv({
+      WANDS_ENGINE_URL: ENGINE_URL,
+      WANDS_RESEARCH_TOKEN: RESEARCH_TOKEN,
+      WANDS_ENGINE_TIMEOUT_MS: "1000",
+    });
+
+    const result = await researchFetch("/v1/intelligence/institutions");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("timeout");
+      expect(result.error.message).toContain("1000ms");
+    }
   });
 });
