@@ -18,6 +18,7 @@ import type {
 } from "@/lib/api/research-contract";
 
 import { filingHref, signalHref } from "./links";
+import type { TrackedSymbol } from "./watchlists";
 
 /**
  * The Founder Market Brief, as a pure function of research the engine already
@@ -192,7 +193,12 @@ export interface BriefMarketContext {
 
 export interface MarketBriefInputs {
   asOf: string;
-  watchlist: string[];
+  /**
+   * Every tracked symbol with the market it belongs to. The market travels with
+   * the symbol so the equity-only selection rules can exclude crypto pairs
+   * without a second symbol registry.
+   */
+  watchlist: TrackedSymbol[];
   /** How many watchlists the symbols came from, read alongside them. */
   watchlistCount: number;
   dashboard: ResearchDashboard;
@@ -555,7 +561,17 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
   const asOfMs = parseInstant(inputs.asOf);
   const timeBasis: BriefTimeBasis = asOfMs === null ? "indeterminate" : "established";
   const asOfDay = asOfMs === null ? null : new Date(asOfMs).toISOString().slice(0, 10);
-  const watched = new Set(inputs.watchlist.map((symbol) => symbol.trim().toUpperCase()));
+  // The selection rules below are equity-only: insider filings, 13F holdings and
+  // research signals are SEC data. A crypto pair is tracked in the same
+  // watchlist, but it must not enter that selection as though it were a ticker,
+  // so the equity set is derived from the stored market type rather than from
+  // the symbol's shape. The full list is still reported for display.
+  const allSymbols = inputs.watchlist.map((entry) => entry.symbol);
+  const watched = new Set(
+    inputs.watchlist
+      .filter((entry) => entry.marketType === "stocks")
+      .map((entry) => entry.symbol.trim().toUpperCase()),
+  );
 
   const sources = buildSourceStatuses(inputs);
   const availability = availabilityOf(sources);
@@ -822,7 +838,7 @@ export function buildMarketBrief(inputs: MarketBriefInputs): MarketBrief {
   return {
     asOf: asOfMs === null ? null : inputs.asOf,
     timeBasis,
-    watchlist: [...watched].sort(),
+    watchlist: [...allSymbols].sort(),
     watchlistCount: inputs.watchlistCount,
     availability,
     unreachable: availability === "unavailable",

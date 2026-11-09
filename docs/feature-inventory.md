@@ -8,9 +8,10 @@ Update this file in the same change that adds or alters a customer-facing
 capability. A row that says `missing-frontend` is a defect, not a note.
 
 - **Last verified:** 2026-11-09
-- **Engine commit:** `480665a` (branch `main`)
-- **Verification method:** code inspection plus the test runs recorded in
-  section 7. No engine was deployed and no production research request was made.
+- **Engine commit:** `7edc225` (branch `main`)
+- **Verification method:** code inspection, the test runs recorded in section 7,
+  and a read-only query of both databases on the Neon project. No engine was
+  deployed and no production research request was made.
 
 ---
 
@@ -186,6 +187,27 @@ Implemented end to end, but `WANDS_FOUNDER_USER_IDS` is unset, so
 `requireFounder()` grants nobody and the desk returns `unconfigured`. This is
 fail-closed by design. It becomes usable when the founder's Better Auth user id
 is set in the Vercel Production environment.
+
+Operational assessment (2026-11-09, code inspection only):
+
+- The rule is `intraday_breakout` v1 in `backend/wands/opportunity/strategy.py`:
+  long only, 5-minute completed candles, a 20-candle range and volume lookback, a
+  1.5x volume filter, entry at the next candle's open, invalidation at the
+  trigger candle's low, a 2x reward target and a 4-hour time stop. That already
+  matches the founder's intended 1-4 hour horizon, so no strategy change is
+  needed to begin.
+- The budget defaults in `opportunity/candidates.py` are already the founder's
+  stated parameters: `starting_capital = 100` and `planned_risk_budget = 2.00`
+  (2% of $100). These are research allowances, not the engine's enforced risk
+  policy, which is unchanged.
+- Both markets are supported. `opportunity/watchlist.py` treats crypto as 24/7
+  and stocks as the regular US session, and `candidates.py` buys whole shares for
+  stocks.
+- Crypto needs no credential: `marketdata/kraken.py` uses only public REST
+  endpoints. Stocks need `WANDS_ALPACA_DATA_KEY` and `WANDS_ALPACA_DATA_SECRET`,
+  which are not set.
+- The desk is not reachable from this environment: `WANDS_ENGINE_URL` and
+  `WANDS_RESEARCH_TOKEN` are unset, so every read returns `unavailable`.
 
 ### Founder Market Brief
 
@@ -368,6 +390,65 @@ feeds accept one `symbol` and one page, so a watched symbol can sit outside the
 symbols. Closing the gap needs a bounded multi-symbol filter on those two
 endpoints, which is a backend contract change and is not part of this change.
 
+### Crypto pairs in equity-only research
+
+FEATURE NAME: Crypto watchlist compatibility
+STATUS: `local-verified`
+
+The watchlist system stores stocks and crypto in one set of tables, with
+`market_type` on every item. `trackedSymbolsFrom()` returned plain symbol
+strings, so a crypto pair such as `BTC/USD` reached the equity-only selection
+rules in the Founder Market Brief and the alert sweep as though it were a ticker.
+
+Fixed at the boundary, not by splitting the watchlist:
+
+- `trackedSymbolsFrom()` now returns `TrackedSymbol[]`, carrying the stored
+  market with each symbol.
+- `MarketBriefInputs.watchlist` is `TrackedSymbol[]`. The brief derives its
+  equity-only selection set from `marketType === "stocks"` and still reports
+  every symbol in the displayed watchlist.
+- `runAlertSweep` filters to stocks before the matcher, so a watchlist-wide rule
+  cannot match a crypto pair against SEC insider or signal records.
+
+Unchanged: one watchlist system, no second symbol registry, no new data
+provider, no rewritten history. Legacy `market_type='equity'` rows still read as
+`stocks` through `toMarketType`.
+
+TEST COVERAGE:
+`tests/member/market-brief.test.ts` — 4 new tests: a crypto pair is excluded from
+the equity selection rules, a stock sharing the watchlist is still selected, the
+crypto pair still appears in the displayed watchlist, and a crypto pair is not
+named as a missing equity symbol in coverage.
+`tests/member/symbols.test.ts` — 1 new test: `trackedSymbolsFrom` carries the
+market and de-duplicates across watchlists.
+`tests/member/alert-sweep.test.ts` — 2 new tests: a watchlist-wide rule does not
+match a crypto pair, and still matches a stock.
+
+### Authentication security audit
+
+VERDICT: no vulnerability found. Security code was not changed.
+
+- Next.js 16.4.5 renames `middleware.ts` to `proxy.ts` and the `middleware`
+  export to `proxy` (`node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`).
+  The repository's `proxy.ts` with `export async function proxy` is the supported
+  convention, so the absence of `middleware.ts` is not a gap. The production
+  build reports `Proxy (Middleware)`, confirming Next.js mounts it.
+- `tests/auth/middleware.test.ts` imports `{ config, proxy } from "@/proxy"`, so
+  the tests target the real current implementation despite the legacy filename.
+- Verified by execution (81 tests in `tests/auth/`): unauthenticated operator API
+  requests are denied; a forged or foreign-secret session is rejected; a member
+  session never authorises the operator tier, including under the development
+  bypass; unauthenticated member pages redirect to `/signin`; unclassified API
+  routes fail closed with 404; the development bypass requires all three of
+  `WANDS_DEV_OPERATOR_BYPASS=1`, a non-production `NODE_ENV` and a declared
+  non-production `WANDS_DATABASE_ENV`.
+- Paid entitlement is enforced in `requireMemberAccess` (`lib/member/session.ts`),
+  whose only caller is `app/app/layout.tsx`, so every `/app` page is covered by
+  existing rather than by remembering a check.
+- One regression test was added: the proxy overwrites a client-supplied
+  `x-wands-entitlement-exempt` header rather than trusting it, so a member cannot
+  exempt themselves from the paid gate.
+
 ---
 
 ## 4. Operator-only inventory
@@ -455,8 +536,8 @@ omits the CUSIP. Covered by
 | No stored-quarter enumeration | `GET /v1/intelligence/institutions/{cik}/changes` accepts `period`, but nothing lists a filer's stored quarters. `periods` appears only on a feed row, inside a name-ordered paginated feed, so a period selector cannot be built without inventing the list. The detail page therefore shows the latest quarter only and passes `period` through when a link supplies it. | `partial` |
 | No search, sort or filter on the institution feed | `GET /v1/intelligence/institutions` accepts only `page` and `limit`, and orders by name. The member list offers no search box, sort control or filter, because none would reach the engine. | `partial` |
 | Engine not deployed | No `WANDS_ENGINE_URL` or `WANDS_RESEARCH_TOKEN` is configured, so every member research page renders the `unavailable` state. The engine itself now runs and answers correctly; it has no public host. See `docs/railway-deployment.md`. | `blocked` |
-| Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with 45 tables at `a7c4e2b91f38`, one revision behind the repository head `b8d3f5a1c927`. It holds no research data and no API keys. | `local-verified` |
-| Engine schema is not isolated | `neondb` also carries the engine schema, at `e5b9c3d1f726`, and it is the only database holding genuine research data (80,684 institutional holdings, 6,611 candles, 4 signals) and the only research-scoped credentials. `perf_*` and Opportunity Desk tables are absent there, so Quant Lab, Forensics and the Opportunity Desk cannot work against it. Which database is the engine's system of record is an open owner decision. | `blocked` |
+| Engine database prepared, not yet used | A separate `wands_engine` database exists on the Neon project with all 45 engine tables at `a7c4e2b91f38`, one revision behind the repository head `b8d3f5a1c927`. Verified read-only on 2026-11-09: every research table is empty, and it holds 1 user, 1 `engine_state`, 2 `audit_events`, 7 `strategies` and 1 `risk_policies` of bootstrap state. | `local-verified` |
+| Engine schema is not isolated | `neondb` also carries the engine schema, at `e5b9c3d1f726`, and it is the only database holding genuine research data (80,684 institutional holdings, 6,611 candles, 1,104 quotes, 916 identifiers, 4 signals, 13 experiments, 4 institutions) and the only research-scoped credentials (2 keys). `perf_*` and `opp_*` tables are absent there, so Quant Lab, Forensics and the Opportunity Desk cannot work against it. A recovery plan with a recommendation is in `docs/engine-database-recovery.md`; it has not been executed. | `blocked` |
 | Development shares the production database | The Next.js app shares `neondb` between development and production, and that same database carries the engine schema. | `blocked` |
 
 ---
@@ -582,7 +663,7 @@ CURRENT LIMITATION: Twelve checks are assessed from the stored experiment and
   the stored daily series. A check is reported as verified only when the stored
   record contains the evidence that directly establishes the claim as stated. A
   property the record merely asserts — a held-out label, a pair of reproducibility
-  hashes, a study that dates events by publication — is reported as declared, not
+  hashes, a study that dates events by publication ��� is reported as declared, not
   verified, because nothing in the record corroborates it. Two checks can never
   pass on current data and are reported as unassessable rather than passed:
   parameter sensitivity (one parameter set is recorded, no sweep) and survivorship

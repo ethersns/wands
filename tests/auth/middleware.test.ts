@@ -19,9 +19,9 @@ const USERNAME = "operator";
 const PASSWORD = "correct horse battery staple";
 const SECRET = "test-session-secret";
 
-function request(path: string, cookie?: string) {
+function request(path: string, cookie?: string, extraHeaders?: Record<string, string>) {
   return new NextRequest(new URL(`http://localhost${path}`), {
-    headers: cookie ? { cookie } : {},
+    headers: { ...(cookie ? { cookie } : {}), ...extraHeaders },
   });
 }
 
@@ -310,6 +310,19 @@ describe("member pages", () => {
       const response = await proxy(request("/app", `${name}=present`));
       expect(passedThrough(response), name).toBe(true);
     }
+  });
+
+  it("overwrites a client-supplied entitlement exemption instead of trusting it", async () => {
+    // The workspace layout reads this header to decide whether the paid gate
+    // applies. A member who could set it themselves would exempt themselves
+    // from the subscription check, so the proxy must replace it, not merge it.
+    const spoofed = { "x-wands-entitlement-exempt": "1" };
+
+    const gated = await proxy(request("/app/signals", "wands.session_token=present", spoofed));
+    expect(gated.headers.get("x-middleware-request-x-wands-entitlement-exempt")).toBe("0");
+
+    const billing = await proxy(request("/app/membership", "wands.session_token=present", spoofed));
+    expect(billing.headers.get("x-middleware-request-x-wands-entitlement-exempt")).toBe("1");
   });
 
   it("recognises the secure-prefixed cookie Better Auth issues on HTTPS", async () => {

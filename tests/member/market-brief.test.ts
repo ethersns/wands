@@ -19,6 +19,7 @@ import {
   type BriefSourceKey,
   type MarketBriefInputs,
 } from "@/lib/member/brief-model";
+import type { TrackedSymbol } from "@/lib/member/watchlists";
 
 /**
  * Deterministic fixtures. These are not live data: they exercise the selection
@@ -196,10 +197,19 @@ const ALL_SOURCES: BriefSourceKey[] = [
   "signals",
 ];
 
-function inputs(overrides: Partial<MarketBriefInputs> = {}): MarketBriefInputs {
+/** A fixture may name a symbol alone; it is treated as a stock unless stated. */
+type WatchlistFixture = Array<string | TrackedSymbol>;
+
+function inputs(
+  overrides: Partial<Omit<MarketBriefInputs, "watchlist">> & { watchlist?: WatchlistFixture } = {},
+): MarketBriefInputs {
+  const { watchlist: watchlistFixture, ...rest } = overrides;
+  const watchlist = (watchlistFixture ?? []).map((entry) =>
+    typeof entry === "string" ? { symbol: entry, marketType: "stocks" as const } : entry,
+  );
+
   return {
     asOf: AS_OF,
-    watchlist: [],
     watchlistCount: 0,
     dashboard: dashboard(),
     coverage: coverage(),
@@ -209,7 +219,8 @@ function inputs(overrides: Partial<MarketBriefInputs> = {}): MarketBriefInputs {
     signals: signalFeed(),
     unreachableSources: [],
     warnings: [],
-    ...overrides,
+    ...rest,
+    watchlist,
   };
 }
 
@@ -653,5 +664,66 @@ describe("founder market brief", () => {
       expect(down.sources.find((source) => source.key === "insiders")?.state).toBe("unavailable");
       expect(down.availability).toBe("partial");
     });
+  });
+});
+
+describe("crypto pairs in an equity-only brief", () => {
+  const AAPL: TrackedSymbol = { symbol: "AAPL", marketType: "stocks" };
+  const MSFT: TrackedSymbol = { symbol: "MSFT", marketType: "stocks" };
+  const BTC: TrackedSymbol = { symbol: "BTC/USD", marketType: "crypto" };
+
+  it("keeps a crypto pair out of the equity-only selection rules", () => {
+    // The insider and signal feeds are SEC-derived equity research. A crypto
+    // pair is tracked in the same watchlist, but it must not be selected as
+    // though it were a ticker, even when a record carries the same symbol.
+    const brief = buildMarketBrief(
+      inputs({
+        watchlist: [BTC],
+        signals: signalFeed([signal({ symbol: "BTC/USD" })]),
+        insiders: insiderFeed([insider({ symbol: "BTC/USD" })]),
+      }),
+    );
+
+    expect(brief.investigations.some((item) => item.reason === "watched_signal")).toBe(false);
+    expect(brief.investigations.some((item) => item.reason === "watched_disclosure")).toBe(false);
+  });
+
+  it("still selects a stock that shares the watchlist with a crypto pair", () => {
+    const brief = buildMarketBrief(
+      inputs({
+        watchlist: [AAPL, BTC],
+        signals: signalFeed([signal({ symbol: "AAPL" })]),
+      }),
+    );
+
+    expect(brief.investigations.some((item) => item.reason === "watched_signal")).toBe(true);
+  });
+
+  it("still reports the crypto pair in the displayed watchlist", () => {
+    const brief = buildMarketBrief(inputs({ watchlist: [AAPL, BTC] }));
+
+    expect(brief.watchlist).toEqual(["AAPL", "BTC/USD"]);
+  });
+
+  it("does not name a crypto pair as a missing equity symbol in coverage", () => {
+    const brief = buildMarketBrief(
+      inputs({
+        watchlist: [AAPL, MSFT, BTC],
+        insiders: {
+          items: [insider({ id: "a", symbol: "AAPL" })],
+          total: 400,
+          page: 1,
+          limit: 200,
+          hasMore: true,
+        },
+      }),
+    );
+
+    const gap = brief.limitations.find((item) => item.key === "coverage:insiders");
+    expect(gap?.detail).toContain("1 of 400");
+    // The stock outside the page is named; the crypto pair is not, because it
+    // was never part of the equity selection in the first place.
+    expect(gap?.detail).toContain("MSFT");
+    expect(gap?.detail).not.toContain("BTC/USD");
   });
 });
