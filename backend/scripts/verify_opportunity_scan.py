@@ -71,7 +71,7 @@ def main():
 
             state = advance()
             assert state["activeUsdPairs"] > 6, state
-            discovered = state["total"] - 4
+            discovered = state["activeUsdPairs"]
             row = session.get(OppScanStateRow, 1)
             full = dict(row.state)
             symbols = {"BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "0G/USD"}

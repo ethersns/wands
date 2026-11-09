@@ -95,6 +95,7 @@ export function ScannerPanel() {
               Liquidity filter: at least ${Number(scan.liquidity.minUsdVolume24h).toLocaleString("en-US")} in rolling 24h USD turnover,
               spread no wider than {scan.liquidity.maxSpreadPct}%. Only online markets proceed. A qualifying pattern may still have infeasible sizing.
             </p>
+            {scan.notes.map((note) => <p key={note}>{note}</p>)}
             <p>Each symbol is checked at its own observation time, not as one market-wide snapshot. Pause or leave this page and resume the saved scan later.</p>
             {scan.candidates.length ? (
               <details>

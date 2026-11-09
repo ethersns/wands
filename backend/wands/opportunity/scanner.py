@@ -34,6 +34,7 @@ from wands.opportunity.watchlist import DEFAULT_WATCHLIST, WatchlistEntry, in_se
 from wands.schemas import CandleInterval, MarketType
 
 MIN_USD_VOLUME = Decimal("100000")
+MAX_ACTIVE_USD_PAIRS = 40
 CATALOG_TTL_SECONDS = 300
 BATCH_DELAY_SECONDS = 2
 LEASE_SECONDS = 30
@@ -133,8 +134,8 @@ class ScanCoordinator:
                 }
                 self._checkpoint(owner, state)
 
-            # Discovery is one bounded request. Once fixed, the universe never
-            # changes under the cursor; periodic catalogue refresh only rechecks status.
+            # Discovery and the ticker snapshot fix a deterministic, liquid
+            # universe for this run. Later catalogue refreshes only recheck status.
             provider = self._configure_providers(service)
             if state["status"] == "discovering" or self._catalog_expired(state):
                 catalog_request = True
@@ -142,15 +143,38 @@ class ScanCoordinator:
                 state["catalog"] = {item["symbol"]: item for item in catalog}
                 state["catalogAt"] = self.clock().isoformat()
                 if state["status"] == "discovering":
+                    active = [item for item in catalog if item["status"] == "online"]
+                    selected, eligible_count = provider.rank_usd_pairs(
+                        active,
+                        limit=MAX_ACTIVE_USD_PAIRS,
+                        min_usd_volume=MIN_USD_VOLUME,
+                        max_spread_pct=Decimal(str(service.settings.max_spread_pct)),
+                    )
                     stocks = [
                         {"symbol": entry.symbol, "marketType": "stocks"}
                         for entry in DEFAULT_WATCHLIST
                         if not entry.is_crypto
                     ]
-                    crypto = [{**item, "marketType": "crypto"} for item in catalog]
-                    state["markets"] = stocks + crypto
+                    state["markets"] = stocks + [
+                        {**item, "marketType": "crypto"} for item in selected
+                    ]
                     state["total"] = len(state["markets"])
-                    state["activeUsdPairs"] = sum(item["status"] == "online" for item in catalog)
+                    state["activeUsdPairs"] = len(active)
+                    not_scanned = len(active) - len(selected)
+                    state["notes"] = [
+                        f"Coverage: selected {len(selected)} of {len(active)} online Kraken USD spot pairs "
+                        f"by 24h USD turnover after liquidity filters; {not_scanned} online pairs were "
+                        f"not scanned (liquidity exclusions and {MAX_ACTIVE_USD_PAIRS}-pair cap; "
+                        f"{eligible_count} pairs met both liquidity filters)."
+                    ]
+                    state["skipped"].extend(
+                        {
+                            "symbol": item["symbol"],
+                            "reason": f"Inactive market: {item['status']}.",
+                        }
+                        for item in catalog
+                        if item["status"] != "online"
+                    )
                 state["status"] = "scanning"
                 state["lastError"] = None
                 state["failures"] = 0
@@ -298,7 +322,8 @@ class ScanCoordinator:
         state["status"] = "complete" if state["checked"] == state["total"] else "scanning"
         if state["status"] == "complete":
             state["notes"] = [
-                "Scan complete. No conditions were loosened; candidates are research, not trades."
+                *state.get("notes", []),
+                "Scan complete. No conditions were loosened; candidates are research, not trades.",
             ]
 
     def _checkpoint(self, owner, state, *, release=False, delay=BATCH_DELAY_SECONDS):
