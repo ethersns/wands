@@ -47,7 +47,7 @@ import { isFounderUserId } from "@/lib/auth/founder";
 import { compUserIds, isCompedUserId } from "@/lib/billing/entitlement";
 import { getMembership } from "@/lib/member/membership";
 
-const COMPED = "tXCzXo1MchRokx5YnUXnz6NlkiSEMxfx";
+const COMPED = "usr_comped_fixture";
 const OTHER = "usr_other";
 
 function on(match: RegExp, rows: unknown[]) {
@@ -156,7 +156,7 @@ describe("complimentary membership", () => {
 
   it("matches the exact user id, never the email address", () => {
     expect(isCompedUserId(COMPED)).toBe(true);
-    expect(isCompedUserId("cleverlywin@gmail.com")).toBe(false);
+    expect(isCompedUserId("member@example.com")).toBe(false);
     expect(isCompedUserId(null)).toBe(false);
   });
 });
