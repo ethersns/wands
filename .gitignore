@@ -23,4 +23,7 @@ backend/.ruff_cache
 backend/.mypy_cache
 backend/*.db
 backend/*.sqlite3
+# A locally-run engine keeps its SQLite database here. It is development state,
+# never a fixture, and must not be committed.
+backend/.local/
 backend/.env
