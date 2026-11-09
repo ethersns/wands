@@ -163,13 +163,14 @@ class MemberResearchService:
 
     def dashboard(self) -> ResearchDashboardOut:
         moment = datetime.now(tz=UTC)
+        symbols = self._symbols()
         counts = ResearchCountsOut(
             filings=self._count(IntelFilingRow),
             transactions=self._count(IntelInsiderTransactionRow),
             signals=self._count(IntelSignalRow),
             institutions=self._count(IntelInstitutionRow),
             holdings=self._count(IntelInstitutionalHoldingRow),
-            symbols=len(self._symbols()),
+            symbols=len(symbols),
         )
 
         latest_filing = self.session.scalar(select(func.max(IntelFilingRow.accepted_at)))
@@ -201,7 +202,10 @@ class MemberResearchService:
             .limit(RECENT_PURCHASE_LIMIT)
         ).all()
 
-        coverage = self.public_coverage()
+        freshness = self.freshness.overall()
+        coverage = self.public_coverage(
+            counts=counts, symbols=symbols, freshness=freshness
+        )
         caveats = [COUNTS_CAVEAT, *INSIDER_CAVEATS, *coverage.caveats]
         if counts.filings == 0:
             caveats.insert(
@@ -212,7 +216,7 @@ class MemberResearchService:
 
         return ResearchDashboardOut(
             as_of=moment,
-            freshness=self.freshness.overall(),
+            freshness=freshness,
             counts=counts,
             latest_filing_at=latest_filing,
             latest_signal_at=latest_signal,
@@ -489,13 +493,34 @@ class MemberResearchService:
 
     # -- coverage ----------------------------------------------------------
 
-    def public_coverage(self) -> ResearchCoverageDisclosureOut:
-        filings = self._count(IntelFilingRow)
-        transactions = self._count(IntelInsiderTransactionRow)
-        signals = self._count(IntelSignalRow)
-        institutions = self._count(IntelInstitutionRow)
+    def public_coverage(
+        self,
+        *,
+        counts: ResearchCountsOut | None = None,
+        symbols: list[str] | None = None,
+        freshness: str | None = None,
+    ) -> ResearchCoverageDisclosureOut:
+        """Coverage disclosure, optionally reusing figures the caller already has.
 
-        covered = self._symbols()
+        The dashboard needs the same counts and symbol set this method computes,
+        and recomputing them doubled the endpoint's query count for identical
+        values. Callers that already hold them pass them in; the standalone
+        ``/coverage/public`` route still computes its own.
+        """
+        if counts is not None:
+            filings = counts.filings
+            transactions = counts.transactions
+            signals = counts.signals
+            institutions = counts.institutions
+        else:
+            # Only the four counts this method reads. Counting holdings here
+            # would add a round-trip for a figure the disclosure never uses.
+            filings = self._count(IntelFilingRow)
+            transactions = self._count(IntelInsiderTransactionRow)
+            signals = self._count(IntelSignalRow)
+            institutions = self._count(IntelInstitutionRow)
+
+        covered = symbols if symbols is not None else self._symbols()
         requested = self._requested_universe()
 
         gaps: list[ResearchCoverageGapOut] = []
@@ -550,14 +575,14 @@ class MemberResearchService:
                 )
             )
 
-        freshness = self.freshness.overall()
-        if freshness != STATUS_FRESH:
+        current_freshness = freshness or self.freshness.overall()
+        if current_freshness != STATUS_FRESH:
             gaps.append(
                 _gap(
                     "collector_not_current",
                     "Collector is not current",
-                    f"The most recent ingestion state is {freshness!r}. Stored data may be "
-                    "behind the SEC.",
+                    f"The most recent ingestion state is {current_freshness!r}. Stored data "
+                    "may be behind the SEC.",
                 )
             )
 

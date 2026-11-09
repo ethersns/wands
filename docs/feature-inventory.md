@@ -82,6 +82,27 @@ else.
 | Account | `lib/member/account.ts` | `/api/member/account` | `/app/account` | Account | `local-verified` |
 | Opportunity Desk | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Opportunity Desk (founder only) | `blocked` |
 
+### Research read-path performance
+
+The institutional feed and the dashboard were issuing one round-trip per filer
+and recomputing every count twice. On a remote database each round-trip
+dominates, so latency scaled with the number of filers rather than with the
+amount of data. Measured statement counts for four filers with two quarters
+each, before and after the batched read:
+
+| Endpoint | Queries before | Queries after |
+| --- | --- | --- |
+| `GET /v1/intelligence/institutions` | 22 | 5 |
+| `GET /v1/intelligence/dashboard` | 19 | 13 |
+| `GET /v1/intelligence/coverage/public` | 8 | 8 |
+
+`intel_institutional_holdings` had no index on `institution_id`, so each of
+those reads was a sequential scan. Migration `b8d3f5a1c927` adds
+`(institution_id, period_of_report)`. It is additive and reversible, and it has
+**not** been applied to production — the rows above are statement counts, not
+wall-clock timings, and the deployed latency is unverified until the migration
+runs and the endpoints are re-timed from the Vercel runtime.
+
 ### Opportunity Desk
 
 Implemented end to end, but `WANDS_FOUNDER_USER_IDS` is unset, so
