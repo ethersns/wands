@@ -374,16 +374,19 @@ execution.
 The chain is linear with a single head:
 
 ```
-d4a7b2c9e815 → e5b9c3d1f726 → f1a2b3c4d5e6 → a7c4e2b91f38
+d4a7b2c9e815 → e5b9c3d1f726 → f1a2b3c4d5e6 → a7c4e2b91f38 → b8d3f5a1c927
 ```
 
-Reported state: current `e5b9c3d1f726`, pending `f1a2b3c4d5e6` then
-`a7c4e2b91f38`.
+Verified state of `neondb`: current `e5b9c3d1f726`, pending `f1a2b3c4d5e6`,
+`a7c4e2b91f38` then `b8d3f5a1c927`. `wands_engine` is at `a7c4e2b91f38` and
+holds no data. Confirm which database is the target before running anything —
+see `docs/railway-deployment.md` §4.
 
-Both pending revisions are purely additive — `create_table` and
+All three pending revisions are purely additive — `create_table` and
 `create_index` only, touching nothing that already exists. `f1a2b3c4d5e6` adds
 the Performance Lab tables; `a7c4e2b91f38` adds the three Opportunity Desk
-tables. Each downgrade drops only what its own revision created.
+tables; `b8d3f5a1c927` adds the institutional holdings index. Each downgrade
+drops only what its own revision created.
 
 Alembic resolves its URL from `WANDS_DATABASE_URL` via
 `get_settings().database_url`, overriding the placeholder in `alembic.ini`.
@@ -405,7 +408,7 @@ Alembic resolves its URL from `WANDS_DATABASE_URL` via
    ```
 4. **Verify.**
    ```
-   alembic current          # expect a7c4e2b91f38
+   alembic current          # expect b8d3f5a1c927
    curl -fsS $ENGINE_URL/readyz
    ```
 5. **Smoke test** the Opportunity Desk read paths. Do not place an order.
