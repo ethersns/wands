@@ -117,7 +117,19 @@ on the marketing site.
 AVAILABILITY STATUS:
 `local-verified`. The journal, the P&L arithmetic, the founder gate and the
 engine read path were exercised against a locally-run engine on SQLite with live
-Kraken data. Two things are **not** verified and are not claimed:
+Kraken data.
+
+`0007_money_journal.sql` is applied to the app database, and the entry/exit
+journey was then exercised against that real database through the production
+code path (`parseEntryInput` → `openTrade` → `closeTrade` → `computeClosedPnl`).
+An entry was recorded; a duplicate submit for the same candidate was refused by
+the one-open-position index; a second member could neither read the row nor
+close it; the exit closed it; and the realised P&L matched the two reported
+prices. The schema also refused a `closed` row with no exit price and a row
+whose `user_id` is not a real account. The verification rows were deleted
+afterwards, so the table holds no fabricated trade.
+
+Two things are **not** verified and are not claimed:
 
 - The deployed engine is still unreachable. `WANDS_ENGINE_URL` points at
   `127.0.0.1:8000`, which inside the Vercel runtime is the function itself, not

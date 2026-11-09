@@ -110,8 +110,10 @@ function text(raw: unknown, max: number): string | null {
 }
 
 /**
- * A symbol is normalised, not guessed. `btc/usd` becomes `BTC/USD`, and a
- * crypto pair without a quote asset is refused rather than assumed to be USD.
+ * A symbol is normalised, not guessed. `btc/usd` becomes `BTC/USD`. A bare
+ * ticker is read as an equity symbol and is never rewritten into a crypto pair:
+ * `BTC` does not become `BTC/USD`, because the quote asset is the founder's to
+ * state, not this parser's to assume.
  */
 export function parseSymbol(raw: unknown): { ok: true; symbol: string; marketType: MarketType } | { ok: false; error: string } {
   if (typeof raw !== "string") {
