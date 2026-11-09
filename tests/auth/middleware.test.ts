@@ -13,7 +13,7 @@ import {
   routeTier,
 } from "@/lib/auth/routes";
 import { SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
-import { config, middleware } from "@/middleware";
+import { config, proxy } from "@/proxy";
 
 const USERNAME = "operator";
 const PASSWORD = "correct horse battery staple";
@@ -46,7 +46,7 @@ describe("public registration", () => {
   it("closes the Better Auth sign-up endpoint", async () => {
     // Accounts are only created by the activation route after a verified
     // payment. Leaving this open would be a free account with one POST.
-    const response = await middleware(request("/api/auth/sign-up/email"));
+    const response = await proxy(request("/api/auth/sign-up/email"));
     expect(response.status).toBe(404);
     expect(passedThrough(response)).toBe(false);
   });
@@ -57,7 +57,7 @@ describe("public registration", () => {
       "/api/auth/request-password-reset",
       "/api/auth/get-session",
     ]) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
   });
@@ -66,20 +66,20 @@ describe("public registration", () => {
 describe("engine proxy gate", () => {
   it("forwards a request carrying a valid session", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/api/wands/engine/status", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(passedThrough(response)).toBe(true);
   });
 
   it("rejects a request with no session", async () => {
-    const response = await middleware(request("/api/wands/engine/status"));
+    const response = await proxy(request("/api/wands/engine/status"));
     expect(response.status).toBe(401);
     expect(passedThrough(response)).toBe(false);
   });
 
   it("rejects a forged session cookie", async () => {
-    const response = await middleware(
+    const response = await proxy(
       request("/api/wands/engine/status", `${SESSION_COOKIE}=v1.9999999999.forged`),
     );
     expect(response.status).toBe(401);
@@ -88,7 +88,7 @@ describe("engine proxy gate", () => {
   it("rejects a session signed with another secret", async () => {
     const token = await createSessionToken();
     process.env.WANDS_SESSION_SECRET = "rotated-secret";
-    const response = await middleware(
+    const response = await proxy(
       request("/api/wands/engine/status", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(response.status).toBe(401);
@@ -97,7 +97,7 @@ describe("engine proxy gate", () => {
   it("fails closed in production when the gate is unconfigured", async () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     vi.stubEnv("NODE_ENV", "production");
-    const response = await middleware(request("/api/wands/engine/status"));
+    const response = await proxy(request("/api/wands/engine/status"));
     expect(response.status).toBe(503);
     expect(passedThrough(response)).toBe(false);
   });
@@ -105,7 +105,7 @@ describe("engine proxy gate", () => {
   it("fails closed in development when the gate is unconfigured and no bypass is requested", async () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     vi.stubEnv("NODE_ENV", "development");
-    const response = await middleware(request("/api/wands/engine/status"));
+    const response = await proxy(request("/api/wands/engine/status"));
     expect(response.status).toBe(503);
     expect(passedThrough(response)).toBe(false);
   });
@@ -114,7 +114,7 @@ describe("engine proxy gate", () => {
     delete process.env.WANDS_OPERATOR_PASSWORD;
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
-    const response = await middleware(request("/api/wands/engine/status"));
+    const response = await proxy(request("/api/wands/engine/status"));
     expect(response.status).toBe(503);
     expect(passedThrough(response)).toBe(false);
   });
@@ -124,26 +124,26 @@ describe("engine proxy gate", () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
     vi.stubEnv("WANDS_DATABASE_ENV", "development");
-    const response = await middleware(request("/api/wands/engine/status"));
+    const response = await proxy(request("/api/wands/engine/status"));
     expect(passedThrough(response)).toBe(true);
   });
 });
 
 describe("routes that reach the engine without the wands prefix", () => {
   it("gates the research assistant, which reads the operator's portfolio", async () => {
-    const response = await middleware(request("/api/research"));
+    const response = await proxy(request("/api/research"));
     expect(response.status).toBe(401);
     expect(passedThrough(response)).toBe(false);
   });
 
   it("gates the candle feed", async () => {
-    const response = await middleware(request("/api/markets/candles?symbol=BTC/USD"));
+    const response = await proxy(request("/api/markets/candles?symbol=BTC/USD"));
     expect(response.status).toBe(401);
   });
 
   it("lets a signed-in operator through", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/api/research", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(passedThrough(response)).toBe(true);
@@ -152,7 +152,7 @@ describe("routes that reach the engine without the wands prefix", () => {
 
 describe("operator console pages", () => {
   it("redirects an unauthenticated visitor to the sign-in form", async () => {
-    const response = await middleware(request("/portfolio"));
+    const response = await proxy(request("/portfolio"));
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.pathname).toBe("/login");
@@ -161,7 +161,7 @@ describe("operator console pages", () => {
 
   it("serves the page to a signed-in operator", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/risk", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(passedThrough(response)).toBe(true);
@@ -172,7 +172,7 @@ describe("operator console pages", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "development");
 
-    const response = await middleware(request("/portfolio"));
+    const response = await proxy(request("/portfolio"));
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/login");
   });
@@ -184,7 +184,7 @@ describe("operator console pages", () => {
     vi.stubEnv("WANDS_DEV_OPERATOR_BYPASS", "1");
     vi.stubEnv("WANDS_DATABASE_ENV", "test");
 
-    const response = await middleware(request("/portfolio"));
+    const response = await proxy(request("/portfolio"));
     expect(passedThrough(response)).toBe(true);
   });
 
@@ -193,7 +193,7 @@ describe("operator console pages", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/portfolio"));
+    const response = await proxy(request("/portfolio"));
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/login");
   });
@@ -202,7 +202,7 @@ describe("operator console pages", () => {
 describe("public marketing routes", () => {
   it("never requires an operator session", async () => {
     for (const path of ["/", "/pricing", "/waitlist", "/legal/terms", "/blog/post"]) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
   });
@@ -212,7 +212,7 @@ describe("public marketing routes", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/pricing"));
+    const response = await proxy(request("/pricing"));
     expect(passedThrough(response)).toBe(true);
     expect(response.status).not.toBe(503);
   });
@@ -229,7 +229,7 @@ describe("public marketing routes", () => {
 describe("public API endpoints", () => {
   it("serves the marketing form endpoints without a session", async () => {
     for (const path of PUBLIC_API_PREFIXES) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
   });
@@ -239,7 +239,7 @@ describe("public API endpoints", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/api/billing/webhook"));
+    const response = await proxy(request("/api/billing/webhook"));
     expect(passedThrough(response)).toBe(true);
     expect(response.status).not.toBe(503);
   });
@@ -247,21 +247,21 @@ describe("public API endpoints", () => {
 
 describe("unclassified API routes", () => {
   it("denies an API route that no list claims", async () => {
-    const response = await middleware(request("/api/internal/engine/keys"));
+    const response = await proxy(request("/api/internal/engine/keys"));
     expect(response.status).toBe(404);
     expect(passedThrough(response)).toBe(false);
   });
 
   it("denies it even for a signed-in operator, because the route is undeclared", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/api/unknown", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(response.status).toBe(404);
   });
 
   it("does not deny a new marketing page", async () => {
-    const response = await middleware(request("/blog/2026-outlook"));
+    const response = await proxy(request("/blog/2026-outlook"));
     expect(passedThrough(response)).toBe(true);
   });
 });
@@ -269,7 +269,7 @@ describe("unclassified API routes", () => {
 describe("customer tier", () => {
   it("does not gate non-member subscriber surfaces behind the operator session", async () => {
     for (const path of CUSTOMER_PREFIXES.filter((prefix) => !isMemberPage(prefix))) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
   });
@@ -284,7 +284,7 @@ describe("customer tier", () => {
   it("rejects a session cookie that is not a signed operator session", async () => {
     // A Stripe customer session is a different credential entirely; presenting
     // it to the operator gate must not be enough.
-    const response = await middleware(
+    const response = await proxy(
       request("/api/wands/engine/status", "wands_customer=cs_test_123"),
     );
     expect(response.status).toBe(401);
@@ -298,7 +298,7 @@ function matcherCovers(pattern: string, pathname: string): boolean {
 
 describe("member pages", () => {
   it("sends a signed-out visitor to the customer sign-in form", async () => {
-    const response = await middleware(request("/app/watchlists"));
+    const response = await proxy(request("/app/watchlists"));
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.pathname).toBe("/signin");
@@ -307,7 +307,7 @@ describe("member pages", () => {
 
   it("lets a request carrying a member cookie through to the layout", async () => {
     for (const name of MEMBER_SESSION_COOKIES) {
-      const response = await middleware(request("/app", `${name}=present`));
+      const response = await proxy(request("/app", `${name}=present`));
       expect(passedThrough(response), name).toBe(true);
     }
   });
@@ -320,7 +320,7 @@ describe("member pages", () => {
 
   it("never treats a member cookie as an operator session", async () => {
     for (const name of MEMBER_SESSION_COOKIES) {
-      const response = await middleware(request("/api/wands/engine/status", `${name}=present`));
+      const response = await proxy(request("/api/wands/engine/status", `${name}=present`));
       expect(response.status, name).toBe(401);
     }
   });
@@ -336,23 +336,23 @@ describe("member pages", () => {
     vi.stubEnv("WANDS_DATABASE_ENV", "development");
 
     for (const name of MEMBER_SESSION_COOKIES) {
-      const page = await middleware(request("/portfolio", `${name}=present`));
+      const page = await proxy(request("/portfolio", `${name}=present`));
       expect(page.status, name).toBe(307);
       expect(new URL(page.headers.get("location") ?? "").pathname, name).toBe("/login");
 
-      const api = await middleware(request("/api/wands/engine/status", `${name}=present`));
+      const api = await proxy(request("/api/wands/engine/status", `${name}=present`));
       expect(api.status, name).toBe(401);
       expect(passedThrough(api), name).toBe(false);
     }
   });
 
   it("keeps member APIs reachable so the route handler can authorise them", async () => {
-    const response = await middleware(request("/api/member/watchlists"));
+    const response = await proxy(request("/api/member/watchlists"));
     expect(passedThrough(response)).toBe(true);
   });
 
   it("keeps the auth endpoints public so sign-in can run", async () => {
-    const response = await middleware(request("/api/auth/sign-in/email"));
+    const response = await proxy(request("/api/auth/sign-in/email"));
     expect(passedThrough(response)).toBe(true);
   });
 

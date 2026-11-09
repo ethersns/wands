@@ -2,6 +2,8 @@ import "server-only";
 
 import { Pool, type QueryResultRow } from "pg";
 
+import { pgPoolConfig } from "@/lib/pg-config";
+
 const connectionString =
   process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? null;
 
@@ -20,13 +22,10 @@ function getPool(): Pool {
 
   if (!globalForDb.__wandsPgPool) {
     globalForDb.__wandsPgPool = new Pool({
-      connectionString,
+      ...pgPoolConfig(connectionString),
       max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
-      ssl: /(^|@)(localhost|127\.0\.0\.1)/.test(connectionString)
-        ? undefined
-        : { rejectUnauthorized: false },
     });
   }
 

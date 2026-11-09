@@ -2,6 +2,11 @@
   "name": "wands",
   "version": "0.1.0",
   "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

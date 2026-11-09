@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeTier } from "@/lib/auth/routes";
 import { SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
-import { config, middleware } from "@/middleware";
+import { config, proxy } from "@/proxy";
 
 const USERNAME = "operator";
 const PASSWORD = "correct horse battery staple";
@@ -71,7 +71,7 @@ describe("admin route classification", () => {
 
 describe("admin pages behind the operator gate", () => {
   it("redirects an unauthenticated visitor to the operator sign-in", async () => {
-    const response = await middleware(request("/dashboard/members"));
+    const response = await proxy(request("/dashboard/members"));
 
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location") ?? "");
@@ -81,14 +81,14 @@ describe("admin pages behind the operator gate", () => {
 
   it("serves the page to a signed-in operator", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/dashboard/waitlist", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(passedThrough(response)).toBe(true);
   });
 
   it("does not let a member session reach an admin page", async () => {
-    const response = await middleware(
+    const response = await proxy(
       request("/dashboard/members", "wands.session_token=member-token"),
     );
 
@@ -101,7 +101,7 @@ describe("admin pages behind the operator gate", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/dashboard"));
+    const response = await proxy(request("/dashboard"));
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get("location") ?? "").pathname).toBe("/login");
   });
@@ -109,13 +109,13 @@ describe("admin pages behind the operator gate", () => {
 
 describe("admin API behind the operator gate", () => {
   it("answers 401 to an unauthenticated export", async () => {
-    const response = await middleware(request("/api/admin/waitlist/export"));
+    const response = await proxy(request("/api/admin/waitlist/export"));
     expect(response.status).toBe(401);
     expect(passedThrough(response)).toBe(false);
   });
 
   it("answers 401 to a member session", async () => {
-    const response = await middleware(
+    const response = await proxy(
       request("/api/admin/waitlist/export", "wands.session_token=member-token"),
     );
     expect(response.status).toBe(401);
@@ -123,7 +123,7 @@ describe("admin API behind the operator gate", () => {
 
   it("lets a signed-in operator through", async () => {
     const token = await createSessionToken();
-    const response = await middleware(
+    const response = await proxy(
       request("/api/admin/waitlist/export", `${SESSION_COOKIE}=${token ?? ""}`),
     );
     expect(passedThrough(response)).toBe(true);
@@ -134,14 +134,14 @@ describe("admin API behind the operator gate", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/api/admin/waitlist/export"));
+    const response = await proxy(request("/api/admin/waitlist/export"));
     expect(response.status).toBe(503);
   });
 });
 
 describe("tracking beacon", () => {
   it("is reachable without any session", async () => {
-    const response = await middleware(request("/api/track"));
+    const response = await proxy(request("/api/track"));
     expect(passedThrough(response)).toBe(true);
   });
 
@@ -150,7 +150,7 @@ describe("tracking beacon", () => {
     delete process.env.WANDS_SESSION_SECRET;
     vi.stubEnv("NODE_ENV", "production");
 
-    const response = await middleware(request("/api/track"));
+    const response = await proxy(request("/api/track"));
     expect(passedThrough(response)).toBe(true);
     expect(response.status).not.toBe(503);
   });
@@ -159,13 +159,13 @@ describe("tracking beacon", () => {
 describe("existing routes still behave", () => {
   it("keeps the trading console gated", async () => {
     for (const path of ["/portfolio", "/markets", "/bots", "/orders", "/risk", "/settings"]) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(response.status, path).toBe(307);
     }
   });
 
   it("keeps the member workspace on the customer gate", async () => {
-    const response = await middleware(request("/app/quant-lab"));
+    const response = await proxy(request("/app/quant-lab"));
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.pathname).toBe("/signin");
@@ -174,7 +174,7 @@ describe("existing routes still behave", () => {
 
   it("keeps the marketing site public", async () => {
     for (const path of ["/", "/pricing", "/features", "/about", "/privacy"]) {
-      const response = await middleware(request(path));
+      const response = await proxy(request(path));
       expect(passedThrough(response), path).toBe(true);
     }
   });

@@ -7,7 +7,7 @@ import { siteUrl } from "@/lib/marketing/site";
  * Crawl policy for the public site.
  *
  * This is a request to well-behaved crawlers, not an access control mechanism.
- * The console is protected by the operator gate in `middleware.ts`; a crawler
+ * The console is protected by the operator gate in `proxy.ts`; a crawler
  * that ignores this file still gets a redirect to `/login`.
  */
 export default function robots(): MetadataRoute.Robots {
