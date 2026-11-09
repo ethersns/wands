@@ -50,11 +50,7 @@ def _candidate(
         notional=None if quantity is None else Decimal("5.06"),
         risk_at_stop=None if quantity is None else Decimal("0.07"),
         binding_constraint="maximum position exposure",
-        rejected_reason=(
-            None
-            if quantity is not None
-            else "One share costs more than the exposure ceiling."
-        ),
+        rejected_reason=(None if quantity is not None else "One share costs more than the exposure ceiling."),
         fee_bps=Decimal("5.0"),
         slippage_bps=Decimal("10.0"),
         data_fresh=True,
@@ -99,6 +95,23 @@ def test_the_scan_rejects_a_non_admin(client) -> None:
 
 def test_the_scan_rejects_an_unauthenticated_request(client) -> None:
     assert client.post("/v1/opportunity/scan").status_code == 401
+    assert client.get("/v1/opportunity/scan/status").status_code == 401
+
+
+def test_status_is_read_only_and_admin_only(client, session) -> None:
+    from sqlalchemy import func, select
+
+    from wands.db.models import OppScanStateRow
+
+    key, _user, _secret = make_api_key("viewer")
+    assert (
+        client.get("/v1/opportunity/scan/status", headers={"authorization": f"Bearer {key}"}).status_code
+        == 403
+    )
+    response = client.get("/v1/opportunity/scan/status", headers=_admin())
+    assert response.status_code == 200
+    assert response.json()["data"] is None
+    assert session.scalar(select(func.count()).select_from(OppScanStateRow)) == 0
 
 
 # --- decisions ------------------------------------------------------------
@@ -136,9 +149,7 @@ def test_decisions_are_appended_rather_than_overwritten(client, session) -> None
         )
         assert response.status_code == 200
 
-    decisions = client.get("/v1/opportunity/decisions", headers=headers).json()["data"][
-        "decisions"
-    ]
+    decisions = client.get("/v1/opportunity/decisions", headers=headers).json()["data"]["decisions"]
     assert len(decisions) == 2
     assert {item["decision"] for item in decisions} == {
         "candidate_watched",
@@ -187,6 +198,13 @@ def test_a_paper_test_is_recorded_and_listed(client, session) -> None:
     listed = client.get("/v1/opportunity/tests", headers=headers)
     assert listed.status_code == 200
     assert len(listed.json()["data"]["tests"]) == 1
+
+
+def test_a_discovered_usd_candidate_can_be_manually_tested(client, session) -> None:
+    candidate = _candidate(session, symbol="SOL/USD")
+    response = client.post(f"/v1/opportunity/candidates/{candidate.id}/tests", headers=_admin(), json={})
+    assert response.status_code == 200
+    assert response.json()["data"]["symbol"] == "SOL/USD"
 
 
 def test_an_infeasible_candidate_cannot_be_tested(client, session) -> None:

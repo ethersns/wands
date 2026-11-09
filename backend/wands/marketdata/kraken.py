@@ -57,7 +57,8 @@ def _decimal(value: Any) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
+        return parsed if parsed.is_finite() else None
     except (InvalidOperation, ValueError):
         return None
 
@@ -176,6 +177,57 @@ class KrakenPublicProvider:
             )
         return candles
 
+    def discover_usd_pairs(self) -> list[dict[str, Any]]:
+        payload = self._get("/0/public/AssetPairs", {"aclass_base": "currency"})
+        result = payload.get("result")
+        if not isinstance(result, dict) or not result:
+            raise ProviderDataError("Kraken returned no asset-pair catalogue.")
+        pairs: dict[str, dict[str, Any]] = {}
+        for key, data in result.items():
+            if not isinstance(data, dict) or data.get("quote") not in ("ZUSD", "USD"):
+                continue
+            if data.get("aclass_base") != "currency" or data.get("aclass_quote") != "currency":
+                continue
+            wsname = data.get("wsname", "")
+            if not isinstance(wsname, str) or not wsname.endswith("/USD") or "." in key:
+                continue
+            symbol = normalize_symbol(wsname, MarketType.CRYPTO)
+            pairs[symbol] = {
+                "symbol": symbol,
+                "pair": key,
+                "status": data.get("status", "unknown"),
+            }
+        if not pairs:
+            raise ProviderDataError("Kraken returned no identifiable USD spot markets.")
+        return sorted(pairs.values(), key=lambda pair: pair["symbol"])
+
+    def check_liquidity(self, pair: str, *, min_usd_volume: Decimal, max_spread_pct: Decimal) -> str | None:
+        payload = self._get("/0/public/Ticker", {"pair": pair})
+        data = self._first_result(payload, pair)
+
+        def number(field: str, index: int) -> Decimal | None:
+            values = data.get(field)
+            if not isinstance(values, list) or len(values) <= index:
+                return None
+            value = _decimal(values[index])
+            return value if value is not None and value.is_finite() and value > 0 else None
+
+        bid, ask = number("b", 0), number("a", 0)
+        volume, vwap = number("v", 1), number("p", 1)
+        if bid is None or ask is None or ask < bid or volume is None or vwap is None:
+            return "Liquidity unavailable: a valid two-sided quote and 24h volume/VWAP are required."
+        turnover = volume * vwap
+        if turnover < min_usd_volume:
+            return f"Insufficient liquidity: 24h USD turnover {turnover:.2f} is below {min_usd_volume}."
+        spread = (ask - bid) / ((ask + bid) / 2) * 100
+        if spread > max_spread_pct:
+            return f"Insufficient liquidity: spread {spread:.4f}% exceeds {max_spread_pct}%."
+        return None
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+
     # -- internals ---------------------------------------------------------
 
     def _first_result(self, payload: dict[str, Any], symbol: str) -> dict[str, Any]:
@@ -211,15 +263,26 @@ class KrakenPublicProvider:
                     retry_after_seconds=self._bucket.retry_after(now),
                 )
             try:
-                response = self._http().get(
-                    f"{self.base_url}{path}", params=params, timeout=self.timeout
-                )
+                response = self._http().get(f"{self.base_url}{path}", params=params, timeout=self.timeout)
             except Exception as exc:  # noqa: BLE001 - transport errors are all retryable
                 raise ProviderUnavailable(f"Kraken request failed: {exc}") from exc
 
             status = getattr(response, "status_code", 0)
             if status == 429:
-                raise ProviderRateLimited("Kraken rate limited the request.")
+                headers = getattr(response, "headers", {}) or {}
+                raw = headers.get("retry-after") or headers.get("Retry-After")
+                retry_after = _decimal(raw)
+                if retry_after is None and raw:
+                    try:
+                        retry_after = Decimal(
+                            str((parsedate_to_datetime(raw) - self._clock()).total_seconds())
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                raise ProviderRateLimited(
+                    "Kraken rate limited the request.",
+                    retry_after_seconds=max(0, float(retry_after)) if retry_after is not None else None,
+                )
             if status >= 500:
                 raise ProviderUnavailable(f"Kraken returned HTTP {status}.")
             if status != 200:
@@ -231,6 +294,18 @@ class KrakenPublicProvider:
                 raise ProviderDataError("Kraken returned a non-JSON body.") from exc
             if not isinstance(payload, dict):
                 raise ProviderDataError("Kraken returned an unexpected body.")
+            errors = payload.get("error") or []
+            if errors:
+                message = "; ".join(str(error) for error in errors)
+                if "rate limit" in message.lower() or "throttl" in message.lower():
+                    retry_at = _decimal(message.rsplit(":", 1)[-1].strip())
+                    raise ProviderRateLimited(
+                        f"Kraken throttled the request: {message}",
+                        retry_after_seconds=max(0, float(retry_at) - self._clock().timestamp())
+                        if retry_at is not None
+                        else None,
+                    )
+                raise ProviderDataError(f"Kraken rejected the request: {message}")
             headers = getattr(response, "headers", {}) or {}
             payload["__date_header__"] = headers.get("date") or headers.get("Date")
             return payload

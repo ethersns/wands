@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpportunityDesk } from "@/components/opportunity/opportunity-desk";
+import { SWRConfig } from "swr";
 import type {
   OpportunityCandidate,
   OpportunityDecision,
@@ -9,13 +10,15 @@ import type {
 } from "@/lib/api/opportunity";
 
 const mocks = vi.hoisted(() => ({
-  runScanAction: vi.fn(),
+  advanceScannerAction: vi.fn(),
+  readScannerAction: vi.fn(),
   recordDecisionAction: vi.fn(),
   recordTestAction: vi.fn(),
   evaluateTestAction: vi.fn(),
 }));
 
 vi.mock("@/lib/opportunity/actions", () => mocks);
+vi.mock("@/lib/opportunity/scan-actions", () => mocks);
 
 function candidate(overrides: Partial<OpportunityCandidate> = {}): OpportunityCandidate {
   return {
@@ -100,17 +103,20 @@ function renderDesk({
   candidatesError = null as string | null,
 } = {}) {
   return render(
-    <OpportunityDesk
-      candidates={candidates}
-      decisions={decisions}
-      tests={tests}
-      candidatesError={candidatesError}
-    />,
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <OpportunityDesk
+        candidates={candidates}
+        decisions={decisions}
+        tests={tests}
+        candidatesError={candidatesError}
+      />
+    </SWRConfig>,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.readScannerAction.mockResolvedValue(null);
 });
 
 describe("Opportunity Desk manual controls", () => {
@@ -229,22 +235,18 @@ describe("Opportunity Desk manual controls", () => {
   });
 
   it("runs a scan only when asked", async () => {
-    mocks.runScanAction.mockResolvedValue({
-      ok: true,
-      title: "No qualifying opportunities",
-      message: "A quiet scan is a normal result, not a failure.",
-      detail: [],
-      at: "2026-11-09T16:00:00Z",
+    mocks.advanceScannerAction.mockResolvedValue({
+      ok: false, message: "Provider unavailable; progress saved.",
     });
 
     renderDesk();
-    expect(mocks.runScanAction).not.toHaveBeenCalled();
+    expect(mocks.advanceScannerAction).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: /find opportunities/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /find opportunities/i }));
 
-    fireEvent.click(screen.getByRole("button", { name: /run scan/i }));
-
-    await waitFor(() => expect(mocks.runScanAction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.advanceScannerAction).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.getByText("No qualifying opportunities")).toBeInTheDocument(),
+      expect(screen.getByText("Provider unavailable; progress saved.")).toBeInTheDocument(),
     );
   });
 

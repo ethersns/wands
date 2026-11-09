@@ -2,7 +2,8 @@
 
 The list is deliberately small. A handful of liquid instruments is enough to
 find out whether a rule is worth looking at, and it keeps the data cost bounded.
-Full-market scanning is out of scope.
+The live scanner replaces the crypto entries with Kraken discovery; these
+entries remain the deterministic defaults for strategy tests and stock support.
 
 Sessions matter because a four-hour holding window means something different on
 a venue that closes than on one that never does. A stock test that would run
@@ -53,6 +54,8 @@ def entry_for(symbol: str, watchlist: tuple[WatchlistEntry, ...] = DEFAULT_WATCH
     for entry in watchlist:
         if entry.symbol.upper() == wanted:
             return entry
+    if wanted.endswith("/USD") and wanted.count("/") == 1:
+        return WatchlistEntry(wanted, MarketType.CRYPTO, wanted)
     return None
 
 

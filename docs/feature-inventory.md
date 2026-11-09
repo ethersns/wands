@@ -85,7 +85,7 @@ else.
 | Notifications | `lib/member/notifications.ts` | `/api/member/notifications` | `/app/notifications` | Notifications | `local-verified` |
 | Membership and billing | `lib/billing/` | `/api/billing/*` | `/app/membership` | Membership | `local-verified` |
 | Account | `lib/member/account.ts` | `/api/member/account` | `/app/account` | Account | `local-verified` |
-| Opportunity Desk | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Opportunity Desk (founder only) | `blocked` |
+| Opportunity Desk | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Opportunity Desk (founder only) | `local-verified` |
 | Money (manual trade journal) | `lib/money/`, `db/migrations/0007_money_journal.sql` | `/v1/opportunity/*`, `/v1/markets/{symbol}/quote`, `/v1/markets/health` | `/app/money` | Money (founder only) | `local-verified` |
 
 ### Money
@@ -159,6 +159,93 @@ grant is checked).
 REMAINING BLOCKERS:
 Deployed engine endpoint; an equity market-data credential if stocks are ever to
 be supported.
+
+### Expanded Opportunity Scanner
+
+FEATURE: Dynamic Kraken USD spot discovery and resumable scanning.
+STATUS: `local-verified`; founder-only, not a generally available member feature.
+
+BACKEND IMPLEMENTATION: `backend/wands/marketdata/kraken.py` discovers the full
+USD spot catalogue from public `AssetPairs`, normalises BTC/DOGE aliases and
+excludes tokenized assets, non-USD quotes and dark pools. Only `online` markets
+proceed. Rolling 24h USD turnover must be at least $100,000 (base volume times
+24h VWAP), with a valid two-sided quote and spread no wider than the existing
+`max_spread_pct` setting. Unknown liquidity fails closed. The original four
+stock symbols and regular-session rules remain.
+
+`backend/wands/opportunity/scanner.py` advances at most one provider request per
+batch. Discovery, per-pair liquidity and completed OHLC bars are separate steps.
+Requests use a three-second provider timeout and one attempt; the next request
+waits at least two seconds (longer for a stricter configured rate). Explicit
+rate limits and transport failures save a backoff checkpoint, not an empty
+success. Three transport failures for one market produce a visible rejection.
+The catalogue is revalidated after five minutes without reshuffling the cursor;
+new listings enter the next scan. Liquidity older than 30 seconds is rechecked.
+Candles are explicitly refreshed rather than silently reused from a failed
+refresh. The breakout strategy, costs, sizing ceilings and manual journal are
+unchanged; stale triggered patterns are rejected rather than stored as fresh
+opportunities. Infeasible sizing remains visible and is never rounded upward.
+
+API CONTRACT: `POST /v1/opportunity/scan` starts/attaches; subsequent POSTs send
+`run_id`, acknowledged `cursor`, and the original `interval`. `restart=true`
+starts a new run only after completion. Replayed cursors do no duplicate work.
+`GET /v1/opportunity/scan/status` is read-only. Both require engine admin RBAC.
+The response contains run/status/cursor, checked markets and USD pairs, total,
+active pairs discovered, qualifying setup summaries, rejection reasons, errors
+and `nextBatchAt`. Qualifying patterns are not profitability claims or orders.
+
+PERSISTENCE JUSTIFICATION: Additive engine migration
+`c2f8a4d6e901_opportunity_scan_checkpoint.py` adds only `opp_scan_state`, a single
+JSON checkpoint plus lease/backoff fields. Existing SEC job tables are governed
+by their own scheduler and recovery, so sharing those rows would mix unrelated
+lifecycles. A database-conditional lease serialises both desks across processes;
+lease ownership/expiry fence every commit. Candidate writes and progress commit
+atomically. This survives process restarts and lost HTTP responses without a
+new service, queue, dependency or paid provider. The migration has **not** been
+applied to production.
+
+FRONTEND/NAVIGATION: The shared `components/opportunity/scanner-panel.tsx` is on
+both `/app/opportunity` (Opportunity Desk) and `/app/money` (Money), through their
+existing founder-only navigation. Server actions in `lib/opportunity/scan-actions.ts`
+recheck the founder grant before reads or writes. SWR synchronises status; merely
+opening/reloading a page never starts a scan. The founder explicitly starts or
+resumes paced batches and can pause after a batch. Leaving the page stops further
+work; returning reads the saved checkpoint. Counters, qualifying symbols with
+observation times, liquidity policy and expandable per-symbol reasons remain
+visible. Long scans are explicitly not represented as simultaneous snapshots.
+
+PUBLIC WEBSITE: None; this is an operator/founder research surface.
+
+TEST COVERAGE: `backend/tests/test_opportunity_scanner.py` covers discovery,
+quote/asset/status filters, aliases, liquidity, 800-pair bounded discovery,
+replay, restart-style resume, lease overlap/expiry/fencing, atomic rollback,
+backoff, catalogue refresh/delisting, stale candles and provider failures.
+`test_opportunity_scan_migration.py` exercises upgrade/downgrade/re-upgrade on an
+in-memory database. Existing strategy, sizing, completed-candle, stock-session,
+manual test and API RBAC coverage remains. Frontend tests cover founder gates,
+read-only status, forwarded cursors, ambiguous timeout reporting and explicit
+scan interaction. TypeScript and targeted Python/ESLint checks pass.
+
+REAL PROVIDER EVIDENCE: `backend/scripts/verify_opportunity_scan.py` creates a
+disposable local database and uses real public Kraken responses. The observed
+catalogue contained **681 USD spot pairs, 624 online**. A representative six-pair
+sample checked BTC, ETH, SOL, DOGE, 0G and an inactive market through the actual
+coordinator/storage code. It reported one qualifying pattern, low-liquidity and
+inactive rejections, and ordinary strategy rejections; these are observations,
+not performance evidence. All eleven batch calls took under 0.45 seconds in
+that run. This was **not** a completed 681-pair scan.
+
+BROWSER EVIDENCE: At 709×765 in dark mode, the actual ScannerPanel was exercised
+in a disposable transport harness against the authenticated local engine with
+real Kraken data. Start/discovery, rejection disclosure, pause, reload and
+resume advanced saved progress from six to seven checked markets. The harness
+and local engine were removed/stopped afterwards. It was not a deployed Next.js
+founder-session end-to-end test.
+
+REMAINING BLOCKERS / UNVERIFIED: Owner-approved engine migration/deployment;
+deployed authenticated full-stack verification; a full-universe completion run;
+live Alpaca stock-feed verification (no credential was supplied). No production
+database, live trading, strategy thresholds or risk limits were changed.
 
 ### Research read-path performance
 

@@ -1387,6 +1387,18 @@ class PerfEvaluationJobRow(Base):
 OPP_RETURN = Numeric(20, 10)
 
 
+class OppScanStateRow(Base):
+    """One bounded scanner, shared across Railway processes and desk clients."""
+
+    __tablename__ = "opp_scan_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    state: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    lease_owner: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    next_batch_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
 class OppCandidateRow(Base):
     """A candidate exactly as the rule produced it.
 

@@ -31,12 +31,12 @@ from wands.marketdata.service import MarketDataService
 from wands.opportunity import (
     CANDIDATE_REJECTED,
     CANDIDATE_WATCHED,
-    OpportunityDesk,
     PaperTest,
     ResearchBudget,
     evaluate_test,
     holding_deadline,
 )
+from wands.opportunity.scanner import ScanCoordinator
 from wands.opportunity.watchlist import entry_for
 from wands.schemas import CamelModel, CandleInterval, MarketType
 from wands.security.auth import Principal
@@ -174,27 +174,7 @@ def get_budget(principal: Principal = _admin) -> dict[str, Any]:
     )
 
 
-@router.post("/scan")
-def scan(
-    interval: CandleInterval = Query(default=CandleInterval.M5),
-    session: Session = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-    principal: Principal = _admin,
-) -> dict[str, Any]:
-    """Run the rule over the watchlist and store what qualified.
-
-    This writes a candidate row per qualifying symbol, so it is a POST. It used
-    to be a GET, which let a prefetch, a crawler or a link preview trigger a
-    scan and persist candidates without anyone asking for one. A GET now answers
-    405; the only in-repo caller is the desk's scan action, which was moved in
-    the same change.
-
-    An empty result is a real answer. The envelope carries the reason each
-    symbol was skipped so a quiet scan can be told apart from a broken one.
-    """
-    desk = OpportunityDesk(_service(session, settings))
-    report = desk.scan(interval=interval)
-
+def _store_report(session: Session, report) -> list[OppCandidateRow]:
     stored: list[OppCandidateRow] = []
     for candidate in report.candidates:
         row = OppCandidateRow(
@@ -232,24 +212,38 @@ def scan(
         )
         session.add(row)
         stored.append(row)
-    session.commit()
+    session.flush()
+    return stored
 
-    warnings = [DISCLOSURE]
-    for candidate in report.candidates:
-        warnings.extend(candidate.data_quality.warnings)
 
-    return envelope(
-        {
-            "generatedAt": report.generated_at.isoformat(),
-            "interval": str(report.interval),
-            "candidates": [_candidate_payload(row) for row in stored],
-            "skipped": [
-                {"symbol": item.symbol, "reason": item.reason} for item in report.skipped
-            ],
-            "notes": list(report.notes),
-        },
-        warnings=warnings,
+@router.get("/scan/status")
+def scan_status(
+    session: Session = Depends(get_session),
+    principal: Principal = _admin,
+) -> dict[str, Any]:
+    return envelope(ScanCoordinator(session).status(), warnings=[DISCLOSURE])
+
+
+@router.post("/scan")
+def scan(
+    interval: CandleInterval = Query(default=CandleInterval.M5),
+    run_id: str | None = Query(default=None, max_length=36),
+    cursor: int | None = Query(default=None, ge=0),
+    restart: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    principal: Principal = _admin,
+) -> dict[str, Any]:
+    """Start/attach, or advance one fenced batch. GET never triggers work."""
+    result = ScanCoordinator(session).advance(
+        service=_service(session, settings),
+        store_report=_store_report,
+        interval=interval,
+        run_id=run_id,
+        cursor=cursor,
+        restart=restart,
     )
+    return envelope(result, warnings=[DISCLOSURE])
 
 
 @router.get("/candidates")
@@ -259,9 +253,7 @@ def list_candidates(
     principal: Principal = _admin,
 ) -> dict[str, Any]:
     rows = session.scalars(
-        select(OppCandidateRow)
-        .order_by(OppCandidateRow.created_at.desc())
-        .limit(limit)
+        select(OppCandidateRow).order_by(OppCandidateRow.created_at.desc()).limit(limit)
     ).all()
     return envelope(
         {"candidates": [_candidate_payload(row) for row in rows]},
@@ -282,9 +274,7 @@ def list_decisions(
     candidate instead of offering the same action twice.
     """
     rows = session.scalars(
-        select(OppDecisionRow)
-        .order_by(OppDecisionRow.decided_at.desc())
-        .limit(limit)
+        select(OppDecisionRow).order_by(OppDecisionRow.decided_at.desc()).limit(limit)
     ).all()
     return envelope(
         {"decisions": [_decision_payload(row) for row in rows]},
@@ -300,9 +290,7 @@ def record_decision(
     principal: Principal = _admin,
 ) -> dict[str, Any]:
     if body.decision not in (CANDIDATE_WATCHED, CANDIDATE_REJECTED):
-        raise BadRequest(
-            f"Decision must be {CANDIDATE_WATCHED} or {CANDIDATE_REJECTED}."
-        )
+        raise BadRequest(f"Decision must be {CANDIDATE_WATCHED} or {CANDIDATE_REJECTED}.")
     try:
         parsed = uuid.UUID(candidate_id)
     except ValueError as exc:
@@ -352,8 +340,7 @@ def record_test(
         raise NotFound("That candidate does not exist.")
     if row.quantity is None:
         raise BadRequest(
-            row.rejected_reason
-            or "This candidate has no feasible position size, so it cannot be tested."
+            row.rejected_reason or "This candidate has no feasible position size, so it cannot be tested."
         )
 
     quantity = Decimal(body.quantity) if body.quantity else row.quantity
@@ -394,9 +381,7 @@ def list_tests(
     principal: Principal = _admin,
 ) -> dict[str, Any]:
     rows = session.scalars(
-        select(OppPaperTestRow)
-        .order_by(OppPaperTestRow.opened_at.desc())
-        .limit(limit)
+        select(OppPaperTestRow).order_by(OppPaperTestRow.opened_at.desc()).limit(limit)
     ).all()
     return envelope(
         {"tests": [_test_payload(row) for row in rows]},
@@ -461,9 +446,7 @@ def evaluate(
     row.entry_price = outcome.entry_price
     row.exit_price = outcome.exit_price
     row.exit_at = outcome.exit_at
-    row.holding_seconds = (
-        None if outcome.holding_seconds is None else Decimal(str(outcome.holding_seconds))
-    )
+    row.holding_seconds = None if outcome.holding_seconds is None else Decimal(str(outcome.holding_seconds))
     row.gross_return = outcome.gross_return
     row.fees = outcome.fees
     row.slippage = outcome.slippage
