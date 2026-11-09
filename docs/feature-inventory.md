@@ -479,21 +479,26 @@ FRONTEND TASK REQUIRED: None. Do not add these to member navigation.
 
 ## 7. Verification evidence
 
-Run on 2026-08-11 against commit `2b412a5` plus this change.
+Run on 2026-11-09 against commit `2b412a5` plus this change.
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Backend suite | `python -m pytest -q` in `backend/` (Python 3.13, venv) | **657 passed** |
-| Frontend suite | `pnpm exec vitest run` | **505 passed**, 40 files |
+| Backend suite | `python -m pytest -q` in `backend/` (Python 3.13, venv) | **746 passed** |
+| Frontend suite | `pnpm exec vitest run` | **551 passed**, 44 files |
 | Typecheck | `pnpm exec tsc --noEmit` | clean |
-| Production build | `pnpm build` | exit 0; `/app/institutions` registered as a dynamic route |
+| Lint | `pnpm exec eslint` on changed files | clean |
+| Production build | `pnpm build` | exit 0; `/app/catalysts` registered as a dynamic route |
 
 Not run, and therefore not claimed:
 
 - No engine was started, so `/healthz` and `/readyz` are unverified by execution.
+- `WANDS_ENGINE_URL` is unset in this environment, so `/app/catalysts` renders its
+  unavailable state in preview rather than a populated feed. The populated state
+  is covered by the backend contract tests and the timeline render tests, not by
+  a browser session against a live engine.
 - No production research request was made, so no member page was exercised
   against real data.
-- No migration was applied to any database.
+- No migration was applied to any database. Catalyst Radar adds no table.
 - No SEC ingestion was executed, so no filing counts are reported here.
 
 ---
