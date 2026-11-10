@@ -21,6 +21,7 @@ export interface OpportunitySizing {
 }
 
 export interface OpportunityCandidate {
+  latestDecision?: OpportunityDecisionKind | null;
   id: string;
   symbol: string;
   marketType: string;

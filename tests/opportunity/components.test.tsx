@@ -24,6 +24,7 @@ vi.mock("@/lib/opportunity/scan-actions", () => mocks);
 function candidate(overrides: Partial<OpportunityCandidate> = {}): OpportunityCandidate {
   return {
     id: "cand-1",
+    latestDecision: null,
     symbol: "BTC/USD",
     marketType: "crypto",
     strategyKey: "intraday_breakout",
@@ -351,6 +352,6 @@ describe("Opportunity Desk manual controls", () => {
     renderDesk({ candidates: [], candidatesError: "WANDS_ENGINE_URL is not set." });
 
     expect(screen.getByText(/the engine could not be reached/i)).toBeInTheDocument();
-    expect(screen.getByText(/WANDS_ENGINE_URL is not set/i)).toBeInTheDocument();
+    expect(screen.getByText(/Radar unavailable: WANDS_ENGINE_URL is not set/i)).toBeInTheDocument();
   });
 });

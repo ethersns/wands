@@ -16,7 +16,7 @@ import { requireFounder } from "@/lib/auth/founder";
 export const metadata: Metadata = {
   title: "Opportunity Desk",
   description:
-    "A private Kraken market-discovery workspace with measured market interest, qualified setups, manual paper tests, and an honest journal.",
+    "A private market-discovery workspace with a ranked paper radar, saved setup dismissals, manual paper tests, and an honest journal.",
 };
 
 export const dynamic = "force-dynamic";
@@ -87,7 +87,7 @@ export default async function OpportunityDeskPage() {
       <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
         <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
         <p className="text-sm text-muted-foreground">
-          Rankings show market activity, not trading signals or profit odds. Market data is research only.
+          Radar setups are historical rule matches, not trade recommendations or profit odds. Market Pulse ranks activity only. Nothing here places an order.
         </p>
       </div>
 
