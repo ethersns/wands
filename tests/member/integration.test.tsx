@@ -1,7 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MEMBER_FOOTER_NAV, MEMBER_NAV } from "@/components/member/member-shell";
+import {
+  getMemberNavGroups,
+  MEMBER_FOOTER_NAV,
+  MEMBER_NAV,
+  MEMBER_NAV_GROUPS,
+} from "@/components/member/member-shell";
 import { ProvenanceNote } from "@/components/member/ui";
 import { researchConfig } from "@/lib/api/client";
 import {
@@ -29,6 +34,22 @@ afterEach(() => {
 });
 
 describe("member navigation", () => {
+  it("groups workspace destinations and hides founder-only links from members", () => {
+    expect(MEMBER_NAV_GROUPS.map((group) => group.label)).toEqual([
+      "Workspace",
+      "Research & Labs",
+      "More Tools",
+    ]);
+    const memberGroups = getMemberNavGroups(false);
+    expect(memberGroups.every((group) => group.items.length > 0)).toBe(true);
+    const memberHrefs = memberGroups.flatMap((group) => group.items.map((item) => item.href));
+    expect(memberHrefs).not.toContain("/app/opportunity");
+    expect(memberHrefs).not.toContain("/app/money");
+    expect(getMemberNavGroups(true).flatMap((group) => group.items.map((item) => item.href))).toEqual(
+      MEMBER_NAV.map((item) => item.href),
+    );
+  });
+
   it("exposes asset research from the member nav", () => {
     const research = MEMBER_NAV.find((item) => item.href === "/app/research");
     expect(research).toBeDefined();

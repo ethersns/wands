@@ -98,12 +98,30 @@ describe("Market Pulse measurements", () => {
     expect(await within(table).findByText("BTC/USD")).toBeInTheDocument();
     expect(within(table).queryByText("DOGE/USD")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /High Risk \/ High Movement/ }));
+    fireEvent.click(screen.getByRole("button", { name: /High Movement/ }));
     expect(await within(table).findByText("DOGE/USD")).toBeInTheDocument();
     expect(within(table).queryByText("BTC/USD")).not.toBeInTheDocument();
-    expect(screen.getByText(/the 24h high-low range is a movement proxy, not a forecast/)).toBeInTheDocument();
+    expect(screen.getByText(/24h range is a movement proxy, not a forecast/)).toBeInTheDocument();
     fireEvent.click(within(table).getByRole("button", { name: /DOGE\/USD/ }));
     expect(await screen.findByText(/24h USD turnover is below the \$100,000 scanner floor/)).toBeInTheDocument();
+  });
+
+  it("preserves a category-native rank until the user selects and then clears an override", async () => {
+    renderPanel();
+    const table = await screen.findByRole("table");
+
+    fireEvent.click(screen.getByRole("button", { name: /Strong Liquidity/ }));
+    const symbols = () => within(table).getAllByRole("row").slice(1).map(
+      (row) => row.querySelector("td button span")?.textContent,
+    );
+    expect(symbols()).toEqual(["BTC/USD", "ETH/USD", "SOL/USD"]);
+
+    const rankBy = screen.getByLabelText("Rank by");
+    fireEvent.change(rankBy, { target: { value: "day-move" } });
+    expect(symbols()).toEqual(["SOL/USD", "ETH/USD", "BTC/USD"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /All Markets/ }));
+    expect(rankBy).toHaveValue("category");
   });
 
   it("expands verified evidence and compares multiple markets without a setup", async () => {
@@ -119,6 +137,11 @@ describe("Market Pulse measurements", () => {
     fireEvent.click(within(table).getByRole("button", { name: /BTC\/USD/ }));
     expect(await screen.findByText("Change from Kraken's UTC day open")).toBeInTheDocument();
     expect(within(table).getByText("Snapshot time")).toBeInTheDocument();
+    expect(within(table).getByRole("link", { name: "Open asset research" })).toHaveAttribute(
+      "href",
+      "/app/assets/BTC%2FUSD",
+    );
+    expect(within(table).getByRole("button", { name: "Add to watchlist" })).toBeInTheDocument();
   });
 
   it("searches the full supported catalog and shows an explicit unavailable state", async () => {
@@ -129,7 +152,8 @@ describe("Market Pulse measurements", () => {
     expect(await screen.findByText("DOGE/USD")).toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: /Hype \/ Social Buzz/ }));
+    fireEvent.click(screen.getByText(/Other indicators \/ Not yet available/));
+    fireEvent.click(screen.getByRole("button", { name: /Social Buzz/ }));
     expect(screen.getByText(/No verified, attributed social-attention provider is connected/)).toBeInTheDocument();
     expect(screen.getByText(/No verified measurements are available for this category/)).toBeInTheDocument();
   });
