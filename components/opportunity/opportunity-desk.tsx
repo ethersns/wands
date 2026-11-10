@@ -454,10 +454,21 @@ export function OpportunityDesk({
       <MarketPulsePanel />
       <ScannerPanel />
 
-      <SectionCard
-        title="Candidates"
-        description="Stored candidates, newest first, with original timestamps and safety warnings."
-      >
+      {candidatesError ? (
+        <p role="alert" className="rounded-md border border-loss/30 bg-loss/5 p-3 text-sm text-loss">
+          Strategy candidates are unavailable: {candidatesError}
+        </p>
+      ) : null}
+
+      <details className="rounded-lg border border-border px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">
+          Stored strategy candidates ({candidates.length})
+        </summary>
+        <div className="mt-3">
+          <SectionCard
+            title="Stored strategy candidates"
+            description="Newest first, with original timestamps and safety warnings."
+          >
         {candidatesError ? (
           <EmptyState
             icon={Crosshair}
@@ -483,12 +494,19 @@ export function OpportunityDesk({
             description="Run the scanner above to check Kraken USD spot markets and the stock watchlist. A quiet scan is a normal result, not a failure."
           />
         )}
-      </SectionCard>
+          </SectionCard>
+        </div>
+      </details>
 
-      <SectionCard
-        title="Journal"
-        description="Every recorded test and decision, kept whether or not it worked out."
-      >
+      <details className="rounded-lg border border-border px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">
+          Test History &amp; Journal ({tests.length} tests, {decisions.length} decisions)
+        </summary>
+        <div className="mt-3">
+          <SectionCard
+            title="Test History & Journal"
+            description="Every recorded test and decision, including negative outcomes."
+          >
         {tests.length === 0 && decisions.length === 0 ? (
           <p className="text-[12px] text-muted-foreground">
             Nothing recorded yet. Watching, rejecting and recording a paper test all appear here.
@@ -552,7 +570,9 @@ export function OpportunityDesk({
             ) : null}
           </div>
         )}
-      </SectionCard>
+          </SectionCard>
+        </div>
+      </details>
     </div>
   );
 }

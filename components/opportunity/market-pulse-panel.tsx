@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import useSWR from "swr";
-import { RefreshCw, Search } from "lucide-react";
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SectionCard } from "@/components/shared/section-card";
+import { AddToWatchlist } from "@/components/member/add-to-watchlist";
 import type { MarketPulseMarket } from "@/lib/api/opportunity";
 import {
   getMarketsForCategory,
@@ -16,9 +18,19 @@ import {
   type MarketPulseSort,
 } from "@/lib/opportunity/market-pulse";
 import { readMarketPulseAction } from "@/lib/opportunity/scan-actions";
+import { assetHref } from "@/lib/member/links";
 
 const DISPLAY_LIMIT = 50;
 const COMPARE_LIMIT = 4;
+
+const CATEGORY_GROUPS: { label: string; ids: MarketPulseCategoryId[] }[] = [
+  { label: "Market", ids: ["all", "highlights", "trending", "popular", "top-movers", "strong-liquidity", "low-spread"] },
+  { label: "Speculative", ids: ["high-risk", "wildcards", "lower-volatility", "bearish-watch"] },
+];
+const ADVANCED_CATEGORY_IDS: MarketPulseCategoryId[] = [
+  "volume-surges", "momentum", "breakout-watch", "reversal-watch", "short-term",
+  "swing", "longer-term", "social-buzz", "search-trending",
+];
 
 function number(value: string | null): number | null {
   if (value === null) return null;
@@ -68,6 +80,7 @@ function MarketRow({
   asOf,
   minimumTurnoverUsd,
   maxSpreadPct,
+  highRange,
   onExpand,
   onCompare,
 }: {
@@ -78,17 +91,20 @@ function MarketRow({
   asOf: string;
   minimumTurnoverUsd: string;
   maxSpreadPct: string;
+  highRange: boolean;
   onExpand: () => void;
   onCompare: (checked: boolean) => void;
 }) {
   const turnover = number(market.turnover24hUsd);
   const spread = number(market.spreadPct);
   const belowFloor = turnover !== null && turnover < Number(minimumTurnoverUsd);
+  const dayMove = number(market.dayChangePct);
   const riskNotes = [
-    belowFloor ? `24h USD turnover is below the $${Number(minimumTurnoverUsd).toLocaleString("en-US")} scanner floor; research only.` : null,
-    spread !== null && spread > Number(maxSpreadPct) ? `Quoted spread is wider than the ${maxSpreadPct}% scanner limit.` : null,
+    turnover === null ? "24h USD turnover is unavailable." : belowFloor ? `24h USD turnover is below the $${Number(minimumTurnoverUsd).toLocaleString("en-US")} scanner floor; research only.` : null,
+    spread === null ? "Quoted spread is unavailable, so execution cost cannot be assessed." : spread > Number(maxSpreadPct) ? `Quoted spread is wider than the ${maxSpreadPct}% scanner limit.` : null,
+    dayMove !== null && dayMove < 0 ? `Price is ${percent(market.dayChangePct)} from Kraken's UTC day open; this is a measured move, not a forecast.` : null,
+    highRange ? "This market's 24h high-low range is in the highest quartile of this snapshot; relative range is not a forecast." : null,
     !market.tickerAvailable ? "Kraken did not return a ticker for this market; measurements are unavailable." : null,
-    market.spreadPct === null ? "Quoted spread is unavailable, so execution cost cannot be assessed." : null,
     ...market.warnings,
   ].filter((item): item is string => item !== null);
 
@@ -116,7 +132,17 @@ function MarketRow({
               <span className="text-sm text-muted-foreground">{price(market.lastPrice)} USD</span>
             </button>
           </div>
+          {turnover === null || spread === null || belowFloor || (spread !== null && spread > Number(maxSpreadPct)) || !market.tickerAvailable || (dayMove !== null && dayMove < 0) || highRange ? (
+            <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`${market.symbol} measured risk indicators`}>
+              {!market.tickerAvailable ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">Ticker unavailable</Badge> : null}
+              {turnover === null ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">Turnover unavailable</Badge> : belowFloor ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">Thin liquidity</Badge> : null}
+              {spread === null ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">Spread unavailable</Badge> : spread > Number(maxSpreadPct) ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">Wide spread</Badge> : null}
+              {dayMove !== null && dayMove < 0 ? <Badge variant="muted" className="border-loss/30 bg-loss/10 text-loss">Downward move</Badge> : null}
+              {highRange ? <Badge variant="muted" className="border-warning/30 bg-warning/10 text-warning">High range</Badge> : null}
+            </div>
+          ) : null}
         </td>
+
         <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-sm text-foreground">{usd(market.turnover24hUsd)}</td>
         <td className={`whitespace-nowrap px-3 py-3 text-right font-mono text-sm ${movementClass(market.dayChangePct)}`}>{percent(market.dayChangePct)}</td>
         <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-sm text-foreground">{percent(market.range24hPct)}</td>
@@ -141,6 +167,21 @@ function MarketRow({
                   {riskNotes.map((note) => <li key={note} className="flex items-start gap-2 text-sm text-muted-foreground"><span aria-hidden>•</span><span>{note}</span></li>)}
                 </ul>
               ) : <p className="text-sm text-muted-foreground">Ticker liquidity and quoted spread meet the scanner&apos;s current market-data filters. This is not a strategy-qualified setup.</p>}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                <p className="text-sm text-muted-foreground">Research and watchlist actions do not place an order.</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Link
+                    href={assetHref(market.symbol)}
+                    className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Open asset research
+                  </Link>
+                  <AddToWatchlist
+                    symbol={market.symbol}
+                    marketType={market.symbol.includes("/") ? "crypto" : "stocks"}
+                  />
+                </div>
+              </div>
             </div>
           </td>
         </tr>
@@ -151,7 +192,7 @@ function MarketRow({
 
 export function MarketPulsePanel() {
   const [category, setCategory] = React.useState<MarketPulseCategoryId>("highlights");
-  const [sort, setSort] = React.useState<MarketPulseSort>("interest");
+  const [sortOverride, setSortOverride] = React.useState<MarketPulseSort | null>(null);
   const [search, setSearch] = React.useState("");
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [compared, setCompared] = React.useState<string[]>([]);
@@ -172,8 +213,9 @@ export function MarketPulsePanel() {
     const filtered = query
       ? categoryMarkets.filter((market) => market.symbol.toLocaleLowerCase().includes(query))
       : categoryMarkets;
-    return sortMarketPulseMarkets(filtered, sort);
-  }, [data, category, search, sort]);
+    if (sortOverride) return sortMarketPulseMarkets(filtered, sortOverride);
+    return query ? sortMarketPulseMarkets(filtered, "interest") : filtered;
+  }, [data, category, search, sortOverride]);
 
   const categoryCounts = React.useMemo(() => {
     if (!data) return new Map<MarketPulseCategoryId, number>();
@@ -184,6 +226,10 @@ export function MarketPulsePanel() {
   }, [data]);
 
   const visibleMarkets = rows.slice(0, visibleLimit);
+  const highRangeSymbols = new Set(data
+    ? getMarketsForCategory(data.markets, "high-risk", data.minimumTurnoverUsd, data.maxSpreadPct)
+        .map((market) => market.symbol)
+    : []);
   const marketsBySymbol = new Map((data?.markets ?? []).map((market) => [market.symbol, market]));
   const comparison = compared.map((symbol) => marketsBySymbol.get(symbol)).filter((market): market is MarketPulseMarket => Boolean(market));
   const turnoverValues = (data?.markets ?? [])
@@ -204,6 +250,7 @@ export function MarketPulsePanel() {
 
   function selectCategory(next: MarketPulseCategoryId) {
     setCategory(next);
+    setSortOverride(null);
     setVisibleLimit(DISPLAY_LIMIT);
     setExpanded(null);
   }
@@ -221,10 +268,17 @@ export function MarketPulsePanel() {
       title="Market Pulse"
       description="Market interest and qualified trading setups are separate. This view ranks verified Kraken USD spot measurements; it does not place trades."
       action={(
-        <Button size="sm" variant="outline" onClick={() => void mutate()} disabled={isLoading || isValidating}>
-          <RefreshCw data-icon="inline-start" aria-hidden className={isValidating ? "animate-spin" : undefined} />
-          Refresh snapshot
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {data ? (
+            <span className="text-sm text-muted-foreground" aria-live="polite">
+              Snapshot {localTime(data.asOf)} · Kraken {data.timestampSource === "provider" ? "timestamp" : "receipt time"}
+            </span>
+          ) : null}
+          <Button size="sm" variant="outline" onClick={() => void mutate()} disabled={isLoading || isValidating} aria-label="Refresh Kraken market snapshot">
+            <RefreshCw data-icon="inline-start" aria-hidden className={isValidating ? "animate-spin" : undefined} />
+            Refresh
+          </Button>
+        </div>
       )}
     >
       {error ? (
@@ -233,25 +287,26 @@ export function MarketPulsePanel() {
         <p role="status" className="text-sm text-muted-foreground">Loading the Kraken USD market snapshot…</p>
       ) : data ? (
         <div className="flex flex-col gap-5">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="flex w-full flex-col gap-1 text-sm text-muted-foreground sm:max-w-lg" htmlFor="market-pulse-search">
+            Search supported USD markets
+            <span className="relative">
+              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input id="market-pulse-search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleLimit(DISPLAY_LIMIT); }} placeholder="Search BTC/USD, SOL/USD…" className="pl-9" />
+            </span>
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Active Kraken USD markets</span><strong className="font-mono text-lg text-foreground">{data.activeMarkets.toLocaleString("en-US")}</strong></div>
-            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Reported 24h USD turnover</span><strong className="font-mono text-lg text-foreground">{usd(reportedTurnover === null ? null : String(reportedTurnover))}</strong><span className="text-sm text-muted-foreground">{turnoverCoverage} / {data.markets.length} markets · missing values excluded</span></div>
-            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Markets above / below UTC open</span><strong className="font-mono text-lg text-foreground">{advances} / {declines}</strong></div>
-            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Snapshot freshness</span><strong className="text-sm text-foreground">{localTime(data.asOf)}</strong><span className="text-sm text-muted-foreground">Kraken {data.timestampSource === "provider" ? "response timestamp" : "receipt time"}</span></div>
+            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Verified 24h USD turnover</span><strong className="font-mono text-lg text-foreground">{usd(reportedTurnover === null ? null : String(reportedTurnover))}</strong><span className="text-sm text-muted-foreground">{turnoverCoverage} / {data.markets.length} markets · missing values excluded</span></div>
+            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/30 p-3"><span className="text-sm text-muted-foreground">Market breadth · UTC open</span><strong className="font-mono text-lg"><span className="text-profit">{advances} up</span><span className="text-muted-foreground"> / </span><span className="text-loss">{declines} down</span></strong><span className="text-sm text-muted-foreground">{advances + declines} measured moves</span></div>
           </div>
 
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <label className="flex w-full flex-col gap-1 text-sm text-muted-foreground sm:max-w-sm" htmlFor="market-pulse-search">
-                Search supported USD markets
-                <span className="relative">
-                  <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="market-pulse-search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleLimit(DISPLAY_LIMIT); }} placeholder="Search BTC/USD, SOL/USD…" className="pl-9" />
-                </span>
-              </label>
               <label className="flex flex-col gap-1 text-sm text-muted-foreground" htmlFor="market-pulse-sort">
-                Sort by
-                <select id="market-pulse-sort" value={sort} onChange={(event) => setSort(event.target.value as MarketPulseSort)} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Rank by
+                <select id="market-pulse-sort" value={sortOverride ?? "category"} onChange={(event) => setSortOverride(event.target.value === "category" ? null : event.target.value as MarketPulseSort)} className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <option value="category">Category default</option>
                   <option value="interest">Highlights heuristic</option>
                   <option value="turnover">24h USD turnover</option>
                   <option value="day-move">Move from UTC open</option>
@@ -261,57 +316,91 @@ export function MarketPulsePanel() {
               </label>
             </div>
 
-            <div className="flex flex-wrap gap-2" role="group" aria-label="Market discovery categories">
-              {MARKET_PULSE_CATEGORIES.map((item) => {
-                const unavailable = Boolean(item.unavailableReason);
-                return (
-                  <Button
-                    key={item.id}
-                    type="button"
-                    size="sm"
-                    variant={category === item.id ? "default" : "outline"}
-                    aria-pressed={category === item.id}
-                    aria-label={unavailable ? `${item.label}, insufficient data` : `${item.label}, ${categoryCounts.get(item.id) ?? 0} markets`}
-                    onClick={() => selectCategory(item.id)}
-                  >
-                    {item.label}
-                    {unavailable ? <Badge variant="muted">Unavailable</Badge> : <span className="font-mono text-sm opacity-80">{categoryCounts.get(item.id) ?? 0}</span>}
-                  </Button>
-                );
-              })}
+            <div className="flex flex-col gap-3">
+              {CATEGORY_GROUPS.map((group) => (
+                <section key={group.label} className="flex flex-col gap-2">
+                  <h3 className="font-mono text-sm font-medium uppercase tracking-wide text-muted-foreground">{group.label}</h3>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label={`${group.label} discovery categories`}>
+                    {group.ids.map((id) => {
+                      const item = MARKET_PULSE_CATEGORIES.find((candidate) => candidate.id === id);
+                      if (!item) return null;
+                      return (
+                        <Button
+                          key={item.id}
+                          type="button"
+                          size="sm"
+                          variant={category === item.id ? "default" : "outline"}
+                          aria-pressed={category === item.id}
+                          aria-label={`${item.label}, ${categoryCounts.get(item.id) ?? 0} markets`}
+                          onClick={() => selectCategory(item.id)}
+                        >
+                          {item.label}
+                          <span className="font-mono text-sm opacity-80">{categoryCounts.get(item.id) ?? 0}</span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+              <details className="rounded-md border border-border bg-muted/20 px-3 py-2" open={ADVANCED_CATEGORY_IDS.includes(category)}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <span>Other indicators / Not yet available ({ADVANCED_CATEGORY_IDS.length})</span>
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                </summary>
+                <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Not yet available indicators">
+                  {ADVANCED_CATEGORY_IDS.map((id) => {
+                    const item = MARKET_PULSE_CATEGORIES.find((candidate) => candidate.id === id);
+                    if (!item) return null;
+                    return (
+                      <Button
+                        key={item.id}
+                        type="button"
+                        size="sm"
+                        variant={category === item.id ? "default" : "outline"}
+                        aria-pressed={category === item.id}
+                        aria-label={`${item.label}, not yet available`}
+                        onClick={() => selectCategory(item.id)}
+                      >
+                        {item.label}
+                        <Badge variant="muted">Unavailable</Badge>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </details>
             </div>
           </div>
 
           <div className="rounded-md border border-border bg-muted/20 p-3 text-sm leading-relaxed text-muted-foreground">
             {search.trim() ? (
-              <p><strong className="font-medium text-foreground">Full-catalog search — </strong>search applies across every supported market in this snapshot, independent of the selected category.</p>
+              <p><strong className="font-medium text-foreground">Full-catalog search — </strong>search spans all supported markets in this snapshot, independent of category.</p>
             ) : selectedCategory.unavailableReason ? (
-              <p><strong className="font-medium text-foreground">Insufficient data — </strong>{selectedCategory.unavailableReason} The current request uses one Kraken AssetPairs catalogue and one public Ticker snapshot; candle-dependent categories stay unavailable rather than being guessed.</p>
+              <p><strong className="font-medium text-foreground">Not yet available — </strong>{selectedCategory.unavailableReason} No substitute data is inferred.</p>
             ) : category === "highlights" ? (
-              <p><strong className="font-medium text-foreground">Highlights heuristic — </strong>deterministic rank combination of 24h USD turnover, absolute move from Kraken&apos;s UTC day open, 24h high-low range and quoted spread. A ranking is not a probability or a profitability claim.</p>
+              <p><strong className="font-medium text-foreground">Highlights — </strong>combines turnover, move from UTC open, 24h range and quoted spread. It is a market-interest ranking, not a trading signal.</p>
             ) : category === "trending" ? (
-              <p><strong className="font-medium text-foreground">Trending — </strong>top-quartile combination of rolling 24h USD turnover rank and 24h high-low range rank. This is snapshot activity, not a historical volume surge or social-media attention.</p>
-            ) : category === "wildcards" || category === "high-risk" || category === "high-potential-movement" ? (
-              <p><strong className="font-medium text-foreground">Research warning — </strong>the 24h high-low range is a movement proxy, not a forecast. Wildcards are below the existing scanner&apos;s USD-turnover floor and are not qualified for a trading setup.</p>
+              <p><strong className="font-medium text-foreground">High Activity — </strong>combines rolling 24h USD turnover rank and 24h range rank; it is not a social trend or historical volume surge.</p>
+            ) : category === "wildcards" || category === "high-risk" ? (
+              <p><strong className="font-medium text-foreground">Movement warning — </strong>24h range is a movement proxy, not a forecast. Wildcards fall below the scanner&apos;s turnover floor and are not qualified setups.</p>
             ) : category === "lower-volatility" ? (
-              <p><strong className="font-medium text-foreground">Relative range only — </strong>these markets have the lowest measured 24h high-low range proxies in this snapshot. This is not a volatility model and does not mean low risk or risk-free.</p>
+              <p><strong className="font-medium text-foreground">Relative range only — </strong>lowest measured ranges in this snapshot do not mean low risk or risk-free.</p>
             ) : category === "strong-liquidity" ? (
-              <p>Requires at least {usd(data.minimumTurnoverUsd)} in verified 24h USD turnover and a quoted spread within {data.maxSpreadPct}%. This market filter alone does not qualify a strategy setup.</p>
+              <p>Requires at least {usd(data.minimumTurnoverUsd)} in verified 24h USD turnover and quoted spread within {data.maxSpreadPct}%. This does not qualify a strategy setup.</p>
             ) : category === "low-spread" ? (
-              <p>Lowest quartile of available current bid-ask spreads in this snapshot. Spread is a quote comparison, not a guarantee of execution price.</p>
+              <p>Lowest quartile of available current bid-ask spreads; a quote comparison is not a guaranteed execution price.</p>
             ) : category === "bearish-watch" ? (
-              <p>Markets below Kraken&apos;s UTC day open, sorted by measured change. This is not an automatic short-selling recommendation.</p>
+              <p>Markets below Kraken&apos;s UTC day open, ranked by measured decline. This is not a short-selling recommendation.</p>
             ) : category === "top-movers" ? (
-              <p>Sorted by the absolute change from Kraken&apos;s UTC day open. Kraken&apos;s ticker open is not labelled as a rolling 24-hour open.</p>
+              <p>Ranked by absolute move from Kraken&apos;s UTC day open, not a rolling 24-hour open.</p>
             ) : category === "popular" ? (
-              <p>Popular means highest verified rolling-24h USD turnover from Kraken volume multiplied by 24h VWAP; it does not mean social popularity.</p>
+              <p>Highest verified rolling-24h USD turnover, calculated from Kraken volume and 24h VWAP; not social popularity.</p>
             ) : (
-              <p>Measured from the current Kraken public market snapshot. Missing values are shown as unavailable, never as zero.</p>
+              <p>Measured from the Kraken public market snapshot; missing values remain unavailable, not zero.</p>
             )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-            <span>{rows.length.toLocaleString("en-US")} markets match · {data.source}</span>
+            <span>{rows.length.toLocaleString("en-US")} markets match</span>
             <span>{compared.length} / {COMPARE_LIMIT} selected to compare</span>
           </div>
 
@@ -321,7 +410,7 @@ export function MarketPulsePanel() {
                 <caption className="sr-only">Kraken USD spot market measurements for {selectedCategory.label}</caption>
                 <thead className="bg-muted/50 text-sm text-muted-foreground">
                   <tr>
-                    <th scope="col" className="px-3 py-2 font-medium">Market</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Market / USD price</th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">24h USD turnover</th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">Move from UTC open</th>
                     <th scope="col" className="px-3 py-2 text-right font-medium">24h range</th>
@@ -339,6 +428,7 @@ export function MarketPulsePanel() {
                       asOf={data.asOf}
                       minimumTurnoverUsd={data.minimumTurnoverUsd}
                       maxSpreadPct={data.maxSpreadPct}
+                      highRange={highRangeSymbols.has(market.symbol)}
                       onExpand={() => setExpanded((current) => current === market.symbol ? null : market.symbol)}
                       onCompare={(checked) => toggleCompare(market.symbol, checked)}
                     />
@@ -376,9 +466,12 @@ export function MarketPulsePanel() {
             </section>
           ) : null}
 
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Source: {data.source}. Snapshot timestamp: {localTime(data.asOf)} ({data.timestampSource === "provider" ? "Kraken HTTP response Date header" : "local receipt time; Kraken supplied no response timestamp"}). Turnover and quote metrics may be unavailable per market. Social/search attention, candle-derived momentum, volume surges and strategy qualification are not inferred by this snapshot.
-          </p>
+          <details className="rounded-md border border-border px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">Data source and measurement notes</summary>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Source: {data.source}. Snapshot timestamp: {localTime(data.asOf)} ({data.timestampSource === "provider" ? "Kraken HTTP response Date header" : "local receipt time; Kraken supplied no response timestamp"}). Missing turnover or quote metrics stay unavailable. Social/search attention, candle-derived momentum, volume surges and strategy qualification are not inferred by this snapshot.
+            </p>
+          </details>
         </div>
       ) : null}
     </SectionCard>

@@ -84,8 +84,8 @@ export function ScannerPanel() {
 
   return (
     <SectionCard
-      title="Opportunity scanner"
-      description="Kraken USD spot discovery plus the existing stock watchlist. The breakout strategy and risk limits are unchanged."
+      title="Strategy Scanner"
+      description="Run or resume the existing bounded scan. No live orders are placed."
       action={(
         <div className="flex flex-wrap gap-2">
           {running ? (
@@ -114,6 +114,7 @@ export function ScannerPanel() {
           {scan ? ` · ${scan.checked} / ${scan.total ?? "discovering"} markets checked` : " · Discovery runs only when requested."}
         </p>
         <Progress value={percent} aria-label="Markets checked" />
+        {problem || error || scan?.lastError ? <p role="alert" className="text-loss">{problem ?? error?.message ?? scan?.lastError}</p> : null}
         {confirmingRestart && scan && !complete ? (
           <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-4">
             <p role="alert" className="text-sm text-foreground">
@@ -125,13 +126,17 @@ export function ScannerPanel() {
             </div>
           </div>
         ) : null}
-        {scan?.replacedRun ? (
-          <p className="text-xs text-muted-foreground">
-            Previous checkpoint {scan.replacedRun.runId.slice(0, 8)} ({scan.replacedRun.status}, {scan.replacedRun.checked}/{scan.replacedRun.total ?? "unknown"} checked) was explicitly replaced. Stored candidate records remain in the desk.
-          </p>
-        ) : null}
         {scan ? (
-          <>
+          <details className="rounded-md border border-border px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">
+              Scanner diagnostics · {scan.skipped.length} rejection reasons
+            </summary>
+            <div className="mt-3 flex flex-col gap-4">
+              {scan.replacedRun ? (
+                <p className="text-xs text-muted-foreground">
+                  Previous checkpoint {scan.replacedRun.runId.slice(0, 8)} ({scan.replacedRun.status}, {scan.replacedRun.checked}/{scan.replacedRun.total ?? "unknown"} checked) was explicitly replaced. Stored candidate records remain in the desk.
+                </p>
+              ) : null}
             <dl className="flex flex-wrap gap-6">
               <div><dt>USD pairs checked</dt><dd className="font-mono text-foreground">{scan.pairsChecked}</dd></div>
               <div><dt>Active USD pairs discovered</dt><dd className="font-mono text-foreground">{scan.activeUsdPairs ?? "Unknown"}</dd></div>
@@ -162,9 +167,9 @@ export function ScannerPanel() {
               </details>
             ) : null}
             <p className="text-xs">Checkpoint: {new Date(scan.updatedAt).toLocaleString("en-US")} · {scan.interval} candles · research only, no automatic trading.</p>
-          </>
+            </div>
+          </details>
         ) : null}
-        {problem || error || scan?.lastError ? <p role="alert" className="text-loss">{problem ?? error?.message ?? scan?.lastError}</p> : null}
       </div>
     </SectionCard>
   );

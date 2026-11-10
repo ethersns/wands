@@ -85,7 +85,7 @@ else.
 | Notifications | `lib/member/notifications.ts` | `/api/member/notifications` | `/app/notifications` | Notifications | `local-verified` |
 | Membership and billing | `lib/billing/` | `/api/billing/*` | `/app/membership` | Membership | `local-verified` |
 | Account | `lib/member/account.ts` | `/api/member/account` | `/app/account` | Account | `local-verified` |
-| Opportunity Desk | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Opportunity Desk (founder only) | `local-verified` |
+| Discover (Opportunity Desk) | `backend/wands/opportunity/` | `/v1/opportunity/*` | `/app/opportunity` | Discover (founder only) | `local-verified` |
 | Money (manual trade journal) | `lib/money/`, `db/migrations/0007_money_journal.sql` | `/v1/opportunity/*`, `/v1/markets/{symbol}/quote`, `/v1/markets/health` | `/app/money` | Money (founder only) | `local-verified` |
 
 ### Money
@@ -264,7 +264,7 @@ each, before and after the batched read:
 `intel_institutional_holdings` had no index on `institution_id`, so each of
 those reads was a sequential scan. Migration `b8d3f5a1c927` adds
 `(institution_id, period_of_report)`. It is additive and reversible, and it has
-**not** been applied to production ��� the rows above are statement counts, not
+**not** been applied to production ����� the rows above are statement counts, not
 wall-clock timings, and the deployed latency is unverified until the migration
 runs and the endpoints are re-timed from the Vercel runtime.
 

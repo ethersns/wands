@@ -32,7 +32,7 @@ export const MARKET_PULSE_CATEGORIES: {
 }[] = [
   { id: "all", label: "All Markets" },
   { id: "highlights", label: "Highlights" },
-  { id: "trending", label: "Trending" },
+  { id: "trending", label: "High Activity" },
   { id: "popular", label: "Popular" },
   { id: "top-movers", label: "Top Movers" },
   {
@@ -55,12 +55,11 @@ export const MARKET_PULSE_CATEGORIES: {
     label: "Reversal Watch",
     unavailableReason: "Reversal patterns need completed candle history; no unconfirmed pattern is inferred from a ticker.",
   },
-  { id: "high-risk", label: "High Risk / High Movement" },
+  { id: "high-risk", label: "High Movement" },
   { id: "wildcards", label: "Wildcards" },
   { id: "lower-volatility", label: "Lower Volatility" },
   { id: "strong-liquidity", label: "Strong Liquidity" },
   { id: "low-spread", label: "Low Spread" },
-  { id: "high-potential-movement", label: "High Potential Movement" },
   {
     id: "short-term",
     label: "Short-Term",
@@ -203,7 +202,7 @@ export function getMarketsForCategory(
       return interestOrder(known).slice(0, Math.max(1, Math.ceil(known.length / 4)));
     case "trending": {
       const activity = activityOrder(known);
-      return activity.slice(0, Math.max(1, Math.ceil(activity.length / 4)));
+      return activity.slice(0, Math.ceil(activity.length / 4));
     }
     case "popular":
       return quartile(known, turnover, "desc");

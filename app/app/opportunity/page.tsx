@@ -80,39 +80,43 @@ export default async function OpportunityDeskPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         eyebrow="Private research"
-        title="Opportunity Desk"
-        description="Short-term setups the rule found, with the conditions written down before the outcome is known. Nothing here places an order."
+        title="Discover"
+        description="Explore measured markets, investigate the evidence, and review strategy tests. Nothing here places an order."
       />
 
-      <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 p-4">
-        <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+        <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
         <p className="text-sm text-muted-foreground">
-          {budget?.disclosure ??
-            "Research only. A candidate is a hypothesis to look at, not a trade instruction, and no result here is a probability of profit."}
+          Rankings show market activity, not trading signals or profit odds. Market data is research only.
         </p>
       </div>
 
       {budget ? (
-        <SectionCard title="Research budget" description={budget.note}>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Virtual capital" value={`$${money(budget.startingCapital)}`} />
-            <Stat
-              label="Risk per test"
-              value={`$${money(budget.effectiveRiskCeiling)}`}
-              note={`Stricter of the $${money(budget.plannedRiskBudget)} research budget and ${percent(budget.perTradeRiskPct)} per trade`}
-            />
-            <Stat
-              label="Exposure ceiling"
-              value={`$${money(budget.exposureCeiling)}`}
-              note={`${percent(budget.maxExposurePct)} of virtual capital`}
-            />
-            <Stat
-              label="Maximum hold"
-              value={`${budget.maxHoldingHours}h`}
-              note="Capped at the session close for stocks"
-            />
+        <details className="rounded-lg border border-border px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-foreground">Research Settings · budget and limits</summary>
+          <div className="mt-3">
+            <SectionCard title="Research budget" description={`${budget.note} ${budget.disclosure}`}>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Virtual capital" value={`$${money(budget.startingCapital)}`} />
+                <Stat
+                  label="Risk per test"
+                  value={`$${money(budget.effectiveRiskCeiling)}`}
+                  note={`Stricter of the $${money(budget.plannedRiskBudget)} research budget and ${percent(budget.perTradeRiskPct)} per trade`}
+                />
+                <Stat
+                  label="Exposure ceiling"
+                  value={`$${money(budget.exposureCeiling)}`}
+                  note={`${percent(budget.maxExposurePct)} of virtual capital`}
+                />
+                <Stat
+                  label="Maximum hold"
+                  value={`${budget.maxHoldingHours}h`}
+                  note="Capped at the session close for stocks"
+                />
+              </div>
+            </SectionCard>
           </div>
-        </SectionCard>
+        </details>
       ) : null}
 
       <OpportunityDesk
