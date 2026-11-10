@@ -285,11 +285,24 @@ def list_candidates(
     session: Session = Depends(get_session),
     principal: Principal = _admin,
 ) -> dict[str, Any]:
-    rows = session.scalars(
-        select(OppCandidateRow).order_by(OppCandidateRow.created_at.desc()).limit(limit)
+    latest_decision = (
+        select(OppDecisionRow.decision)
+        .where(OppDecisionRow.candidate_id == OppCandidateRow.id)
+        .order_by(OppDecisionRow.decided_at.desc(), OppDecisionRow.id.desc())
+        .limit(1)
+        .correlate(OppCandidateRow)
+        .scalar_subquery()
+    )
+    rows = session.execute(
+        select(OppCandidateRow, latest_decision)
+        .order_by(OppCandidateRow.created_at.desc())
+        .limit(limit)
     ).all()
     return envelope(
-        {"candidates": [_candidate_payload(row) for row in rows]},
+        {"candidates": [
+            {**_candidate_payload(row), "latestDecision": decision}
+            for row, decision in rows
+        ]},
         warnings=[DISCLOSURE],
     )
 

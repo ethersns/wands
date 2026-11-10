@@ -63,6 +63,36 @@ def _candidate(
     return row
 
 
+def test_candidate_dismissal_survives_journal_pagination(client, session) -> None:
+    from datetime import timedelta
+
+    from wands.db.models import OppDecisionRow
+
+    dismissed = _candidate(session)
+    other = _candidate(session, symbol="ETH/USD")
+    headers = _admin()
+    initial = client.get("/v1/opportunity/candidates", headers=headers).json()["data"]["candidates"]
+    assert all(row["latestDecision"] is None for row in initial)
+    response = client.post(
+        f"/v1/opportunity/candidates/{dismissed.id}/decision",
+        headers=headers,
+        json={"decision": "candidate_rejected", "note": "Dismissed from Paper Radar."},
+    )
+    assert response.status_code == 200
+    later = datetime.now(UTC) + timedelta(seconds=1)
+    session.add_all([
+        OppDecisionRow(candidate_id=other.id, decision="candidate_watched", decided_at=later)
+        for _ in range(201)
+    ])
+    session.commit()
+    journal = client.get("/v1/opportunity/decisions", headers=headers).json()["data"]["decisions"]
+    assert not any(row["candidateId"] == str(dismissed.id) for row in journal)
+    candidates = client.get("/v1/opportunity/candidates", headers=headers).json()["data"]["candidates"]
+    states = {row["id"]: row["latestDecision"] for row in candidates}
+    assert states[str(dismissed.id)] == "candidate_rejected"
+    assert states[str(other.id)] == "candidate_watched"
+
+
 # --- authorization --------------------------------------------------------
 
 

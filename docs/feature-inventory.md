@@ -15,6 +15,19 @@ capability. A row that says `missing-frontend` is a defect, not a note.
 
 ---
 
+## Personal Paper Radar — 2026-11-10
+
+- **Availability:** `local-verified` (automated tests only). Authenticated browser and deployed real-data end-to-end behavior: **UNVERIFIED**. This is not a production-shipped claim.
+- **Backend:** existing `backend/wands/opportunity/{scanner,candidates,strategy}.py` and `backend/wands/marketdata/{kraken,service}.py`; `backend/wands/api/routes/opportunity.py` now includes each candidate's latest persisted decision through a correlated query, independent of the bounded journal history.
+- **API/data contract:** existing `GET /v1/opportunity/candidates` adds nullable `latestDecision`; existing `POST /v1/opportunity/candidates/{id}/decision` records `candidate_rejected` with a dismissal note. `lib/api/opportunity.ts` carries the field. No new endpoint, table, migration or integration.
+- **Frontend/navigation:** `components/opportunity/paper-radar.tsx`, mounted by `opportunity-desk.tsx` at `/app/opportunity`, reachable through the existing founder-only **Discover** entry in `components/member/member-shell.tsx`. Existing page and server-action founder guards are unchanged.
+- **Public representation:** none; this remains a private founder tool, not a generally available member feature or marketing claim.
+- **Behavior:** ranks the latest loaded candidate window (default 50) by volume ratio, then breakout margin. Shows the existing strategy's long direction, entry idea, precise stop, reason, recorded time and trigger candle timestamp. Details disclose sizing limits and cost assumptions. Freshness is explicitly historical, not a live-data claim. Dismissals remove only the acknowledged setup; future signals for its pair are unaffected. Original candidates and append-only journal remain available below.
+- **Execution/risk:** no order submission, new signal formula, changed scan threshold or risk-policy change. Existing paper adapter/gateway remain untouched. The separate manual paper tests remain quoted-price-path research, not simulated fills or realized performance.
+- **Coverage:** `tests/opportunity/paper-radar.test.tsx` covers ranking, disclosure, timestamps, exact stop precision, pending/success/refused/transport dismissal states, persisted dismissals, old-engine fail-closed behavior and unavailable data. `backend/tests/test_opportunity_api.py::test_candidate_dismissal_survives_journal_pagination` exercises real API/database persistence with 201 later journal records. Fixtures are confined to automated tests, not production data.
+- **Checks:** `pnpm exec vitest run tests/opportunity` — 53 passed; `cd backend && .venv/bin/python -m pytest tests/test_opportunity_api.py tests/test_opportunity.py tests/test_opportunity_scanner.py -q` — 72 passed; focused Ruff check passed; `pnpm typecheck` passed; `pnpm lint` passed with the pre-existing unused `_init` warning in `tests/member/watchlist-market.test.tsx`. Pytest emits an existing Starlette/httpx deprecation warning. The first test invocation referenced a nonexistent candidates test filename; it was corrected to the actual `test_opportunity.py` suite before the passing run.
+- **Remaining blockers/configuration:** authenticated founder browser access and deployed engine verification are still required. Browser opened `/app/opportunity` at 393×852 dark and was correctly redirected to sign-in; no authenticated layout or dismissal flow was exercised. Deploy backend and frontend together through the owner's normal approval process: an older engine without `latestDecision` is rejected by the radar rather than silently resurrecting dismissed setups. No new environment variables or exchange credentials; existing founder authorization and server-side engine URL/token configuration are reused. No production database or deployment was modified.
+
 ## 1. Availability states
 
 | State | Meaning |
